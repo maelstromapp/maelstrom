@@ -1,0 +1,19 @@
+image: golang:1.11-stretch
+
+variables:
+  REPO_NAME: gitlab.com/coopernurse/maelstrom
+
+stages:
+    - test
+    - build
+
+test:
+    stage: test
+    script:
+      - make test
+
+build:
+    stage: build
+    script:
+      - make maelctl
+      - make maelstromd
