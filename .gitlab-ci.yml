@@ -5,15 +5,11 @@ variables:
 
 stages:
     - test
-    - build
 
 test:
     stage: test
     script:
       - make test
-
-build:
-    stage: build
-    script:
       - make maelctl
       - make maelstromd
+      
