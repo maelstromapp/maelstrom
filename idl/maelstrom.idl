@@ -1,0 +1,44 @@
+
+// maelstrom.idl: Interface definition for
+// https://maelstromapp.com/
+
+// Generic error codes:
+//
+// * 1001 - Invalid value (one or more fields has an invalid value)
+// * 1002 - Already exists (uniqueness constraint violated)
+// * 1003 - Not found (entity with provided ID was not found)
+// * 1004 - Concurrent write violation (previous version of entity is not current)
+//
+
+interface MaelstromService {
+
+  // PutComponent registers a component definition
+  //
+  // Error Codes:
+  //
+  // * 1001 - input.Name is invalid
+  //
+  PutComponent(input PutComponentInput) PutComponentOutput
+  
+}
+
+struct PutComponentInput {
+  // Name of the component (a-zA-Z0-9_-)+
+  // This value uniquely identifies the component in the system.
+  Name string
+
+  // Old version of the component
+  // If the current version in the db does not match, a 1004 error is raised.
+  // When creating a new component, set this to zero.
+  PreviousVersion int
+}
+
+struct PutComponentOutput {
+  // Name of the component stored
+  Name string
+
+  // New (current) version of the component
+  // For a newly created component, this value will be 1.
+  // The value will increment by one with each successful PutComponent() call.
+  Version int
+}

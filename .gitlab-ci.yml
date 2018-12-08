@@ -3,12 +3,25 @@ image: golang:1.11-stretch
 variables:
   REPO_NAME: gitlab.com/coopernurse/maelstrom
 
+before_script:
+  - export CI_CACHEDIR=`pwd`/.cache
+  - export GOPATH="$CI_CACHEDIR"
+  - export PATH="$PATH:$CI_CACHEDIR/bin"
+  - export PYTHONPATH="$CI_CACHEDIR/lib/python2.7/site-packages"
+  - mkdir -p "$CI_CACHEDIR"
+  - ./scripts/install_deps.sh
+
+cache:
+  paths:
+    - .cache
+
 stages:
     - test
 
 test:
     stage: test
     script:
+      - make idl
       - make test
       - make maelctl
       - make maelstromd
