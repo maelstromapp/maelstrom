@@ -30,3 +30,14 @@ if [ -z "$cmd" ]; then
 else
     echo "Found idl2go: $cmd"
 fi
+
+# install errcheck
+cmd=$(command -v errcheck)
+if [ -z "$cmd" ]; then
+    echo "Installing errcheck"
+    set -e
+    go get github.com/kisielk/errcheck
+    set +e
+else
+    echo "Found errcheck: $cmd"
+fi

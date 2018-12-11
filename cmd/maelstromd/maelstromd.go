@@ -20,13 +20,13 @@ func main() {
 	log.Printf("maelstromd starting")
 
 	servers := []*http.Server{
-		&http.Server{
+		{
 			Addr:         fmt.Sprintf(":%d", *revProxyPort),
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
 			Handler:      &ReverseProxyHandler{},
 		},
-		&http.Server{
+		{
 			Addr:         fmt.Sprintf(":%d", *mgmtPort),
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
@@ -36,7 +36,12 @@ func main() {
 
 	for _, s := range servers {
 		log.Printf("Starting HTTP server on port: %s", s.Addr)
-		go s.ListenAndServe()
+		go func() {
+			err := s.ListenAndServe()
+			if err != nil {
+				log.Printf("ERROR starting HTTP server: %s err: %v", s.Addr, err)
+			}
+		}()
 	}
 
 	shutdownDone := make(chan struct{})
