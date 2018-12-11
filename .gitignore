@@ -1,2 +1,3 @@
 dist
-pkg/maelstrom/v1
+pkg/v1/v1.go
+*.iml
