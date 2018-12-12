@@ -4,6 +4,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/coopernurse/barrister-go"
+	"gitlab.com/coopernurse/maelstrom/pkg/db"
+	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"log"
 	"net/http"
 	"os"
@@ -12,12 +15,27 @@ import (
 	"time"
 )
 
+func mustStart(s *http.Server) {
+	log.Printf("Starting HTTP server on port: %s", s.Addr)
+	err := s.ListenAndServe()
+	if err != nil {
+		log.Printf("ERROR starting HTTP server: %s err: %v", s.Addr, err)
+		os.Exit(2)
+	}
+}
+
 func main() {
 	var revProxyPort = flag.Int("revProxyPort", 80, "Port used for reverse proxying")
 	var mgmtPort = flag.Int("mgmtPort", 8374, "Port used for management operations")
 	flag.Parse()
 
 	log.Printf("maelstromd starting")
+
+	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
+	v1Impl := v1.NewV1(db.NewMemDb())
+	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl)
+	mgmtMux := http.NewServeMux()
+	mgmtMux.Handle("/v1", &v1Server)
 
 	servers := []*http.Server{
 		{
@@ -30,18 +48,12 @@ func main() {
 			Addr:         fmt.Sprintf(":%d", *mgmtPort),
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
-			Handler:      &ManagementHandler{},
+			Handler:      mgmtMux,
 		},
 	}
 
 	for _, s := range servers {
-		log.Printf("Starting HTTP server on port: %s", s.Addr)
-		go func() {
-			err := s.ListenAndServe()
-			if err != nil {
-				log.Printf("ERROR starting HTTP server: %s err: %v", s.Addr, err)
-			}
-		}()
+		go mustStart(s)
 	}
 
 	shutdownDone := make(chan struct{})
@@ -49,7 +61,7 @@ func main() {
 	<-shutdownDone
 }
 
-func HandleShutdownSignal(svrs []*http.Server, shutdownDone chan (struct{})) {
+func HandleShutdownSignal(svrs []*http.Server, shutdownDone chan struct{}) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
@@ -71,11 +83,4 @@ type ReverseProxyHandler struct {
 
 func (r *ReverseProxyHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(rw, "Hello reverse proxy server")
-}
-
-type ManagementHandler struct {
-}
-
-func (r *ManagementHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	fmt.Fprintf(rw, "Hello mgmt server")
 }

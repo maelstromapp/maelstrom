@@ -16,29 +16,53 @@ interface MaelstromService {
   //
   // Error Codes:
   //
-  // * 1001 - input.Name is invalid
+  // * 1001 - input.name is invalid
   //
   PutComponent(input PutComponentInput) PutComponentOutput
-  
+
+  // GetComponent returns a component with the given name
+  //
+  // Error Codes:
+  //
+  // * 1003 - No component found with that name
+  //
+  GetComponent(input GetComponentInput) GetComponentOutput
+}
+
+struct DockerComponent {
+  image      string
+  httpPort   int
+}
+
+struct GetComponentInput {
+    name       string
+}
+
+struct GetComponentOutput {
+    name       string
+    version    int
+    docker     DockerComponent
 }
 
 struct PutComponentInput {
   // Name of the component (a-zA-Z0-9_-)+
   // This value uniquely identifies the component in the system.
-  Name string
+  name string
 
   // Old version of the component
   // If the current version in the db does not match, a 1004 error is raised.
   // When creating a new component, set this to zero.
-  PreviousVersion int
+  previousVersion int
+
+  docker DockerComponent
 }
 
 struct PutComponentOutput {
   // Name of the component stored
-  Name string
+  name string
 
   // New (current) version of the component
   // For a newly created component, this value will be 1.
   // The value will increment by one with each successful PutComponent() call.
-  Version int
+  version int
 }

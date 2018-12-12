@@ -5,8 +5,8 @@ GO111MODULE = on
 
 test:
 	scripts/gofmt_check.sh
-	errcheck -ignore 'fmt:[FS]?[Pp]rint*' ./...
 	go test -v ./...
+	errcheck -ignore 'fmt:[FS]?[Pp]rint*' ./...
 
 watch-test:
 	find . -name *.go | entr -c make test
