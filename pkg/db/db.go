@@ -15,6 +15,13 @@ var IncorrectPreviousVersion = fmt.Errorf("Incorrect PreviousVersion")
 type Db interface {
 	Put(input PutInput) (PutOutput, error)
 	Get(input GetInput) (GetOutput, error)
+	List(input ListInput) (ListOutput, error)
+}
+
+type EntityVal struct {
+	Key     string
+	Version int64
+	Value   []byte
 }
 
 type PutInput struct {
@@ -36,8 +43,18 @@ type GetInput struct {
 }
 
 type GetOutput struct {
-	Type    EntityType
-	Key     string
-	Version int64
-	Value   []byte
+	Type  EntityType
+	Value EntityVal
+}
+
+type ListInput struct {
+	Type       EntityType
+	NamePrefix string
+	Limit      int64
+	NextToken  string
+}
+
+type ListOutput struct {
+	Values    []EntityVal
+	NextToken string
 }

@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var _ MaelstromService = (*V1)(nil)
@@ -18,6 +19,10 @@ const (
 	MiscError ErrorCode = -32000
 	DbError             = -32001
 )
+
+func nowMillis() int64 {
+	return time.Now().UnixNano() / 1e6
+}
 
 func NewV1(db db.Db) *V1 {
 	log, err := zap.NewDevelopment()
@@ -54,7 +59,9 @@ func (v *V1) PutComponent(input PutComponentInput) (PutComponentOutput, error) {
 	}
 
 	// Convert to Component JSON
-	val, err := json.Marshal(PutInputToComponent(input))
+	c := PutInputToComponent(input)
+	c.ModifiedAt = nowMillis()
+	val, err := json.Marshal(c)
 	if err != nil {
 		return PutComponentOutput{}, v.onError(MiscError, "Error serializing Component as JSON", err)
 	}
@@ -98,14 +105,37 @@ func (v *V1) GetComponent(input GetComponentInput) (GetComponentOutput, error) {
 	}
 
 	var c Component
-	err = json.Unmarshal(dbOut.Value, &c)
+	err = json.Unmarshal(dbOut.Value.Value, &c)
 	if err != nil {
-		return GetComponentOutput{}, v.onError(MiscError, "Error deserializing Component JSON", err)
+		return GetComponentOutput{}, v.onError(MiscError, "GetComponent: json.Unmarshal error", err)
+	}
+	c.Version = dbOut.Value.Version
+
+	return GetComponentOutput{Component: c}, nil
+}
+
+func (v *V1) ListComponents(input ListComponentsInput) (ListComponentsOutput, error) {
+	dbOut, err := v.db.List(db.ListInput{
+		Type:       db.Component,
+		Limit:      input.Limit,
+		NamePrefix: input.NamePrefix,
+		NextToken:  input.NextToken,
+	})
+
+	if err != nil {
+		return ListComponentsOutput{}, v.onError(DbError, "Error in db.List", err)
 	}
 
-	return GetComponentOutput{
-		Name:    c.Name,
-		Version: dbOut.Version,
-		Docker:  c.DockerComponent,
-	}, nil
+	components := make([]Component, 0)
+	for _, val := range dbOut.Values {
+		var c Component
+		err = json.Unmarshal(val.Value, &c)
+		if err != nil {
+			return ListComponentsOutput{}, v.onError(MiscError, "ListComponent: json.Unmarshal error", err)
+		}
+		c.Version = val.Version
+		components = append(components, c)
+	}
+
+	return ListComponentsOutput{Components: components, NextToken: dbOut.NextToken}, nil
 }

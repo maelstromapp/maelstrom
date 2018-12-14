@@ -27,6 +27,23 @@ interface MaelstromService {
   // * 1003 - No component found with that name
   //
   GetComponent(input GetComponentInput) GetComponentOutput
+
+  // ListComponents returns a paginated list of components registered in the system
+  // optionally filtered by name prefix.
+  //
+  // If no components exist in the system, ListComponentsOutput.components
+  // will be an empty list.
+  //
+  // Results are sorted by name (ascending)
+  //
+  ListComponents(input ListComponentsInput) ListComponentsOutput
+}
+
+struct Component {
+  name         string
+  version      int
+  modifiedAt   int
+  docker       DockerComponent  [optional]
 }
 
 struct DockerComponent {
@@ -34,18 +51,40 @@ struct DockerComponent {
   httpPort   int
 }
 
+struct ListComponentsInput {
+  // If specified only components matching this name prefix will be returned.
+  namePrefix  string  [optional]
+
+  // Max components to return per response (1..1000)
+  // default=1000
+  limit       int     [optional]
+
+  // If set the next set of paginated results will be returned
+  nextToken   string  [optional]
+}
+
+struct ListComponentsOutput {
+  // Components in current page of output or an empty list if
+  // no additional results exist
+  components    []Component
+
+  // If set there are additional results.
+  // Client may make another ListComponents() request setting this
+  // as ListComponentsInput.nextToken
+  nextToken   string  [optional]
+}
+
 struct GetComponentInput {
-    name       string
+  name       string
 }
 
 struct GetComponentOutput {
-    name       string
-    version    int
-    docker     DockerComponent
+  component     Component
 }
 
 struct PutComponentInput {
   // Name of the component (a-zA-Z0-9_-)+
+  // Name max size is 60 characters
   // This value uniquely identifies the component in the system.
   name string
 

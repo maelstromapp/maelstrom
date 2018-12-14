@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"github.com/coopernurse/barrister-go"
 	"github.com/docopt/docopt-go"
+	"github.com/dustin/go-humanize"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"io/ioutil"
 	"os"
+	"strings"
+	"time"
 )
 
 ////////////////////////////////////
@@ -38,8 +41,8 @@ func componentPut(args docopt.Opts, svc v1.MaelstromService) {
 	getInput := v1.GetComponentInput{Name: input.Name}
 	getOut, err := svc.GetComponent(getInput)
 	if err == nil {
-		fmt.Printf("Updating component: %s with current version: %d\n", input.Name, getOut.Version)
-		input.PreviousVersion = getOut.Version
+		fmt.Printf("Updating component: %s with current version: %d\n", input.Name, getOut.Component.Version)
+		input.PreviousVersion = getOut.Component.Version
 	} else {
 		rpcErr, ok := err.(*barrister.JsonRpcError)
 		if ok && rpcErr.Code == 1003 {
@@ -56,8 +59,34 @@ func componentPut(args docopt.Opts, svc v1.MaelstromService) {
 	fmt.Printf("Success  component: %s updated to version: %d\n", out.Name, out.Version)
 }
 
-func componentLs(args docopt.Opts) {
-	fmt.Println("componentLs here", args)
+func componentLs(args docopt.Opts, svc v1.MaelstromService) {
+	input := v1.ListComponentsInput{
+		NamePrefix: strings.TrimSpace(argStr(args, "--prefix")),
+	}
+
+	first := true
+	var nextToken string
+	for {
+		input.NextToken = nextToken
+		output, err := svc.ListComponents(input)
+		checkErr(err, "ListComponents failed")
+		for _, c := range output.Components {
+			if first {
+				first = false
+				fmt.Printf("%-20s  %-30s  %-5s  %-10s\n", "Component Name", "Image", "Ver", "Last Modified")
+				fmt.Printf("--------------------------------------------------------------------------\n")
+			}
+			mod := humanize.Time(time.Unix(0, c.ModifiedAt*1e6))
+			fmt.Printf("%-20s  %-30s  %-5d  %-13s\n", trunc(c.Name, 20), trunc(c.Docker.Image, 20), c.Version, mod)
+		}
+		nextToken = output.NextToken
+		if output.NextToken == "" {
+			break
+		}
+	}
+	if first {
+		fmt.Println("No components found")
+	}
 }
 
 func componentRm(args docopt.Opts) {
@@ -65,6 +94,13 @@ func componentRm(args docopt.Opts) {
 }
 
 ////////////////////////////////////
+
+func trunc(s string, max int) string {
+	if len(s) > max {
+		return s[0:max]
+	}
+	return s
+}
 
 func argBool(args docopt.Opts, key string) bool {
 	b, _ := args.Bool(key)
@@ -112,7 +148,7 @@ Usage:
 	if argBool(args, "comp") && argBool(args, "put") {
 		componentPut(args, svc)
 	} else if argBool(args, "comp") && argBool(args, "ls") {
-		componentLs(args)
+		componentLs(args, svc)
 	} else if argBool(args, "comp") && argBool(args, "rm") {
 		componentRm(args)
 	} else {
