@@ -13,9 +13,11 @@ var AlreadyExists = fmt.Errorf("Entity already exists")
 var IncorrectPreviousVersion = fmt.Errorf("Incorrect PreviousVersion")
 
 type Db interface {
+	Migrate() error
 	Put(input PutInput) (PutOutput, error)
 	Get(input GetInput) (GetOutput, error)
 	List(input ListInput) (ListOutput, error)
+	Remove(input RemoveInput) (RemoveOutput, error)
 }
 
 type EntityVal struct {
@@ -57,4 +59,13 @@ type ListInput struct {
 type ListOutput struct {
 	Values    []EntityVal
 	NextToken string
+}
+
+type RemoveInput struct {
+	Type EntityType
+	Key  string
+}
+
+type RemoveOutput struct {
+	Found bool
 }

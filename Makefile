@@ -1,4 +1,4 @@
-.PHONY: test watch-test maelctl maelstromd idl
+.PHONY: test watch-test maelctl maelstromd idl run-maelstromd
 .EXPORT_ALL_VARIABLES:
 
 GO111MODULE = on
@@ -20,3 +20,8 @@ maelstromd:
 idl:
 	barrister idl/maelstrom.idl | idl2go -i -p v1 -d pkg
 	gofmt -w pkg/v1/*.go
+
+run-maelstromd:
+	mkdir -p tmp
+	./dist/maelstromd -revProxyPort 8008 -sqlDriver sqlite3 \
+	    -sqlDSN 'file:./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY' &

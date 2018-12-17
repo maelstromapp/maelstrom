@@ -20,6 +20,21 @@ const (
 	DbError             = -32001
 )
 
+func componentNameValid(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	invalidNameMsg := ""
+	if name == "" {
+		invalidNameMsg = "component.name is required"
+	} else if !componentNameRE.MatchString(name) {
+		invalidNameMsg = "component.name is invalid (only alpha-numeric chars, _ - are valid)"
+	}
+
+	if invalidNameMsg != "" {
+		return "", &barrister.JsonRpcError{Code: 1001, Message: invalidNameMsg}
+	}
+	return name, nil
+}
+
 func NewV1(db db.Db) *V1 {
 	log, err := zap.NewDevelopment()
 	if err != nil {
@@ -43,15 +58,9 @@ func (v *V1) onError(code ErrorCode, msg string, err error) error {
 
 func (v *V1) PutComponent(input PutComponentInput) (PutComponentOutput, error) {
 	// * 1001 - input.name is invalid
-	name := strings.TrimSpace(input.Name)
-	invalidNameMsg := ""
-	if name == "" {
-		invalidNameMsg = "PutComponentInput.name is required"
-	} else if !componentNameRE.MatchString(name) {
-		invalidNameMsg = "PutComponentInput.name is invalid (only alpha-numeric chars, _ - are valid)"
-	}
-	if invalidNameMsg != "" {
-		return PutComponentOutput{}, &barrister.JsonRpcError{Code: 1001, Message: invalidNameMsg}
+	name, err := componentNameValid(input.Name)
+	if err != nil {
+		return PutComponentOutput{}, err
 	}
 
 	// Convert to Component JSON
@@ -134,4 +143,18 @@ func (v *V1) ListComponents(input ListComponentsInput) (ListComponentsOutput, er
 	}
 
 	return ListComponentsOutput{Components: components, NextToken: dbOut.NextToken}, nil
+}
+
+func (v *V1) RemoveComponent(input RemoveComponentInput) (RemoveComponentOutput, error) {
+	// * 1001 - input.name is invalid
+	name, err := componentNameValid(input.Name)
+	if err != nil {
+		return RemoveComponentOutput{}, err
+	}
+
+	output, err := v.db.Remove(db.RemoveInput{Type: db.Component, Key: name})
+	return RemoveComponentOutput{
+		Name:  name,
+		Found: output.Found,
+	}, err
 }

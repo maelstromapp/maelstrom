@@ -13,6 +13,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func mustStart(s *http.Server) {
@@ -28,6 +30,11 @@ func initDb(sqlDriver, sqlDSN string) db.Db {
 	sqlDb, err := db.NewSqlDb(sqlDriver, sqlDSN)
 	if err != nil {
 		log.Printf("ERROR creating SqlDb using driver: %s err: %v", sqlDriver, err)
+		os.Exit(2)
+	}
+	err = sqlDb.Migrate()
+	if err != nil {
+		log.Printf("ERROR running migrate using driver: %s err: %v", sqlDriver, err)
 		os.Exit(2)
 	}
 	return sqlDb

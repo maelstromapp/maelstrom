@@ -89,8 +89,15 @@ func componentLs(args docopt.Opts, svc v1.MaelstromService) {
 	}
 }
 
-func componentRm(args docopt.Opts) {
-	fmt.Println("componentRm here", args)
+func componentRm(args docopt.Opts, svc v1.MaelstromService) {
+	out, err := svc.RemoveComponent(v1.RemoveComponentInput{Name: argStr(args, "<name>")})
+	checkErr(err, "RemoveComponent failed")
+	if out.Found {
+		fmt.Printf("Component removed: %s\n", out.Name)
+	} else {
+		fmt.Printf("Component not found: %s\n", out.Name)
+	}
+
 }
 
 ////////////////////////////////////
@@ -150,7 +157,7 @@ Usage:
 	} else if argBool(args, "comp") && argBool(args, "ls") {
 		componentLs(args, svc)
 	} else if argBool(args, "comp") && argBool(args, "rm") {
-		componentRm(args)
+		componentRm(args, svc)
 	} else {
 		fmt.Printf("ERROR: unsupported command. args=%v\n", args)
 		os.Exit(2)

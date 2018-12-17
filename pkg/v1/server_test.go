@@ -96,6 +96,26 @@ func TestComponent(t *testing.T) {
 				g.Assert(getOut).Eql(expected)
 			}
 		})
+		g.It("Remove deletes a component", func() {
+			input := PutComponentInput{Name: "deleteme",
+				Docker: DockerComponent{Image: "coopernurse/foo", HttpPort: 8080}}
+			_, err := svc.PutComponent(input)
+			g.Assert(err == nil).IsTrue()
+			_, err = svc.GetComponent(GetComponentInput{Name: "deleteme"})
+			g.Assert(err == nil).IsTrue()
+			out, err := svc.RemoveComponent(RemoveComponentInput{Name: "deleteme"})
+			g.Assert(err == nil).IsTrue()
+			g.Assert(out).Eql(RemoveComponentOutput{Name: "deleteme", Found: true})
+
+			_, err = svc.GetComponent(GetComponentInput{Name: "deleteme"})
+			g.Assert(err != nil).IsTrue()
+			rpcErr, _ := err.(*barrister.JsonRpcError)
+			g.Assert(rpcErr.Code).Eql(1003)
+
+			out, err = svc.RemoveComponent(RemoveComponentInput{Name: "deleteme"})
+			g.Assert(err == nil).IsTrue()
+			g.Assert(out).Eql(RemoveComponentOutput{Name: "deleteme", Found: false})
+		})
 	})
 	g.Describe("PutComponent Validation", func() {
 		g.It("Raises 1001 if name is invalid", func() {

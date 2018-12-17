@@ -27,6 +27,17 @@ interface MaelstromService {
     //
     GetComponent(input GetComponentInput) GetComponentOutput
 
+    // RemoveComponent deletes a component with the given name
+    //
+    // If no component is found with that name no error is raised
+    // and the call silently no-ops.
+    //
+    // Error Codes:
+    //
+    // * 1001 - input.name is invalid
+    //
+    RemoveComponent(input RemoveComponentInput) RemoveComponentOutput
+
     // ListComponents returns a paginated list of components registered in the system
     // optionally filtered by name prefix.
     //
@@ -48,6 +59,18 @@ struct Component {
 struct DockerComponent {
     image      string
     httpPort   int
+}
+
+struct RemoveComponentInput {
+    // name of component to remove
+    name    string
+}
+
+struct RemoveComponentOutput {
+    name    string
+
+    // if component was found in the system this is true, otherwise false
+    found   bool
 }
 
 struct ListComponentsInput {

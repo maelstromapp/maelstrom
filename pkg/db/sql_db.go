@@ -145,6 +145,24 @@ func (d *SqlDb) List(input ListInput) (out ListOutput, err error) {
 	return
 }
 
+func (d *SqlDb) Remove(input RemoveInput) (out RemoveOutput, err error) {
+	var result sql.Result
+	var rows int64
+	table := "component"
+	result, err = squirrel.Delete(table).Where(squirrel.Eq{"name": input.Key}).RunWith(d.db).Exec()
+	if err != nil {
+		err = fmt.Errorf("delete %s failed: %s err: %v", table, input.Key, err)
+		return
+	}
+	rows, err = result.RowsAffected()
+	if err != nil {
+		err = fmt.Errorf("delete %s rowsaffected failed: %s err: %v", table, input.Key, err)
+		return
+	}
+	out.Found = rows > 0
+	return
+}
+
 func (d *SqlDb) Migrate() error {
 	migrations := []darwin.Migration{
 		{
