@@ -24,15 +24,26 @@ func mustStart(s *http.Server) {
 	}
 }
 
+func initDb(sqlDriver, sqlDSN string) db.Db {
+	sqlDb, err := db.NewSqlDb(sqlDriver, sqlDSN)
+	if err != nil {
+		log.Printf("ERROR creating SqlDb using driver: %s err: %v", sqlDriver, err)
+		os.Exit(2)
+	}
+	return sqlDb
+}
+
 func main() {
 	var revProxyPort = flag.Int("revProxyPort", 80, "Port used for reverse proxying")
 	var mgmtPort = flag.Int("mgmtPort", 8374, "Port used for management operations")
+	var sqlDriver = flag.String("sqlDriver", "", "database/sql driver to use. If so, -sqlDSN is required")
+	var sqlDSN = flag.String("sqlDSN", "", "DSN for sql database")
 	flag.Parse()
 
 	log.Printf("maelstromd starting")
 
 	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
-	v1Impl := v1.NewV1(db.NewMemDb())
+	v1Impl := v1.NewV1(initDb(*sqlDriver, *sqlDSN))
 	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl)
 	mgmtMux := http.NewServeMux()
 	mgmtMux.Handle("/v1", &v1Server)

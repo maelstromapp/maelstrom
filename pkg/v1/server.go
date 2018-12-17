@@ -3,11 +3,11 @@ package v1
 import (
 	"encoding/json"
 	"github.com/coopernurse/barrister-go"
+	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"gitlab.com/coopernurse/maelstrom/pkg/db"
 	"go.uber.org/zap"
 	"regexp"
 	"strings"
-	"time"
 )
 
 var _ MaelstromService = (*V1)(nil)
@@ -19,10 +19,6 @@ const (
 	MiscError ErrorCode = -32000
 	DbError             = -32001
 )
-
-func nowMillis() int64 {
-	return time.Now().UnixNano() / 1e6
-}
 
 func NewV1(db db.Db) *V1 {
 	log, err := zap.NewDevelopment()
@@ -60,7 +56,7 @@ func (v *V1) PutComponent(input PutComponentInput) (PutComponentOutput, error) {
 
 	// Convert to Component JSON
 	c := PutInputToComponent(input)
-	c.ModifiedAt = nowMillis()
+	c.ModifiedAt = common.NowMillis()
 	val, err := json.Marshal(c)
 	if err != nil {
 		return PutComponentOutput{}, v.onError(MiscError, "Error serializing Component as JSON", err)

@@ -3,17 +3,36 @@ package v1
 import (
 	"fmt"
 	"github.com/coopernurse/barrister-go"
-	. "github.com/franela/goblin"
 	"github.com/google/gofuzz"
 	"gitlab.com/coopernurse/maelstrom/pkg/db"
 	"testing"
+
+	. "github.com/franela/goblin"
+	_ "github.com/mattn/go-sqlite3"
 )
 
-func TestComponent(t *testing.T) {
-	svc := NewV1(db.NewMemDb())
-	f := fuzz.New()
+func panicOnErr(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
 
+func createV1() (*V1, *db.SqlDb) {
+	sqlDb, err := db.NewSqlDb("sqlite3", "file:test.db?cache=shared&_journal_mode=MEMORY&mode=rwc")
+	panicOnErr(err)
+
+	// run sql migrations and delete any existing data
+	panicOnErr(sqlDb.Migrate())
+	panicOnErr(sqlDb.DeleteAll())
+
+	return NewV1(sqlDb), sqlDb
+}
+
+func TestComponent(t *testing.T) {
 	g := Goblin(t)
+	f := fuzz.New()
+	svc, sqlDb := createV1()
+
 	g.Describe("Component CRUD", func() {
 		g.It("Put saves a new component", func() {
 			input := PutComponentInput{
@@ -50,6 +69,7 @@ func TestComponent(t *testing.T) {
 			g.Assert(err == nil).IsTrue()
 			out.Component.ModifiedAt = 0
 			g.Assert(out).Eql(expected)
+
 		})
 		g.It("Put and Get are symmetric", func() {
 			for i := 0; i < 10; i++ {
@@ -151,7 +171,7 @@ func TestComponent(t *testing.T) {
 	})
 	g.Describe("ListComponents", func() {
 
-		svc = NewV1(db.NewMemDb())
+		g.Assert(sqlDb.DeleteAll() == nil).IsTrue()
 
 		// insert a bunch of components with name starting with "list-"
 		components := make([]PutComponentInput, 0)
@@ -225,9 +245,9 @@ func TestComponent(t *testing.T) {
 }
 
 func componentNames(list []Component) []string {
-	names := make([]string, 0)
-	for _, c := range list {
-		names = append(names, c.Name)
+	names := make([]string, len(list))
+	for x, c := range list {
+		names[x] = c.Name
 	}
 	return names
 }
