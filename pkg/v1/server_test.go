@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/coopernurse/barrister-go"
 	"github.com/google/gofuzz"
-	"gitlab.com/coopernurse/maelstrom/pkg/db"
 	"testing"
 
 	. "github.com/franela/goblin"
@@ -17,8 +16,8 @@ func panicOnErr(err error) {
 	}
 }
 
-func createV1() (*V1, *db.SqlDb) {
-	sqlDb, err := db.NewSqlDb("sqlite3", "file:test.db?cache=shared&_journal_mode=MEMORY&mode=rwc")
+func createV1() (*V1, *SqlDb) {
+	sqlDb, err := NewSqlDb("sqlite3", "file:test.db?cache=shared&_journal_mode=MEMORY&mode=rwc")
 	panicOnErr(err)
 
 	// run sql migrations and delete any existing data
@@ -35,34 +34,19 @@ func TestComponent(t *testing.T) {
 
 	g.Describe("Component CRUD", func() {
 		g.It("Put saves a new component", func() {
-			input := PutComponentInput{
-				Name: "abc",
-				Docker: DockerComponent{
-					Image:    "coopernurse/foo",
-					HttpPort: 8080,
-				},
-			}
-			out, err := svc.PutComponent(input)
-			g.Assert(err == nil).IsTrue()
-			g.Assert(out.Name).Eql(input.Name)
+			out := putComponentOK(g, svc, "abc")
 			g.Assert(out.Version).Eql(int64(1))
 		})
 		g.It("Put updates an existing component with the same name", func() {
-			input := PutComponentInput{
-				Name: "c2",
-				Docker: DockerComponent{
-					Image:    "coopernurse/foo",
-					HttpPort: 8081,
-				},
-			}
+			input := validComponent("c2")
 			_, err := svc.PutComponent(input)
 			g.Assert(err == nil).IsTrue()
 
 			expected := GetComponentOutput{
 				Component: Component{
-					Name:    input.Name,
+					Name:    input.Component.Name,
 					Version: 1,
-					Docker:  &input.Docker,
+					Docker:  input.Component.Docker,
 				},
 			}
 			out, err := svc.GetComponent(GetComponentInput{Name: "c2"})
@@ -74,18 +58,18 @@ func TestComponent(t *testing.T) {
 		g.It("Put and Get are symmetric", func() {
 			for i := 0; i < 10; i++ {
 				var input PutComponentInput
-				for !componentNameRE.MatchString(input.Name) || len(input.Name) < 3 {
+				for !nameRE.MatchString(input.Component.Name) || len(input.Component.Name) < 3 {
 					f.Fuzz(&input)
 				}
-				input.PreviousVersion = 0
+				input.Component.Version = 0
 				out, err := svc.PutComponent(input)
 				g.Assert(err == nil).IsTrue(fmt.Sprintf("Got err: %v", err))
 
 				expected := GetComponentOutput{
 					Component: Component{
-						Name:    input.Name,
+						Name:    input.Component.Name,
 						Version: 1,
-						Docker:  &input.Docker,
+						Docker:  input.Component.Docker,
 					},
 				}
 
@@ -97,35 +81,36 @@ func TestComponent(t *testing.T) {
 			}
 		})
 		g.It("Remove deletes a component", func() {
-			input := PutComponentInput{Name: "deleteme",
-				Docker: DockerComponent{Image: "coopernurse/foo", HttpPort: 8080}}
-			_, err := svc.PutComponent(input)
+			// Save component
+			putComponentOK(g, svc, "deleteme")
+
+			// Get - should return component
+			_, err := svc.GetComponent(GetComponentInput{Name: "deleteme"})
 			g.Assert(err == nil).IsTrue()
-			_, err = svc.GetComponent(GetComponentInput{Name: "deleteme"})
-			g.Assert(err == nil).IsTrue()
+
+			// Remove
 			out, err := svc.RemoveComponent(RemoveComponentInput{Name: "deleteme"})
 			g.Assert(err == nil).IsTrue()
 			g.Assert(out).Eql(RemoveComponentOutput{Name: "deleteme", Found: true})
 
+			// Get - should raise 1003 error
 			_, err = svc.GetComponent(GetComponentInput{Name: "deleteme"})
 			g.Assert(err != nil).IsTrue()
 			rpcErr, _ := err.(*barrister.JsonRpcError)
 			g.Assert(rpcErr.Code).Eql(1003)
 
+			// Remove again - should not error, but found=false
 			out, err = svc.RemoveComponent(RemoveComponentInput{Name: "deleteme"})
 			g.Assert(err == nil).IsTrue()
 			g.Assert(out).Eql(RemoveComponentOutput{Name: "deleteme", Found: false})
 		})
 	})
+
 	g.Describe("PutComponent Validation", func() {
 		g.It("Raises 1001 if name is invalid", func() {
-			invalid := []PutComponentInput{
-				{},
-				{Name: " "},
-				{Name: "\t\n"},
-				{Name: "hello)"},
-			}
-			for _, i := range invalid {
+			invalid := []string{"", " ", "\t\n", "hello)"}
+			for _, name := range invalid {
+				i := validComponent(name)
 				out, err := svc.PutComponent(i)
 				g.Assert(out).Eql(PutComponentOutput{})
 				g.Assert(err != nil).IsTrue(fmt.Sprintf("input: %+v", i))
@@ -134,43 +119,37 @@ func TestComponent(t *testing.T) {
 				g.Assert(rpcErr.Code).Eql(1001)
 			}
 
-			valid := []PutComponentInput{
-				{Name: "aBc"},
-				{Name: "92dak_-9s9"},
-			}
-			for _, i := range valid {
+			valid := []string{"aBc", "92dak_-9s9"}
+			for _, name := range valid {
+				i := PutComponentInput{Component: Component{Name: name}}
 				_, err := svc.PutComponent(i)
 				g.Assert(err == nil).IsTrue(fmt.Sprintf("input: %+v", i))
 			}
 		})
 		g.It("Raises 1002 if name already exists and previousVersion is zero", func() {
-			input := PutComponentInput{
-				Name:   "1002test",
-				Docker: DockerComponent{Image: "coopernurse/foo", HttpPort: 8080},
-			}
+			input := validComponent("1002test")
+
 			// first put should succeed
 			_, err := svc.PutComponent(input)
 			g.Assert(err == nil).IsTrue()
 
 			// put again - should raise 1002
 			_, err = svc.PutComponent(input)
-			g.Assert(err != nil).IsTrue()
+			g.Assert(err != nil).IsTrue(fmt.Sprintf("Didn't get an error on 2nd put: %v", err))
 			rpcErr, ok := err.(*barrister.JsonRpcError)
 			g.Assert(ok).IsTrue()
 			g.Assert(rpcErr.Code).Eql(1002)
 		})
 		g.It("Raises 1004 if previousVersion is not current", func() {
-			input := PutComponentInput{
-				Name:   "1004test",
-				Docker: DockerComponent{Image: "coopernurse/foo", HttpPort: 8080},
-			}
+			input := validComponent("1004test")
+
 			// first put should succeed
 			out, err := svc.PutComponent(input)
 			g.Assert(err == nil).IsTrue()
 			g.Assert(out.Version).Eql(int64(1))
 
 			// put again - should raise 1004
-			input.PreviousVersion = out.Version + 1
+			input.Component.Version = out.Version + 1
 			out, err = svc.PutComponent(input)
 			g.Assert(err != nil).IsTrue(fmt.Sprintf("expected err, got: %+v", out))
 			rpcErr, ok := err.(*barrister.JsonRpcError)
@@ -178,6 +157,7 @@ func TestComponent(t *testing.T) {
 			g.Assert(rpcErr.Code).Eql(1004)
 		})
 	})
+
 	g.Describe("GetComponent Validation", func() {
 		g.It("Raises 1003 if no component has that name", func() {
 			input := GetComponentInput{
@@ -189,21 +169,17 @@ func TestComponent(t *testing.T) {
 			g.Assert(rpcErr.Code).Eql(1003)
 		})
 	})
+
 	g.Describe("ListComponents", func() {
 
 		g.Assert(sqlDb.DeleteAll() == nil).IsTrue()
 
 		// insert a bunch of components with name starting with "list-"
-		components := make([]PutComponentInput, 0)
+		components := make([]string, 0)
 		for i := 0; i < 5; i++ {
 			name := fmt.Sprintf("list-%d", i)
-			input := PutComponentInput{
-				Name:   name,
-				Docker: DockerComponent{Image: "coopernurse/foo", HttpPort: 8080},
-			}
-			_, err := svc.PutComponent(input)
-			g.Assert(err == nil).IsTrue()
-			components = append(components, input)
+			putComponentOK(g, svc, name)
+			components = append(components, name)
 		}
 
 		g.It("Returns components in alphabetical order by name", func() {
@@ -211,19 +187,13 @@ func TestComponent(t *testing.T) {
 			g.Assert(err == nil).IsTrue()
 			g.Assert(len(out.Components)).Eql(len(components))
 			g.Assert(out.NextToken).Eql("")
-			for x, c := range components {
-				g.Assert(out.Components[x].Name).Eql(c.Name)
+			for x, cname := range components {
+				g.Assert(out.Components[x].Name).Eql(cname)
 				g.Assert(out.Components[x].Version).Eql(int64(1))
-				g.Assert(*out.Components[x].Docker).Eql(c.Docker)
 			}
 		})
 		g.It("Optionally filters by name prefix", func() {
-			input := PutComponentInput{
-				Name:   "other1",
-				Docker: DockerComponent{Image: "coopernurse/foo", HttpPort: 8080},
-			}
-			_, err := svc.PutComponent(input)
-			g.Assert(err == nil).IsTrue()
+			putComponentOK(g, svc, "other1")
 
 			// should get all 6 items
 			out, err := svc.ListComponents(ListComponentsInput{})
@@ -262,6 +232,125 @@ func TestComponent(t *testing.T) {
 			g.Assert(out.NextToken).Eql("")
 		})
 	})
+}
+
+func TestEventSource(t *testing.T) {
+	g := Goblin(t)
+	svc, _ := createV1()
+
+	g.Describe("EventSource CRUD", func() {
+
+		// create component we can use as a FK in event sources
+		putComponentOK(g, svc, "comp1")
+
+		g.It("Can put, get, remove an event source", func() {
+			// put event source
+			putIn, _ := putEventSourceOK(g, svc, "ev1", "comp1")
+
+			// get event source and verify equality
+			getOut, err := svc.GetEventSource(GetEventSourceInput{Name: "ev1"})
+			g.Assert(err == nil).IsTrue(fmt.Sprintf("GetEventSource err: %v", err))
+			putIn.EventSource.Version = 1
+			putIn.EventSource.ModifiedAt = getOut.EventSource.ModifiedAt
+			g.Assert(getOut.EventSource).Eql(putIn.EventSource)
+
+			// remove event source
+			rmOut, err := svc.RemoveEventSource(RemoveEventSourceInput{Name: "ev1"})
+			g.Assert(err == nil).IsTrue()
+			g.Assert(rmOut.Found).IsTrue()
+
+			// get event source - verify a 1003 is raised
+			_, err = svc.GetEventSource(GetEventSourceInput{Name: "ev1"})
+			g.Assert(err != nil).IsTrue()
+			rpcErr, _ := err.(*barrister.JsonRpcError)
+			g.Assert(rpcErr.Code).Eql(1003)
+
+			// remove event source again - should no-op and return found=false
+			rmOut, err = svc.RemoveEventSource(RemoveEventSourceInput{Name: "ev1"})
+			g.Assert(err == nil).IsTrue()
+			g.Assert(rmOut.Found).IsFalse()
+		})
+	})
+
+	g.Describe("PutEventSource Validation", func() {
+		g.It("Validates event source name and component name", func() {
+			invalid := []string{"", "  ", "\tstuff and space", "bad&chars%here"}
+			for _, name := range invalid {
+				putEventSourceFailsWithCode(g, svc, 1001, func(input *PutEventSourceInput) {
+					input.EventSource.Name = name
+				})
+				putEventSourceFailsWithCode(g, svc, 1001, func(input *PutEventSourceInput) {
+					input.EventSource.ComponentName = name
+				})
+			}
+		})
+		g.It("Validates event source sub-type is present", func() {
+			putEventSourceFailsWithCode(g, svc, 1001, func(input *PutEventSourceInput) {
+				input.EventSource.Http = nil
+			})
+		})
+		g.It("Raises 1003 if componentName is not found", func() {
+			putEventSourceFailsWithCode(g, svc, 1003, func(input *PutEventSourceInput) {
+				input.EventSource.ComponentName = "valid-but-not-in-db"
+			})
+		})
+		g.It("Raises 1004 if previousVersion is not current", func() {
+			putEventSourceFailsWithCode(g, svc, 1004, func(input *PutEventSourceInput) {
+				input.EventSource.Version = 50000
+			})
+		})
+	})
+
+}
+
+func validComponent(componentName string) PutComponentInput {
+	return PutComponentInput{
+		Component: Component{
+			Name: componentName,
+			Docker: &DockerComponent{
+				Image:    "coopernurse/foo",
+				HttpPort: 8080,
+			},
+		},
+	}
+}
+
+func putComponentOK(g *G, svc *V1, name string) PutComponentOutput {
+	input := validComponent(name)
+	out, err := svc.PutComponent(input)
+	g.Assert(err == nil).IsTrue(fmt.Sprintf("PutComponent failed for: %s - %v", name, err))
+	g.Assert(out.Name).Eql(input.Component.Name)
+	return out
+}
+
+func validEventSource(eventSourceName string, componentName string) PutEventSourceInput {
+	return PutEventSourceInput{
+		EventSource: EventSource{
+			Name:          eventSourceName,
+			ComponentName: componentName,
+			Http: &HttpEventSource{
+				Hostname: "www.example.com",
+			},
+		},
+	}
+}
+
+func putEventSourceFailsWithCode(g *G, svc *V1, errCode int, mutator func(i *PutEventSourceInput)) {
+	input := validEventSource("esname", "comp1")
+	mutator(&input)
+	_, err := svc.PutEventSource(input)
+	g.Assert(err != nil).IsTrue(fmt.Sprintf("PutEventSource didn't error for input: %v", input))
+	rpcErr, _ := err.(*barrister.JsonRpcError)
+	g.Assert(rpcErr.Code).Eql(errCode)
+}
+
+func putEventSourceOK(g *G, svc *V1, eventSourceName string,
+	componentName string) (PutEventSourceInput, PutEventSourceOutput) {
+	input := validEventSource(eventSourceName, componentName)
+	out, err := svc.PutEventSource(input)
+	g.Assert(err == nil).IsTrue(fmt.Sprintf("PutEventSource failed for: %s - %v", eventSourceName, err))
+	g.Assert(out.Name).Eql(eventSourceName)
+	return input, out
 }
 
 func componentNames(list []Component) []string {

@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/coopernurse/barrister-go"
-	"gitlab.com/coopernurse/maelstrom/pkg/db"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"log"
 	"net/http"
@@ -26,8 +25,8 @@ func mustStart(s *http.Server) {
 	}
 }
 
-func initDb(sqlDriver, sqlDSN string) db.Db {
-	sqlDb, err := db.NewSqlDb(sqlDriver, sqlDSN)
+func initDb(sqlDriver, sqlDSN string) v1.Db {
+	sqlDb, err := v1.NewSqlDb(sqlDriver, sqlDSN)
 	if err != nil {
 		log.Printf("ERROR creating SqlDb using driver: %s err: %v", sqlDriver, err)
 		os.Exit(2)

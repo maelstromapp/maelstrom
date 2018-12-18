@@ -15,15 +15,14 @@ import (
 
 ////////////////////////////////////
 
-func componentPut(args docopt.Opts, svc v1.MaelstromService) {
-	var input v1.PutComponentInput
+func readJSON(args docopt.Opts, target interface{}) {
 	var data []byte
 	var err error
 	j := argStr(args, "--json")
 	if j == "" {
 		fname := argStr(args, "--file")
 		if fname == "" {
-			fmt.Printf("ERROR: comp put requires the --json or --file argument\n")
+			fmt.Printf("ERROR: put requires the --json or --file argument\n")
 			os.Exit(1)
 		} else {
 			data, err = ioutil.ReadFile(fname)
@@ -32,29 +31,35 @@ func componentPut(args docopt.Opts, svc v1.MaelstromService) {
 	} else {
 		data = []byte(j)
 	}
+	err = json.Unmarshal(data, target)
+	checkErr(err, "Unable to parse JSON")
+}
 
-	err = json.Unmarshal(data, &input)
-	checkErr(err, "Unable to parse JSON for PutComponentInput")
-	input.Name = argStr(args, "<name>")
+func componentPut(args docopt.Opts, svc v1.MaelstromService) {
+	var comp v1.Component
+	readJSON(args, &comp)
+
+	name := argStr(args, "<name>")
+	comp.Name = name
 
 	// check for existing component and set previousVersion
-	getInput := v1.GetComponentInput{Name: input.Name}
+	getInput := v1.GetComponentInput{Name: name}
 	getOut, err := svc.GetComponent(getInput)
 	if err == nil {
-		fmt.Printf("Updating component: %s with current version: %d\n", input.Name, getOut.Component.Version)
-		input.PreviousVersion = getOut.Component.Version
+		fmt.Printf("Updating component: %s with current version: %d\n", name, getOut.Component.Version)
+		comp.Version = getOut.Component.Version
 	} else {
 		rpcErr, ok := err.(*barrister.JsonRpcError)
 		if ok && rpcErr.Code == 1003 {
 			// ok - new component
-			fmt.Printf("Registering new component: %s\n", input.Name)
+			fmt.Printf("Registering new component: %s\n", name)
 		} else {
-			checkErr(err, "GetComponent failed for: "+input.Name)
+			checkErr(err, "GetComponent failed for: "+name)
 		}
 	}
 
 	// store new component data
-	out, err := svc.PutComponent(input)
+	out, err := svc.PutComponent(v1.PutComponentInput{Component: comp})
 	checkErr(err, "PutComponent failed")
 	fmt.Printf("Success  component: %s updated to version: %d\n", out.Name, out.Version)
 }
@@ -77,7 +82,11 @@ func componentLs(args docopt.Opts, svc v1.MaelstromService) {
 				fmt.Printf("--------------------------------------------------------------------------\n")
 			}
 			mod := humanize.Time(time.Unix(0, c.ModifiedAt*1e6))
-			fmt.Printf("%-20s  %-30s  %-5d  %-13s\n", trunc(c.Name, 20), trunc(c.Docker.Image, 20), c.Version, mod)
+			imgName := ""
+			if c.Docker != nil {
+				imgName = c.Docker.Image
+			}
+			fmt.Printf("%-20s  %-30s  %-5d  %-13s\n", trunc(c.Name, 20), trunc(imgName, 20), c.Version, mod)
 		}
 		nextToken = output.NextToken
 		if output.NextToken == "" {
@@ -97,7 +106,51 @@ func componentRm(args docopt.Opts, svc v1.MaelstromService) {
 	} else {
 		fmt.Printf("Component not found: %s\n", out.Name)
 	}
+}
 
+////////////////////////////////////
+
+func eventSourcePut(args docopt.Opts, svc v1.MaelstromService) {
+	var es v1.EventSource
+	readJSON(args, &es)
+
+	name := argStr(args, "<name>")
+	es.Name = name
+
+	// check for existing component and set previousVersion
+	getInput := v1.GetEventSourceInput{Name: name}
+	getOut, err := svc.GetEventSource(getInput)
+	if err == nil {
+		fmt.Printf("Updating event source: %s with current version: %d\n", name, getOut.EventSource.Version)
+		es.Version = getOut.EventSource.Version
+	} else {
+		rpcErr, ok := err.(*barrister.JsonRpcError)
+		if ok && rpcErr.Code == 1003 {
+			// ok - new event source
+			fmt.Printf("Registering new event source: %s\n", name)
+		} else {
+			checkErr(err, "GetEventSource failed for: "+name)
+		}
+	}
+
+	// store new event source data
+	out, err := svc.PutEventSource(v1.PutEventSourceInput{EventSource: es})
+	checkErr(err, "PutEventSource failed")
+	fmt.Printf("Success event source: %s updated to version: %d\n", out.Name, out.Version)
+}
+
+func eventSourceLs(args docopt.Opts, svc v1.MaelstromService) {
+
+}
+
+func eventSourceRm(args docopt.Opts, svc v1.MaelstromService) {
+	out, err := svc.RemoveEventSource(v1.RemoveEventSourceInput{Name: argStr(args, "<name>")})
+	checkErr(err, "RemoveEventSource failed")
+	if out.Found {
+		fmt.Printf("Event source removed: %s\n", out.Name)
+	} else {
+		fmt.Printf("Event source not found: %s\n", out.Name)
+	}
 }
 
 ////////////////////////////////////
@@ -139,6 +192,9 @@ Usage:
   maelctl comp put <name> [--file=<file>] [--json=<json>]
   maelctl comp ls [--prefix=<prefix>]
   maelctl comp rm <name>
+  maelctl es put <name> [--file=<file>] [--json=<json>]
+  maelctl es ls [--prefix=<prefix>] [--component=<component>] [--type=<type>]
+  maelctl es rm <name>
 `
 	args, err := docopt.ParseDoc(usage)
 	if err != nil {
@@ -158,8 +214,16 @@ Usage:
 		componentLs(args, svc)
 	} else if argBool(args, "comp") && argBool(args, "rm") {
 		componentRm(args, svc)
+	} else if argBool(args, "es") && argBool(args, "put") {
+		eventSourcePut(args, svc)
+	} else if argBool(args, "es") && argBool(args, "ls") {
+		eventSourceLs(args, svc)
+	} else if argBool(args, "es") && argBool(args, "rm") {
+		eventSourceRm(args, svc)
 	} else {
 		fmt.Printf("ERROR: unsupported command. args=%v\n", args)
 		os.Exit(2)
 	}
 }
+
+// eventSourceRm

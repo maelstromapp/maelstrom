@@ -16,6 +16,7 @@ interface MaelstromService {
     // Error Codes:
     //
     // * 1001 - input.name is invalid
+    // * 1004 - input.previousVersion does not match the version in the database
     //
     PutComponent(input PutComponentInput) PutComponentOutput
 
@@ -47,18 +48,86 @@ interface MaelstromService {
     // Results are sorted by name (ascending)
     //
     ListComponents(input ListComponentsInput) ListComponentsOutput
+
+
+    // PutEventSource registers an event source definition associated
+    // with a component
+    //
+    // Error Codes:
+    //
+    // * 1001 - input.name is invalid
+    // * 1001 - input.componentName is invalid
+    // * 1001 - No event source sub-type is provided
+    // * 1001 - input.http is provided but has no hostname or pathPrefix
+    // * 1003 - input.componentName does not reference a component defined in the system
+    // * 1004 - input.previousVersion does not match the version in the database
+    //
+    PutEventSource(input PutEventSourceInput) PutEventSourceOutput
+
+    // GetEventSource returns an event source with the given name
+    //
+    // Error Codes:
+    //
+    // * 1003 - No event source found with that name
+    //
+    GetEventSource(input GetEventSourceInput) GetEventSourceOutput
+
+    // RemoveComponent deletes a component with the given name
+    //
+    // If no component is found with that name no error is raised
+    // and the call silently no-ops.
+    //
+    // Error Codes:
+    //
+    // * 1001 - input.name is invalid
+    //
+    RemoveEventSource(input RemoveEventSourceInput) RemoveEventSourceOutput
 }
 
 struct Component {
+    // Name of the component (a-zA-Z0-9_-)+
+    // Name max size is 60 characters
+    // This value uniquely identifies the component in the system.
     name         string
+
+    // Current version of the component
+    // If the current version in the db does not match, a 1004 error is raised.
+    // When creating a new component, set this to zero.
     version      int
-    modifiedAt   int
+
+    // Date component was last saved - may be omitted on put calls
+    modifiedAt   int              [optional]
+
     docker       DockerComponent  [optional]
 }
 
 struct DockerComponent {
     image      string
     httpPort   int
+}
+
+struct EventSource {
+    // Name of the event source (a-zA-Z0-9_-)+
+    // Name max size is 60 characters
+    // This value uniquely identifies the event source in the system.
+    name string
+
+    // Name of the component the event source activates (a-zA-Z0-9_-)+
+    // Name max size is 60 characters
+    componentName string
+
+    version      int
+    modifiedAt   int
+
+    // One and only one event source type may be provided
+    http       HttpEventSource   [optional]
+}
+
+struct HttpEventSource {
+    // at least one field (hostname, pathPrefix) must be provided
+    // if more than one is provided, only requests matching all fields will match
+    hostname      string    [optional]
+    pathPrefix    string    [optional]
 }
 
 struct RemoveComponentInput {
@@ -105,17 +174,9 @@ struct GetComponentOutput {
 }
 
 struct PutComponentInput {
-    // Name of the component (a-zA-Z0-9_-)+
-    // Name max size is 60 characters
-    // This value uniquely identifies the component in the system.
-    name string
-
-    // Old version of the component
-    // If the current version in the db does not match, a 1004 error is raised.
-    // When creating a new component, set this to zero.
-    previousVersion int
-
-    docker DockerComponent
+    // Component to save, keyed off component.name
+    // component.version should be set to zero when creating a new component
+    component Component
 }
 
 struct PutComponentOutput {
@@ -126,4 +187,39 @@ struct PutComponentOutput {
     // For a newly created component, this value will be 1.
     // The value will increment by one with each successful PutComponent() call.
     version int
+}
+
+struct PutEventSourceInput {
+    // EventSource to save, keyed off eventSource.name
+    eventSource     EventSource
+}
+
+struct PutEventSourceOutput {
+    // Name of the event source stored
+    name string
+
+    // New (current) version of the event source
+    // For a newly created event source, this value will be 1.
+    // The value will increment by one with each successful PutEventSource() call.
+    version int
+}
+
+struct GetEventSourceInput {
+    name    string
+}
+
+struct GetEventSourceOutput {
+    eventSource     EventSource
+}
+
+struct RemoveEventSourceInput {
+    // name of event source to remove
+    name    string
+}
+
+struct RemoveEventSourceOutput {
+    name    string
+
+    // if event source was found in the system this is true, otherwise false
+    found   bool
 }
