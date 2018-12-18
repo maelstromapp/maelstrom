@@ -106,11 +106,7 @@ func (v *V1) GetComponent(input GetComponentInput) (GetComponentOutput, error) {
 }
 
 func (v *V1) ListComponents(input ListComponentsInput) (ListComponentsOutput, error) {
-	components, nextToken, err := v.db.ListComponents(input)
-	if err != nil {
-		return ListComponentsOutput{}, v.onError(DbError, "Error in db.ListComponents", err)
-	}
-	return ListComponentsOutput{Components: components, NextToken: nextToken}, nil
+	return v.db.ListComponents(input)
 }
 
 func (v *V1) RemoveComponent(input RemoveComponentInput) (RemoveComponentOutput, error) {
@@ -193,4 +189,8 @@ func (v *V1) RemoveEventSource(input RemoveEventSourceInput) (RemoveEventSourceO
 		Name:  name,
 		Found: found,
 	}, err
+}
+
+func (v *V1) ListEventSources(input ListEventSourcesInput) (ListEventSourcesOutput, error) {
+	return v.db.ListEventSources(input)
 }

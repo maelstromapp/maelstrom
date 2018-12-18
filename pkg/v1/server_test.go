@@ -172,7 +172,7 @@ func TestComponent(t *testing.T) {
 
 	g.Describe("ListComponents", func() {
 
-		g.Assert(sqlDb.DeleteAll() == nil).IsTrue()
+		g.Assert(sqlDb.DeleteAll()).Eql(nil)
 
 		// insert a bunch of components with name starting with "list-"
 		components := make([]string, 0)
@@ -236,7 +236,7 @@ func TestComponent(t *testing.T) {
 
 func TestEventSource(t *testing.T) {
 	g := Goblin(t)
-	svc, _ := createV1()
+	svc, sqlDb := createV1()
 
 	g.Describe("EventSource CRUD", func() {
 
@@ -301,6 +301,84 @@ func TestEventSource(t *testing.T) {
 		})
 	})
 
+	g.Describe("ListEventSources", func() {
+
+		g.Assert(sqlDb.DeleteAll()).Eql(nil)
+
+		// create component we can use as a FK in event sources
+		compName := "comp1"
+		putComponentOK(g, svc, compName)
+
+		// insert a bunch of event sources with name starting with "list-"
+		eventSources := make([]string, 0)
+		for i := 0; i < 5; i++ {
+			name := fmt.Sprintf("list-%d", i)
+			putEventSourceOK(g, svc, name, compName)
+			eventSources = append(eventSources, name)
+		}
+
+		g.It("Returns components in alphabetical order by name", func() {
+			out, err := svc.ListEventSources(ListEventSourcesInput{})
+			g.Assert(err == nil).IsTrue()
+			g.Assert(len(out.EventSources)).Eql(len(eventSources))
+			g.Assert(out.NextToken).Eql("")
+			for x, cname := range eventSources {
+				g.Assert(out.EventSources[x].Name).Eql(cname)
+				g.Assert(out.EventSources[x].Version).Eql(int64(1))
+			}
+		})
+		g.It("Optionally filters by name prefix", func() {
+			putEventSourceOK(g, svc, "other1", compName)
+
+			// should get all items
+			listEventSourcesOK(g, svc, ListEventSourcesInput{},
+				[]string{"list-0", "list-1", "list-2", "list-3", "list-4", "other1"})
+
+			// load with "list" prefix - should get 5
+			listEventSourcesOK(g, svc, ListEventSourcesInput{NamePrefix: "list"},
+				[]string{"list-0", "list-1", "list-2", "list-3", "list-4"})
+
+			// load with "other" prefix - should get 1
+			listEventSourcesOK(g, svc, ListEventSourcesInput{NamePrefix: "other"}, []string{"other1"})
+
+			// no match - empty list
+			listEventSourcesOK(g, svc, ListEventSourcesInput{NamePrefix: "zzzz"}, []string{})
+		})
+		g.It("Optionally filters by component name", func() {
+			// matches all
+			listEventSourcesOK(g, svc, ListEventSourcesInput{ComponentName: compName},
+				[]string{"list-0", "list-1", "list-2", "list-3", "list-4", "other1"})
+
+			// combine namePrefix and compName
+			listEventSourcesOK(g, svc,
+				ListEventSourcesInput{NamePrefix: "other", ComponentName: compName}, []string{"other1"})
+
+			// no match - empty list
+			listEventSourcesOK(g, svc, ListEventSourcesInput{ComponentName: "zzzz"}, []string{})
+			listEventSourcesOK(g, svc, ListEventSourcesInput{ComponentName: compName, NamePrefix: "zzz"}, []string{})
+		})
+		g.It("Optionally filters by event source type", func() {
+			listEventSourcesOK(g, svc, ListEventSourcesInput{EventSourceType: EventSourceTypeHttp},
+				[]string{"list-0", "list-1", "list-2", "list-3", "list-4", "other1"})
+
+			listEventSourcesOK(g, svc, ListEventSourcesInput{NamePrefix: "other", EventSourceType: EventSourceTypeHttp},
+				[]string{"other1"})
+		})
+		g.It("Returns an empty list if no components exist", func() {
+			out := listEventSourcesOK(g, svc, ListEventSourcesInput{NamePrefix: "bogusprefix"}, []string{})
+			g.Assert(out.EventSources).Eql([]EventSource{})
+			g.Assert(out.NextToken).Eql("")
+		})
+		g.It("Sets nextToken if there are more results to return", func() {
+			out := listEventSourcesOK(g, svc, ListEventSourcesInput{Limit: 2}, []string{"list-0", "list-1"})
+			out = listEventSourcesOK(g, svc, ListEventSourcesInput{Limit: 2, NextToken: out.NextToken},
+				[]string{"list-2", "list-3"})
+			out = listEventSourcesOK(g, svc, ListEventSourcesInput{Limit: 2, NextToken: out.NextToken},
+				[]string{"list-4", "other1"})
+			g.Assert(out.NextToken).Eql("")
+		})
+	})
+
 }
 
 func validComponent(componentName string) PutComponentInput {
@@ -353,7 +431,23 @@ func putEventSourceOK(g *G, svc *V1, eventSourceName string,
 	return input, out
 }
 
+func listEventSourcesOK(g *G, svc *V1, input ListEventSourcesInput,
+	expectedEventSourceNames []string) ListEventSourcesOutput {
+	out, err := svc.ListEventSources(input)
+	g.Assert(err == nil).IsTrue()
+	g.Assert(eventSourceNames(out.EventSources)).Eql(expectedEventSourceNames)
+	return out
+}
+
 func componentNames(list []Component) []string {
+	names := make([]string, len(list))
+	for x, c := range list {
+		names[x] = c.Name
+	}
+	return names
+}
+
+func eventSourceNames(list []EventSource) []string {
 	names := make([]string, len(list))
 	for x, c := range list {
 		names[x] = c.Name

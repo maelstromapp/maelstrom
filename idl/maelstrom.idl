@@ -82,6 +82,16 @@ interface MaelstromService {
     // * 1001 - input.name is invalid
     //
     RemoveEventSource(input RemoveEventSourceInput) RemoveEventSourceOutput
+
+    // ListEventSources returns a paginated list of event sources registered in the system
+    // optionally filtered by name prefix, component name, or type.
+    //
+    // If no event sources exist in the system, ListEventSourcesOutput.eventSources
+    // will be an empty list.
+    //
+    // Results are sorted by name (ascending)
+    //
+    ListEventSources(input ListEventSourcesInput) ListEventSourcesOutput
 }
 
 struct Component {
@@ -130,6 +140,10 @@ struct HttpEventSource {
     pathPrefix    string    [optional]
 }
 
+enum EventSourceType {
+    http
+}
+
 struct RemoveComponentInput {
     // name of component to remove
     name    string
@@ -146,7 +160,7 @@ struct ListComponentsInput {
     // If specified only components matching this name prefix will be returned.
     namePrefix  string  [optional]
 
-    // Max components to return per response (1..1000)
+    // Max items to return per response (1..1000)
     // default=1000
     limit       int     [optional]
 
@@ -222,4 +236,33 @@ struct RemoveEventSourceOutput {
 
     // if event source was found in the system this is true, otherwise false
     found   bool
+}
+
+struct ListEventSourcesInput {
+    // If specified only event sources matching this name prefix will be returned.
+    namePrefix       string            [optional]
+
+    // If specified only event sources matching this component name will be returned
+    componentName    string            [optional]
+
+    // If specified only event sources matching this type will be returned
+    eventSourceType  EventSourceType   [optional]
+
+    // Max items to return per response (1..1000)
+    // default=1000
+    limit            int     [optional]
+
+    // If set the next set of paginated results will be returned
+    nextToken        string  [optional]
+}
+
+struct ListEventSourcesOutput {
+    // Event sources in current page of output or an empty list if
+    // no additional results exist
+    eventSources    []EventSource
+
+    // If set there are additional results.
+    // Client may make another ListEventSources() request setting this
+    // as ListEventSourcesInput.nextToken
+    nextToken   string  [optional]
 }

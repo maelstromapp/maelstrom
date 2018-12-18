@@ -81,54 +81,75 @@ func (d *SqlDb) GetComponent(componentName string) (component Component, err err
 	return
 }
 
-func (d *SqlDb) ListComponents(input ListComponentsInput) (components []Component, nextToken string, err error) {
-	q := squirrel.Select("version", "json").From("component").OrderBy("name")
+func (d *SqlDb) ListComponents(input ListComponentsInput) (output ListComponentsOutput, err error) {
+	q := squirrel.Select("json").From("component").OrderBy("name")
 	if input.NamePrefix != "" {
 		q = q.Where(squirrel.Like{"name": input.NamePrefix + "%"})
 	}
 
+	components := make([]Component, 0)
+	nextToken, err := d.selectPaginated(q, input.NextToken, input.Limit, func(rows *sql.Rows) error {
+		var comp Component
+		err := d.scanJSON(rows, &comp)
+		if err != nil {
+			return fmt.Errorf("ListComponents: %v", err)
+		}
+		components = append(components, comp)
+		return nil
+	})
+	if err != nil {
+		return ListComponentsOutput{}, err
+	}
+	return ListComponentsOutput{NextToken: nextToken, Components: components}, nil
+}
+
+func (d *SqlDb) scanJSON(rows *sql.Rows, target interface{}) error {
+	var jsonVal []byte
+	err := rows.Scan(&jsonVal)
+	if err != nil {
+		return fmt.Errorf("scanJSON err in scan: %v", err)
+	}
+	err = json.Unmarshal(jsonVal, target)
+	if err != nil {
+		return fmt.Errorf("scanJSON err in unmarshal: %v", err)
+	}
+	return nil
+}
+
+func (d *SqlDb) selectPaginated(q squirrel.SelectBuilder, nextToken string, limit int64,
+	onRow func(rows *sql.Rows) error) (string, error) {
 	offset := 0
-	if input.NextToken != "" {
-		o, err := strconv.Atoi(input.NextToken)
+	if nextToken != "" {
+		o, err := strconv.Atoi(nextToken)
 		if err == nil {
 			offset = o
 		}
 	}
 
-	limit := 1000
-	if input.Limit > 0 && input.Limit < 1000 {
-		limit = int(input.Limit)
+	if limit < 1 || limit > 1000 {
+		limit = 1000
 	}
 
-	var rows *sql.Rows
-	rows, err = q.Offset(uint64(offset)).Limit(uint64(limit + 1)).RunWith(d.db).Query()
+	rows, err := q.Offset(uint64(offset)).Limit(uint64(limit + 1)).RunWith(d.db).Query()
 	if err != nil {
-		err = fmt.Errorf("ListComponents err in query: %v", err)
-		return
+		return "", fmt.Errorf("err in query: %v", err)
 	}
 
-	components = []Component{}
 	defer common.CheckClose(rows, &err)
-	for len(components) < limit && rows.Next() {
-		var version int64
-		var jsonVal []byte
-		err = rows.Scan(&version, &jsonVal)
+	x := int64(0)
+	for x < limit && rows.Next() {
+		err = onRow(rows)
 		if err != nil {
-			err = fmt.Errorf("ListComponents err in scan: %v", err)
-			return
+			return "", err
 		}
-		var comp Component
-		err = json.Unmarshal(jsonVal, &comp)
-		if err != nil {
-			err = fmt.Errorf("ListComponents err in json unmarshal: %v", err)
-			return
-		}
-		components = append(components, comp)
+		x++
 	}
+
+	nextToken = ""
 	if rows.Next() {
-		nextToken = strconv.Itoa(offset + len(components))
+		nextToken = strconv.Itoa(offset + int(x))
 	}
-	return
+	return nextToken, nil
 }
 
 func (d *SqlDb) RemoveComponent(componentName string) (found bool, err error) {
@@ -176,6 +197,31 @@ func (d *SqlDb) GetEventSource(eventSourceName string) (es EventSource, err erro
 
 func (d *SqlDb) RemoveEventSource(eventSourceName string) (bool, error) {
 	return d.removeRow("eventsource", eventSourceName)
+}
+
+func (d *SqlDb) ListEventSources(input ListEventSourcesInput) (ListEventSourcesOutput, error) {
+	q := squirrel.Select("json").From("eventsource").OrderBy("name")
+	if input.NamePrefix != "" {
+		q = q.Where(squirrel.Like{"name": input.NamePrefix + "%"})
+	}
+	if input.ComponentName != "" {
+		q = q.Where(squirrel.Eq{"componentName": input.ComponentName})
+	}
+
+	eventSources := make([]EventSource, 0)
+	nextToken, err := d.selectPaginated(q, input.NextToken, input.Limit, func(rows *sql.Rows) error {
+		var es EventSource
+		err := d.scanJSON(rows, &es)
+		if err != nil {
+			return fmt.Errorf("ListEventSources: %v", err)
+		}
+		eventSources = append(eventSources, es)
+		return nil
+	})
+	if err != nil {
+		return ListEventSourcesOutput{}, err
+	}
+	return ListEventSourcesOutput{NextToken: nextToken, EventSources: eventSources}, nil
 }
 
 func (d *SqlDb) insertRow(table string, name string, val interface{}, columns []string, bindVals []interface{}) error {

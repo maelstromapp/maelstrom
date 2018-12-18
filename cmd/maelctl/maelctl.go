@@ -39,22 +39,19 @@ func componentPut(args docopt.Opts, svc v1.MaelstromService) {
 	var comp v1.Component
 	readJSON(args, &comp)
 
-	name := argStr(args, "<name>")
-	comp.Name = name
-
 	// check for existing component and set previousVersion
-	getInput := v1.GetComponentInput{Name: name}
+	getInput := v1.GetComponentInput{Name: comp.Name}
 	getOut, err := svc.GetComponent(getInput)
 	if err == nil {
-		fmt.Printf("Updating component: %s with current version: %d\n", name, getOut.Component.Version)
+		fmt.Printf("Updating component: %s with current version: %d\n", comp.Name, getOut.Component.Version)
 		comp.Version = getOut.Component.Version
 	} else {
 		rpcErr, ok := err.(*barrister.JsonRpcError)
 		if ok && rpcErr.Code == 1003 {
 			// ok - new component
-			fmt.Printf("Registering new component: %s\n", name)
+			fmt.Printf("Registering new component: %s\n", comp.Name)
 		} else {
-			checkErr(err, "GetComponent failed for: "+name)
+			checkErr(err, "GetComponent failed for: "+comp.Name)
 		}
 	}
 
@@ -78,7 +75,7 @@ func componentLs(args docopt.Opts, svc v1.MaelstromService) {
 		for _, c := range output.Components {
 			if first {
 				first = false
-				fmt.Printf("%-20s  %-30s  %-5s  %-10s\n", "Component Name", "Image", "Ver", "Last Modified")
+				fmt.Printf("%-20s  %-30s  %-5s  %-10s\n", "Component", "Image", "Ver", "Last Modified")
 				fmt.Printf("--------------------------------------------------------------------------\n")
 			}
 			mod := humanize.Time(time.Unix(0, c.ModifiedAt*1e6))
@@ -86,7 +83,7 @@ func componentLs(args docopt.Opts, svc v1.MaelstromService) {
 			if c.Docker != nil {
 				imgName = c.Docker.Image
 			}
-			fmt.Printf("%-20s  %-30s  %-5d  %-13s\n", trunc(c.Name, 20), trunc(imgName, 20), c.Version, mod)
+			fmt.Printf("%-20s  %-30s  %-5d  %-13s\n", trunc(c.Name, 20), trunc(imgName, 30), c.Version, mod)
 		}
 		nextToken = output.NextToken
 		if output.NextToken == "" {
@@ -114,22 +111,19 @@ func eventSourcePut(args docopt.Opts, svc v1.MaelstromService) {
 	var es v1.EventSource
 	readJSON(args, &es)
 
-	name := argStr(args, "<name>")
-	es.Name = name
-
 	// check for existing component and set previousVersion
-	getInput := v1.GetEventSourceInput{Name: name}
+	getInput := v1.GetEventSourceInput{Name: es.Name}
 	getOut, err := svc.GetEventSource(getInput)
 	if err == nil {
-		fmt.Printf("Updating event source: %s with current version: %d\n", name, getOut.EventSource.Version)
+		fmt.Printf("Updating event source: %s with current version: %d\n", es.Name, getOut.EventSource.Version)
 		es.Version = getOut.EventSource.Version
 	} else {
 		rpcErr, ok := err.(*barrister.JsonRpcError)
 		if ok && rpcErr.Code == 1003 {
 			// ok - new event source
-			fmt.Printf("Registering new event source: %s\n", name)
+			fmt.Printf("Registering new event source: %s\n", es.Name)
 		} else {
-			checkErr(err, "GetEventSource failed for: "+name)
+			checkErr(err, "GetEventSource failed for: "+es.Name)
 		}
 	}
 
@@ -140,7 +134,52 @@ func eventSourcePut(args docopt.Opts, svc v1.MaelstromService) {
 }
 
 func eventSourceLs(args docopt.Opts, svc v1.MaelstromService) {
+	input := v1.ListEventSourcesInput{
+		NamePrefix:    strings.TrimSpace(argStr(args, "--prefix")),
+		ComponentName: strings.TrimSpace(argStr(args, "--component")),
+	}
 
+	eventSourceType := argStr(args, "--type")
+	if eventSourceType != "" {
+		input.EventSourceType = v1.EventSourceType(eventSourceType)
+	}
+
+	first := true
+	var nextToken string
+	for {
+		input.NextToken = nextToken
+		output, err := svc.ListEventSources(input)
+		checkErr(err, "ListEventSources failed")
+		for _, es := range output.EventSources {
+			if first {
+				first = false
+				fmt.Printf("%-20s  %-20s  %-30s  %-5s  %-10s\n",
+					"Event Source", "Component", "HTTP", "Ver", "Last Modified")
+				fmt.Printf("------------------------------------------------------------------------------------------------\n")
+			}
+			mod := humanize.Time(time.Unix(0, es.ModifiedAt*1e6))
+			httpInfo := ""
+			if es.Http != nil {
+				parts := make([]string, 0)
+				if es.Http.Hostname != "" {
+					parts = append(parts, es.Http.Hostname)
+				}
+				if es.Http.PathPrefix != "" {
+					parts = append(parts, es.Http.PathPrefix)
+				}
+				httpInfo = strings.Join(parts, "/")
+			}
+			fmt.Printf("%-20s  %-20s  %-30s  %-5d  %-13s\n", trunc(es.Name, 20),
+				trunc(es.ComponentName, 20), trunc(httpInfo, 30), es.Version, mod)
+		}
+		nextToken = output.NextToken
+		if output.NextToken == "" {
+			break
+		}
+	}
+	if first {
+		fmt.Println("No event sources found")
+	}
 }
 
 func eventSourceRm(args docopt.Opts, svc v1.MaelstromService) {
@@ -189,10 +228,10 @@ func main() {
 	usage := `maelctl - Maelstrom Command Line Tool
 
 Usage:
-  maelctl comp put <name> [--file=<file>] [--json=<json>]
+  maelctl comp put [--file=<file>] [--json=<json>]
   maelctl comp ls [--prefix=<prefix>]
   maelctl comp rm <name>
-  maelctl es put <name> [--file=<file>] [--json=<json>]
+  maelctl es put [--file=<file>] [--json=<json>]
   maelctl es ls [--prefix=<prefix>] [--component=<component>] [--type=<type>]
   maelctl es rm <name>
 `
@@ -225,5 +264,3 @@ Usage:
 		os.Exit(2)
 	}
 }
-
-// eventSourceRm
