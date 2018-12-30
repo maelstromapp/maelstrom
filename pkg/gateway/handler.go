@@ -99,6 +99,7 @@ func NewLocalHandler(dockerClient *docker.Client, c v1.Component, containerId st
 		component:    c,
 		containerId:  containerId,
 		requestWG:    &sync.WaitGroup{},
+		queue:        make(chan handlerMessage),
 	}
 
 	if containerId != "" {
@@ -108,7 +109,30 @@ func NewLocalHandler(dockerClient *docker.Client, c v1.Component, containerId st
 		}
 	}
 
+	go handler.run()
+
 	return handler, nil
+}
+
+func newHttpHandlerMessage(rw http.ResponseWriter, req *http.Request) handlerMessage {
+	return handlerMessage{
+		http:       &httpRequest{rw: rw, req: req},
+		responseCh: make(chan bool, 1),
+	}
+}
+
+type handlerMessage struct {
+	// union type: only one of these attributes will be non-nil
+	http *httpRequest
+	stop bool
+
+	// response chan
+	responseCh chan bool
+}
+
+type httpRequest struct {
+	rw  http.ResponseWriter
+	req *http.Request
 }
 
 type LocalHandler struct {
@@ -118,11 +142,52 @@ type LocalHandler struct {
 	component    v1.Component
 	containerId  string
 	requestWG    *sync.WaitGroup
+	queue        chan handlerMessage
+}
+
+func (h *LocalHandler) run() {
+	idleTimeout := h.component.Docker.IdleTimeoutSeconds
+	if idleTimeout < 1 {
+		idleTimeout = 300
+	}
+	idleDuration := time.Second * time.Duration(idleTimeout)
+	idleTimer := time.NewTimer(idleDuration)
+	log.Printf("handler.run starting")
+	for {
+		select {
+		case msg := <-h.queue:
+			if msg.http != nil {
+				if !idleTimer.Stop() {
+					<-idleTimer.C
+				}
+				idleTimer.Reset(idleDuration)
+				go func() {
+					h.proxyHttpReq(msg.http.rw, msg.http.req)
+					msg.responseCh <- true
+				}()
+			} else if msg.stop {
+				log.Printf("handler.run stopping")
+				h.stop()
+				msg.responseCh <- true
+				return
+			} else {
+				msg.responseCh <- true
+			}
+		case <-idleTimer.C:
+			h.stop()
+		}
+	}
 }
 
 func (h *LocalHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	h.requestWG.Add(1)
 	defer h.requestWG.Done()
+	msg := newHttpHandlerMessage(rw, req)
+	h.queue <- msg
+	<-msg.responseCh
+}
+
+func (h *LocalHandler) proxyHttpReq(rw http.ResponseWriter, req *http.Request) {
 	err := h.ensureContainer()
 	if err != nil {
 		log.Printf("ERROR ensureContainer failed for component: %s err: %v\n", h.component.Name, err)

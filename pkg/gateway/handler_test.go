@@ -44,7 +44,7 @@ func TestLocalHandler(t *testing.T) {
 				ThenContainerIsStarted()
 		})
 		g.It("Stop drains requests in flight before stopping containers", func() {
-			g.Timeout(time.Minute)
+			g.Timeout(time.Second * 10)
 			GivenExistingContainer(g, dockerClient).
 				WhenLocalHandlerCreated().
 				WhenContainerIsHealthy().
@@ -60,6 +60,13 @@ func TestLocalHandler(t *testing.T) {
 				ThenContainerIsStopped().
 				WhenHTTPRequestReceived().
 				ThenContainerIsStarted()
+		})
+		g.It("Stops container if idle", func() {
+			GivenExistingContainer(g, dockerClient).
+				WithIdleTimeoutSeconds(1).
+				WhenLocalHandlerCreated().
+				WhenIdleTimeoutElapses().
+				ThenContainerIsStopped()
 		})
 	})
 

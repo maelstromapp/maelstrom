@@ -115,6 +115,10 @@ struct DockerComponent {
     image                string
     httpPort             int
     httpHealthCheckPath  string
+
+    // If component is not invoked within this duration then
+    // the docker container is stopped and removed.  (default=300)
+    idleTimeoutSeconds   int       [optional]
 }
 
 struct EventSource {

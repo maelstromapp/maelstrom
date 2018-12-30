@@ -85,6 +85,11 @@ func GivenExistingContainer(g *G, dockerClient *docker.Client) *Fixture {
 	return f
 }
 
+func (f *Fixture) WithIdleTimeoutSeconds(seconds int64) *Fixture {
+	f.component.Docker.IdleTimeoutSeconds = seconds
+	return f
+}
+
 func (f *Fixture) WhenLocalHandlerCreated() *Fixture {
 	h, err := NewLocalHandler(f.dockerClient, f.component, f.nextContainerId)
 	f.g.Assert(err == nil).IsTrue(fmt.Sprintf("NewLocalHandler err != nil: %v", err))
@@ -161,6 +166,11 @@ func (f *Fixture) WhenNLongRunningRequestsMade(n int) *Fixture {
 
 func (f *Fixture) WhenStopRequestReceived() *Fixture {
 	f.h.stop()
+	return f
+}
+
+func (f *Fixture) WhenIdleTimeoutElapses() *Fixture {
+	time.Sleep(time.Second * time.Duration(f.h.component.Docker.IdleTimeoutSeconds+1))
 	return f
 }
 
