@@ -14,3 +14,7 @@ make maelctl
 # build daemon
 make maelstromd
 ```
+
+## Dev notes
+
+* [Docker Go API](https://docs.docker.com/develop/sdk/examples/#list-and-manage-containers)

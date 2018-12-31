@@ -1,0 +1,9 @@
+This docker image is used by the CI job.
+
+It's derived from the standard golang docker image and adds the current
+version of docker.  We link it to a docker-in-docker image via gitlab-ci.yml
+and this allows the CI job to start/stop docker containers as required by
+the tests.
+
+This image will need to be updated whenever we want to move to a newer
+version of Go.

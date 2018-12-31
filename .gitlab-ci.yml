@@ -1,7 +1,12 @@
-image: golang:1.11-stretch
+image: coopernurse/maelstrom-build:latest
+services:
+  - docker:dind
 
 variables:
   REPO_NAME: gitlab.com/coopernurse/maelstrom
+  DOCKER_HOST: tcp://docker:2375/
+  DOCKER_DRIVER: overlay2
+  DIND_HOST: docker
 
 before_script:
   - export CI_CACHEDIR=`pwd`/.cache

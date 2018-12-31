@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"github.com/coopernurse/barrister-go"
+	docker "github.com/docker/docker/client"
+	"gitlab.com/coopernurse/maelstrom/pkg/gateway"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"log"
 	"net/http"
@@ -48,18 +50,33 @@ func main() {
 
 	log.Printf("maelstromd starting")
 
+	db := initDb(*sqlDriver, *sqlDSN)
 	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
-	v1Impl := v1.NewV1(initDb(*sqlDriver, *sqlDSN))
+	v1Impl := v1.NewV1(db)
 	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl)
 	mgmtMux := http.NewServeMux()
 	mgmtMux.Handle("/v1", &v1Server)
+
+	dockerClient, err := docker.NewEnvClient()
+	if err != nil {
+		log.Printf("ERROR initializing docker client - err: %v", err)
+		os.Exit(2)
+	}
+
+	resolver := gateway.NewDbResolver(db)
+	handlerFactory, err := gateway.NewHandlerFactory(dockerClient, resolver)
+	if err != nil {
+		log.Printf("ERROR initializing handler factory - err: %v", err)
+		os.Exit(2)
+	}
+	gw := gateway.NewGateway(resolver, handlerFactory)
 
 	servers := []*http.Server{
 		{
 			Addr:         fmt.Sprintf(":%d", *revProxyPort),
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
-			Handler:      &ReverseProxyHandler{},
+			Handler:      gw,
 		},
 		{
 			Addr:         fmt.Sprintf(":%d", *mgmtPort),
@@ -93,11 +110,4 @@ func HandleShutdownSignal(svrs []*http.Server, shutdownDone chan struct{}) {
 	}
 	log.Printf("HTTP servers shutdown gracefully")
 	close(shutdownDone)
-}
-
-type ReverseProxyHandler struct {
-}
-
-func (r *ReverseProxyHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	fmt.Fprintf(rw, "Hello reverse proxy server")
 }

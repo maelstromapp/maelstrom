@@ -112,8 +112,9 @@ struct Component {
 }
 
 struct DockerComponent {
-    image      string
-    httpPort   int
+    image                string
+    httpPort             int
+    httpHealthCheckPath  string
 }
 
 struct EventSource {

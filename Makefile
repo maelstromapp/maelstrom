@@ -1,4 +1,4 @@
-.PHONY: test watch-test maelctl maelstromd idl run-maelstromd
+.PHONY: test watch-test maelctl maelstromd idl run-maelstromd cover
 .EXPORT_ALL_VARIABLES:
 
 GO111MODULE = on
@@ -10,6 +10,12 @@ test:
 
 watch-test:
 	find . -name *.go | entr -c make test
+
+cover:
+	mkdir -p tmp
+	go test -coverprofile=tmp/cover.out gitlab.com/coopernurse/maelstrom/pkg/gateway \
+	    gitlab.com/coopernurse/maelstrom/pkg/v1
+	go tool cover -html=tmp/cover.out
 
 maelctl:
 	go build -o dist/maelctl cmd/maelctl/*.go
