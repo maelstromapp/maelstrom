@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"github.com/coopernurse/barrister-go"
 	"github.com/docopt/docopt-go"
 	"github.com/dustin/go-humanize"
+	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"io/ioutil"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -192,6 +196,47 @@ func eventSourceRm(args docopt.Opts, svc v1.MaelstromService) {
 	}
 }
 
+func logsGet(args docopt.Opts, baseUrl string) {
+	qs := url.Values{}
+	components := argStr(args, "--components")
+	if components != "" {
+		qs.Add("components", components)
+	}
+	since := argStr(args, "--since")
+	if since != "" {
+		qs.Add("since", since)
+	}
+	logUrl := fmt.Sprintf("%s/logs?%s", baseUrl, qs.Encode())
+	fmt.Printf("logs called: url=%s\n", logUrl)
+
+	client := &http.Client{
+		Timeout: 0,
+	}
+	resp, err := client.Get(logUrl)
+	checkErr(err, fmt.Sprintf("Request to %s failed", logUrl))
+	defer common.CheckClose(resp.Body, &err)
+
+	// print response line by line
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Split(common.ScanCRLF)
+	var logmsg common.LogMsg
+	for scanner.Scan() {
+		msg := scanner.Text()
+		if msg != common.PingLogMsg {
+			err := json.Unmarshal([]byte(scanner.Text()), &logmsg)
+			if err == nil {
+				out := os.Stdout
+				if logmsg.Stream == "stderr" {
+					out = os.Stderr
+				}
+				_, _ = fmt.Fprintf(out, "%s\n", logmsg.Format())
+			} else {
+				fmt.Printf("maelctl ERROR: unable to unmarshal msg: %v\n", err)
+			}
+		}
+	}
+}
+
 ////////////////////////////////////
 
 func trunc(s string, max int) string {
@@ -234,6 +279,7 @@ Usage:
   maelctl es put [--file=<file>] [--json=<json>]
   maelctl es ls [--prefix=<prefix>] [--component=<component>] [--type=<type>]
   maelctl es rm <name>
+  maelctl logs [--components=<components>] [--since=<since>]
 `
 	args, err := docopt.ParseDoc(usage)
 	if err != nil {
@@ -241,11 +287,12 @@ Usage:
 		os.Exit(1)
 	}
 
-	url := os.Getenv("MAEL_ADMIN_URL")
-	if url == "" {
-		url = "http://127.0.0.1:8374/v1"
+	baseUrl := os.Getenv("MAEL_ADMIN_URL")
+	if baseUrl == "" {
+		baseUrl = "http://127.0.0.1:8374"
 	}
-	svc := newMaelstromServiceClient(url)
+	apiUrl := fmt.Sprintf("%s/v1", baseUrl)
+	svc := newMaelstromServiceClient(apiUrl)
 
 	if argBool(args, "comp") && argBool(args, "put") {
 		componentPut(args, svc)
@@ -259,6 +306,8 @@ Usage:
 		eventSourceLs(args, svc)
 	} else if argBool(args, "es") && argBool(args, "rm") {
 		eventSourceRm(args, svc)
+	} else if argBool(args, "logs") {
+		logsGet(args, baseUrl)
 	} else {
 		fmt.Printf("ERROR: unsupported command. args=%v\n", args)
 		os.Exit(2)

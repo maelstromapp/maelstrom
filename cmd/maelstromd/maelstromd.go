@@ -73,18 +73,20 @@ func main() {
 	mgmtMux := http.NewServeMux()
 	mgmtMux.Handle("/v1", &v1Server)
 
+	logsHandler := gateway.NewLogsHandler(dockerClient)
+	mgmtMux.Handle("/logs", logsHandler)
+
 	servers := []*http.Server{
 		{
 			Addr:         fmt.Sprintf(":%d", *revProxyPort),
 			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
+			WriteTimeout: 600 * time.Second,
 			Handler:      gw,
 		},
 		{
-			Addr:         fmt.Sprintf(":%d", *mgmtPort),
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			Handler:      mgmtMux,
+			Addr:        fmt.Sprintf(":%d", *mgmtPort),
+			ReadTimeout: 30 * time.Second,
+			Handler:     mgmtMux,
 		},
 	}
 
