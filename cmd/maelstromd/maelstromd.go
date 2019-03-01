@@ -51,12 +51,6 @@ func main() {
 	log.Printf("maelstromd starting")
 
 	db := initDb(*sqlDriver, *sqlDSN)
-	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
-	v1Impl := v1.NewV1(db)
-	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl)
-	mgmtMux := http.NewServeMux()
-	mgmtMux.Handle("/v1", &v1Server)
-
 	dockerClient, err := docker.NewEnvClient()
 	if err != nil {
 		log.Printf("ERROR initializing docker client - err: %v", err)
@@ -64,12 +58,20 @@ func main() {
 	}
 
 	resolver := gateway.NewDbResolver(db)
-	handlerFactory, err := gateway.NewHandlerFactory(dockerClient, resolver)
+	handlerFactory, err := gateway.NewDockerHandlerFactory(dockerClient, resolver)
 	if err != nil {
 		log.Printf("ERROR initializing handler factory - err: %v", err)
 		os.Exit(2)
 	}
 	gw := gateway.NewGateway(resolver, handlerFactory)
+
+	componentSubscribers := []v1.ComponentSubscriber{handlerFactory}
+
+	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
+	v1Impl := v1.NewV1(db, componentSubscribers)
+	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl)
+	mgmtMux := http.NewServeMux()
+	mgmtMux.Handle("/v1", &v1Server)
 
 	servers := []*http.Server{
 		{

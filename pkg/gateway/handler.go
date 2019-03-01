@@ -30,7 +30,7 @@ import (
 var hostBindPort = int64(33000)
 
 type HandlerFactory interface {
-	ForComponent(c v1.Component) (Handler, error)
+	GetHandlerAndRegisterRequest(c v1.Component) (Handler, error)
 }
 
 type Handler interface {
@@ -38,24 +38,27 @@ type Handler interface {
 	HandleMessage(message []byte) ([]byte, error)
 }
 
-func NewHandlerFactory(dockerClient *docker.Client, resolver ComponentResolver) (HandlerFactory, error) {
+///////////////////////////////////////////////////////////
+// DockerHandlerFactory //
+//////////////////////////
+
+func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentResolver) (*DockerHandlerFactory, error) {
 	containers, err := listContainers(dockerClient)
 	if err != nil {
 		return nil, err
 	}
 
-	byComponentNameVer := map[string]Handler{}
+	byComponentName := map[string]*LocalHandler{}
 	for _, c := range containers {
 		name := c.Labels["maelstrom_component"]
 		verStr := c.Labels["maelstrom_version"]
 		if name != "" && verStr != "" {
-			k := name + ":" + verStr
 			comp, err := resolver.ByName(name)
 			if err == nil {
 				if strconv.Itoa(int(comp.Version)) == verStr {
 					handler, err := NewLocalHandler(dockerClient, comp, c.ID)
 					if err == nil {
-						byComponentNameVer[k] = handler
+						byComponentName[name] = handler
 					} else {
 						log.Printf("ERROR cannot create handler for: %s - %v", name, err)
 					}
@@ -69,29 +72,94 @@ func NewHandlerFactory(dockerClient *docker.Client, resolver ComponentResolver) 
 	}
 
 	return &DockerHandlerFactory{
-		dockerClient:       dockerClient,
-		byComponentNameVer: byComponentNameVer,
+		dockerClient:    dockerClient,
+		byComponentName: byComponentName,
+		lock:            &sync.Mutex{},
 	}, nil
 }
 
 type DockerHandlerFactory struct {
-	dockerClient       *docker.Client
-	byComponentNameVer map[string]Handler
+	dockerClient    *docker.Client
+	byComponentName map[string]*LocalHandler
+	lock            *sync.Mutex
 }
 
-func (f *DockerHandlerFactory) ForComponent(c v1.Component) (Handler, error) {
-	k := c.Name + ":" + strconv.Itoa(int(c.Version))
-	handler, ok := f.byComponentNameVer[k]
+func (f *DockerHandlerFactory) GetHandlerAndRegisterRequest(c v1.Component) (Handler, error) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	handler, ok := f.byComponentName[c.Name]
+
+	// if container is for an older version of component, stop it
+	if ok && handler.component.Version < c.Version {
+		ok = false
+		log.Printf("ForComponent stopping old handler for: %s.%d", handler.component.Name, handler.component.Version)
+		f.stopHandler(handler)
+	}
+
+	// this case could happen if handler health check failed and handler stopped
+	if ok && handler.Stopped() {
+		ok = false
+		log.Printf("ForComponent removing stale handler for: %s.%d", handler.component.Name, handler.component.Version)
+		delete(f.byComponentName, c.Name)
+	}
+
 	if !ok {
-		handler, err := NewLocalHandler(f.dockerClient, c, "")
+		// start new container for component
+		var err error
+		log.Printf("ForComponent creating handler for: %s.%d", c.Name, c.Version)
+		handler, err = NewLocalHandler(f.dockerClient, c, "")
 		if err == nil {
-			f.byComponentNameVer[k] = handler
+			// container started ok - store in map so we can re-use on future requests
+			f.byComponentName[c.Name] = handler
 		} else {
 			log.Printf("ERROR cannot create handler for: %s - %v", c.Name, err)
+			return nil, err
 		}
+	}
+
+	err := handler.RegisterRequest()
+	if err != nil {
+		return nil, fmt.Errorf("ForComponent unable to register request: %v", err)
 	}
 	return handler, nil
 }
+
+func (f *DockerHandlerFactory) OnComponentNotification(cn v1.ComponentNotification) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	if cn.PutComponent != nil {
+		handler, ok := f.byComponentName[cn.PutComponent.Name]
+		if ok && handler.component.Version < cn.PutComponent.Version {
+			f.stopHandler(handler)
+		}
+	} else if cn.RemoveComponent != nil {
+		handler, ok := f.byComponentName[cn.RemoveComponent.Name]
+		if ok {
+			f.stopHandler(handler)
+		}
+	}
+}
+
+func (f *DockerHandlerFactory) stopHandlerByComponent(c v1.Component) {
+	f.lock.Lock()
+	handler, ok := f.byComponentName[c.Name]
+	f.lock.Unlock()
+	if ok {
+		f.stopHandler(handler)
+	}
+}
+
+func (f *DockerHandlerFactory) stopHandler(h *LocalHandler) {
+	log.Printf("Stopping handler for component: %s.%d", h.component.Name, h.component.Version)
+	delete(f.byComponentName, h.component.Name)
+	go func() { h.DrainAndStop() }()
+}
+
+///////////////////////////////////////////////////////////
+// LocalHandler //
+//////////////////
 
 func NewLocalHandler(dockerClient *docker.Client, c v1.Component, containerId string) (*LocalHandler, error) {
 	handler := &LocalHandler{
@@ -99,7 +167,9 @@ func NewLocalHandler(dockerClient *docker.Client, c v1.Component, containerId st
 		component:    c,
 		containerId:  containerId,
 		requestWG:    &sync.WaitGroup{},
-		queue:        make(chan handlerMessage),
+		lock:         &sync.Mutex{},
+		stopped:      false,
+		lastReqTime:  time.Now(),
 	}
 
 	if containerId != "" {
@@ -109,30 +179,9 @@ func NewLocalHandler(dockerClient *docker.Client, c v1.Component, containerId st
 		}
 	}
 
-	go handler.run()
+	go handler.monitorIdle()
 
 	return handler, nil
-}
-
-func newHttpHandlerMessage(rw http.ResponseWriter, req *http.Request) handlerMessage {
-	return handlerMessage{
-		http:       &httpRequest{rw: rw, req: req},
-		responseCh: make(chan bool, 1),
-	}
-}
-
-type handlerMessage struct {
-	// union type: only one of these attributes will be non-nil
-	http *httpRequest
-	stop bool
-
-	// response chan
-	responseCh chan bool
-}
-
-type httpRequest struct {
-	rw  http.ResponseWriter
-	req *http.Request
 }
 
 type LocalHandler struct {
@@ -142,59 +191,92 @@ type LocalHandler struct {
 	component    v1.Component
 	containerId  string
 	requestWG    *sync.WaitGroup
-	queue        chan handlerMessage
+	lock         *sync.Mutex
+	lastReqTime  time.Time
+	stopped      bool
 }
 
-func (h *LocalHandler) run() {
+func (h *LocalHandler) monitorHealthCheck(containerId string, healthCheckUrl *url.URL) {
+	seconds := h.component.Docker.HttpHealthCheckSeconds
+	if seconds < 1 {
+		seconds = 10
+	}
+	interval := time.Second * time.Duration(seconds)
+	log.Printf("handler.monitorHealthCheck starting. interval=%v", interval)
+	for {
+		time.Sleep(interval)
+		h.lock.Lock()
+		stopped := h.stopped
+		currentContainerId := h.containerId
+		h.lock.Unlock()
+		if stopped || currentContainerId != containerId {
+			return
+		} else if !getUrlOK(healthCheckUrl) {
+			log.Printf("ERROR health check failed for url: %s container: %s\n", healthCheckUrl, containerId[0:8])
+			h.DrainAndStop()
+			return
+		}
+	}
+}
+
+func (h *LocalHandler) monitorIdle() {
 	idleTimeout := h.component.Docker.IdleTimeoutSeconds
 	if idleTimeout < 1 {
 		idleTimeout = 300
 	}
 	idleDuration := time.Second * time.Duration(idleTimeout)
-	idleTimer := time.NewTimer(idleDuration)
-	log.Printf("handler.run starting")
+	sleepDuration := idleDuration
+	log.Printf("handler.monitorIdle starting. idleDuration=%v", idleDuration)
 	for {
-		select {
-		case msg := <-h.queue:
-			if msg.http != nil {
-				if !idleTimer.Stop() {
-					<-idleTimer.C
-				}
-				idleTimer.Reset(idleDuration)
-				go func() {
-					h.proxyHttpReq(msg.http.rw, msg.http.req)
-					msg.responseCh <- true
-				}()
-			} else if msg.stop {
-				log.Printf("handler.run stopping")
-				h.stop()
-				msg.responseCh <- true
+		time.Sleep(sleepDuration)
+
+		h.lock.Lock()
+		if h.stopped {
+			h.lock.Unlock()
+			return
+		} else {
+			sinceLastReq := time.Now().Sub(h.lastReqTime)
+			sleepDuration := idleDuration - sinceLastReq
+			if sleepDuration <= 0 {
+				log.Printf("handler.monitorIdle stopping idle container: %s last req: %v ago",
+					h.component.Name, sinceLastReq)
+				h.stopped = true
+				h.lock.Unlock()
+				h.DrainAndStop()
 				return
 			} else {
-				msg.responseCh <- true
+				h.lock.Unlock()
 			}
-		case <-idleTimer.C:
-			h.stop()
 		}
 	}
 }
 
-func (h *LocalHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	h.requestWG.Add(1)
-	defer h.requestWG.Done()
-	msg := newHttpHandlerMessage(rw, req)
-	h.queue <- msg
-	<-msg.responseCh
+func (h *LocalHandler) Stopped() bool {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+	return h.stopped
 }
 
-func (h *LocalHandler) proxyHttpReq(rw http.ResponseWriter, req *http.Request) {
+func (h *LocalHandler) RegisterRequest() error {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+
+	if h.stopped {
+		return fmt.Errorf("cannot proxy request to stopped handler: %s.%d", h.component.Name, h.component.Version)
+	}
+
 	err := h.ensureContainer()
 	if err != nil {
-		log.Printf("ERROR ensureContainer failed for component: %s err: %v\n", h.component.Name, err)
-		respondText(rw, http.StatusInternalServerError, "Server Error")
-	} else {
-		h.proxy.ServeHTTP(rw, req)
+		return err
 	}
+	h.requestWG.Add(1)
+	h.lastReqTime = time.Now()
+	return nil
+}
+
+func (h *LocalHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	defer h.requestWG.Done()
+	h.proxy.ServeHTTP(rw, req)
 }
 
 func (h *LocalHandler) HandleMessage(message []byte) ([]byte, error) {
@@ -257,38 +339,41 @@ func (h *LocalHandler) initReverseProxy() error {
 		return fmt.Errorf("initReverseProxy unable to find exposed port for component: " + h.component.Name)
 	}
 
-	log.Printf("Starting handler for component: %s container: %s url: %s\n",
-		h.component.Name, cont.ID[0:8], target.String())
+	// wait for health check to pass
+	healthCheckUrl := toHealthCheckURL(h.component, target)
+	healthCheckStartSecs := h.component.Docker.HttpStartHealthCheckSeconds
+	if healthCheckStartSecs == 0 {
+		healthCheckStartSecs = 60
+	}
+	if healthCheckStartSecs > 0 {
+		if !tryUntilUrlOk(healthCheckUrl, time.Second*time.Duration(healthCheckStartSecs)) {
+			return fmt.Errorf("health check never passed for: %s url: %s", h.component.Name, healthCheckUrl)
+		}
+	}
+
+	// start background goroutine to monitor health check
+	go h.monitorHealthCheck(cont.ID, healthCheckUrl)
+
+	log.Printf("Handler active for component: %s.%d container: %s url: %s\n",
+		h.component.Name, h.component.Version, cont.ID[0:8], target.String())
 	h.proxy = httputil.NewSingleHostReverseProxy(target)
 	h.targetUrl = target
 	return nil
 }
 
-func (h *LocalHandler) runHealthCheck() {
-	resp, err := http.Get(h.healthCheckURL().String())
-	if resp != nil && resp.Body != nil {
-		defer common.CheckClose(resp.Body, &err)
-	}
-	if err != nil || resp.StatusCode != 200 {
-		log.Printf("ERROR health check failed for container: %s\n", h.containerId)
-		if h.containerId != "" {
-			err = stopContainer(h.dockerClient, h.containerId)
-			if err != nil {
-				log.Printf("ERROR could not stop container: %v\n", err)
-			} else {
-				log.Printf("Stopped container: %s\n", h.containerId)
-			}
-		}
-	}
-}
+func (h *LocalHandler) DrainAndStop() {
+	h.lock.Lock()
+	defer h.lock.Unlock()
 
-func (h *LocalHandler) stop() {
+	h.stopped = true
 	if h.containerId != "" {
 		h.requestWG.Wait()
 		t, ok := h.proxy.Transport.(*http.Transport)
 		if ok {
 			t.CloseIdleConnections()
 		}
+		log.Printf("Stopping container for component: %s.%d container: %s\n",
+			h.component.Name, h.component.Version, h.containerId[0:8])
 		err := stopContainer(h.dockerClient, h.containerId)
 		if err != nil {
 			log.Printf("ERROR stopContainer failed for %s: %v", h.containerId, err)
@@ -298,15 +383,35 @@ func (h *LocalHandler) stop() {
 	}
 }
 
-func (h *LocalHandler) healthCheckURL() *url.URL {
-	path := ""
-	if h.component.Docker != nil && h.component.Docker.HttpHealthCheckPath != "" {
-		path = h.component.Docker.HttpHealthCheckPath
+func tryUntilUrlOk(u *url.URL, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if getUrlOK(u) {
+			return true
+		} else {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	return false
+}
+
+func getUrlOK(u *url.URL) bool {
+	resp, err := http.Get(u.String())
+	if resp != nil && resp.Body != nil {
+		defer common.CheckClose(resp.Body, &err)
+	}
+	return (err == nil) && (resp.StatusCode == 200)
+}
+
+func toHealthCheckURL(c v1.Component, baseUrl *url.URL) *url.URL {
+	path := "/"
+	if c.Docker != nil && c.Docker.HttpHealthCheckPath != "" {
+		path = c.Docker.HttpHealthCheckPath
 	}
 	return &url.URL{
-		Scheme: h.targetUrl.Scheme,
-		Opaque: h.targetUrl.Opaque,
-		Host:   h.targetUrl.Host,
+		Scheme: baseUrl.Scheme,
+		Opaque: baseUrl.Opaque,
+		Host:   baseUrl.Host,
 		Path:   path,
 	}
 }
@@ -353,6 +458,8 @@ func startContainer(dockerClient *docker.Client, c v1.Component) (string, error)
 		return "", fmt.Errorf("containerCreate error for: %s - %v", c.Name, err)
 	}
 
+	log.Printf("Starting container for component: %s.%d container: %s\n", c.Name, c.Version, resp.ID[0:8])
+
 	err = dockerClient.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
 	if err != nil {
 		return "", fmt.Errorf("containerStart error for: %s - %v", c.Name, err)
@@ -363,6 +470,7 @@ func startContainer(dockerClient *docker.Client, c v1.Component) (string, error)
 func stopContainer(dockerClient *docker.Client, containerId string) error {
 	ctx := context.Background()
 
+	log.Printf("Stopping container: %s\n", containerId[0:8])
 	timeout := time.Duration(time.Second * 60)
 	err := dockerClient.ContainerStop(ctx, containerId, &timeout)
 	if err != nil {

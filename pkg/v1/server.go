@@ -39,20 +39,22 @@ func nameValid(errPrefix string, name string) (string, error) {
 	return name, nil
 }
 
-func NewV1(db Db) *V1 {
+func NewV1(db Db, componentSubscribers []ComponentSubscriber) *V1 {
 	log, err := zap.NewDevelopment()
 	if err != nil {
 		panic(err)
 	}
 	return &V1{
-		db:  db,
-		log: log,
+		db:                   db,
+		log:                  log,
+		componentSubscribers: componentSubscribers,
 	}
 }
 
 type V1 struct {
-	log *zap.Logger
-	db  Db
+	log                  *zap.Logger
+	db                   Db
+	componentSubscribers []ComponentSubscriber
 }
 
 func (v *V1) onError(code ErrorCode, msg string, err error) error {
@@ -85,10 +87,20 @@ func (v *V1) PutComponent(input PutComponentInput) (PutComponentOutput, error) {
 		return PutComponentOutput{}, v.transformPutError("PutComponent", err)
 	}
 
-	return PutComponentOutput{
+	output := PutComponentOutput{
 		Name:    name,
 		Version: newVersion,
-	}, nil
+	}
+
+	// Notify subscribers
+	cn := ComponentNotification{
+		PutComponent: &output,
+	}
+	for _, s := range v.componentSubscribers {
+		go s.OnComponentNotification(cn)
+	}
+
+	return output, nil
 }
 
 func (v *V1) GetComponent(input GetComponentInput) (GetComponentOutput, error) {
@@ -117,10 +129,24 @@ func (v *V1) RemoveComponent(input RemoveComponentInput) (RemoveComponentOutput,
 	}
 
 	found, err := v.db.RemoveComponent(name)
-	return RemoveComponentOutput{
+	if err != nil {
+		return RemoveComponentOutput{}, v.transformPutError("RemoveComponent", err)
+	}
+
+	output := RemoveComponentOutput{
 		Name:  name,
 		Found: found,
-	}, err
+	}
+
+	// Notify subscribers
+	cn := ComponentNotification{
+		RemoveComponent: &output,
+	}
+	for _, s := range v.componentSubscribers {
+		go s.OnComponentNotification(cn)
+	}
+
+	return output, nil
 }
 
 func (v *V1) PutEventSource(input PutEventSourceInput) (PutEventSourceOutput, error) {

@@ -3,12 +3,28 @@ package gateway
 import (
 	docker "github.com/docker/docker/client"
 	. "github.com/franela/goblin"
+	"log"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
 	"testing"
 	"time"
 )
 
 func TestLocalHandler(t *testing.T) {
 	g := Goblin(t)
+
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGQUIT)
+		buf := make([]byte, 1<<20)
+		for {
+			<-sigs
+			stacklen := runtime.Stack(buf, true)
+			log.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
+		}
+	}()
 
 	dockerClient, err := docker.NewEnvClient()
 	if err != nil {
@@ -17,36 +33,39 @@ func TestLocalHandler(t *testing.T) {
 
 	g.Describe("Local Handler", func() {
 
+		g.BeforeEach(func() {
+			resetDefaults()
+		})
+
 		g.AfterEach(func() {
 			stopMaelstromContainers(g, dockerClient)
 		})
 
 		g.It("Starts container on first request", func() {
-			GivenLocalHandlerAndNoMaelstromContainers(g, dockerClient).
+			g.Timeout(time.Second * 10)
+			GivenNoMaelstromContainers(g, dockerClient).
 				WhenHTTPRequestReceived().
 				ThenContainerIsStarted()
 		})
 		g.It("Uses existing container if already started", func() {
 			GivenExistingContainer(g, dockerClient).
-				WhenLocalHandlerCreated().
+				WhenHTTPRequestReceived().
 				ThenNoNewContainerStarted()
 		})
 		g.It("Health check stops container on failure", func() {
-			GivenExistingContainer(g, dockerClient).
-				WhenLocalHandlerCreated().
-				WhenHealthCheckFails().
+			GivenExistingContainerWithBadHealthCheckPath(g, dockerClient).
+				WhenHealthCheckTimeoutElapses().
 				ThenContainerIsStopped()
 		})
 		g.It("Health check keeps container on success", func() {
 			GivenExistingContainer(g, dockerClient).
-				WhenLocalHandlerCreated().
-				WhenHealthCheckPasses().
+				WhenHTTPRequestReceived().
+				WhenHealthCheckTimeoutElapses().
 				ThenContainerIsStarted()
 		})
 		g.It("Stop drains requests in flight before stopping containers", func() {
 			g.Timeout(time.Second * 10)
 			GivenExistingContainer(g, dockerClient).
-				WhenLocalHandlerCreated().
 				WhenContainerIsHealthy().
 				WhenNLongRunningRequestsMade(5).
 				WhenStopRequestReceived().
@@ -54,19 +73,24 @@ func TestLocalHandler(t *testing.T) {
 				ThenSuccessfulRequestCountEquals(5)
 		})
 		g.It("Restarts container if request arrives after stopping", func() {
+			g.Timeout(time.Second * 10)
 			GivenExistingContainer(g, dockerClient).
-				WhenLocalHandlerCreated().
 				WhenStopRequestReceived().
 				ThenContainerIsStopped().
 				WhenHTTPRequestReceived().
 				ThenContainerIsStarted()
 		})
 		g.It("Stops container if idle", func() {
-			GivenExistingContainer(g, dockerClient).
-				WithIdleTimeoutSeconds(1).
-				WhenLocalHandlerCreated().
+			GivenExistingContainerWithIdleTimeout(g, dockerClient, 1).
 				WhenIdleTimeoutElapses().
 				ThenContainerIsStopped()
+		})
+		g.It("Stops container when component updated", func() {
+			GivenExistingContainer(g, dockerClient).
+				WhenComponentIsUpdated().
+				ThenContainerIsStopped().
+				WhenHTTPRequestReceived().
+				ThenContainerIsStartedWithNewVersion()
 		})
 	})
 

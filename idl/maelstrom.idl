@@ -112,13 +112,21 @@ struct Component {
 }
 
 struct DockerComponent {
-    image                string
-    httpPort             int
-    httpHealthCheckPath  string
+    image                   string
+    httpPort                int
+    httpHealthCheckPath     string
+
+    // max seconds between container start and initial health check pass
+    // if health check does not pass within this number of seconds, the container is stopped
+    // if this value < 0 then no initial health check will be run at startup (default=60)
+    httpStartHealthCheckSeconds  int     [optional]
+
+    // interval to run health check (default=10)
+    httpHealthCheckSeconds       int     [optional]
 
     // If component is not invoked within this duration then
     // the docker container is stopped and removed.  (default=300)
-    idleTimeoutSeconds   int       [optional]
+    idleTimeoutSeconds           int     [optional]
 }
 
 struct EventSource {

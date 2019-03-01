@@ -30,7 +30,7 @@ func (g *Gateway) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	handler, err := g.handlerFactory.ForComponent(comp)
+	handler, err := g.handlerFactory.GetHandlerAndRegisterRequest(comp)
 	if err != nil {
 		if err == v1.NotFound {
 			respondText(rw, http.StatusNotFound, "No handler found for component: "+comp.Name)
