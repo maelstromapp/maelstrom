@@ -2,8 +2,8 @@ package v1
 
 import (
 	"github.com/coopernurse/barrister-go"
+	"github.com/mgutz/logxi/v1"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
-	"go.uber.org/zap"
 	"regexp"
 	"strings"
 )
@@ -40,25 +40,19 @@ func nameValid(errPrefix string, name string) (string, error) {
 }
 
 func NewV1(db Db, componentSubscribers []ComponentSubscriber) *V1 {
-	log, err := zap.NewDevelopment()
-	if err != nil {
-		panic(err)
-	}
 	return &V1{
 		db:                   db,
-		log:                  log,
 		componentSubscribers: componentSubscribers,
 	}
 }
 
 type V1 struct {
-	log                  *zap.Logger
 	db                   Db
 	componentSubscribers []ComponentSubscriber
 }
 
 func (v *V1) onError(code ErrorCode, msg string, err error) error {
-	v.log.Error(msg, zap.Error(err))
+	log.Error(msg, "code", code, "err", err)
 	return &barrister.JsonRpcError{Code: int(code), Message: msg}
 }
 
@@ -69,7 +63,7 @@ func (v *V1) transformPutError(prefix string, err error) error {
 		} else if err == AlreadyExists {
 			return &barrister.JsonRpcError{Code: 1002, Message: prefix + ": already exists with key"}
 		}
-		return v.onError(DbError, "Error in "+prefix, err)
+		return v.onError(DbError, "v1.server: transformPutError "+prefix, err)
 	}
 	return nil
 }
@@ -111,7 +105,7 @@ func (v *V1) GetComponent(input GetComponentInput) (GetComponentOutput, error) {
 				Code:    1003,
 				Message: "No Component found with name: " + input.Name}
 		}
-		return GetComponentOutput{}, v.onError(DbError, "Error in db.GetComponent", err)
+		return GetComponentOutput{}, v.onError(DbError, "v1.server: db.GetComponent error", err)
 	}
 
 	return GetComponentOutput{Component: c}, nil
@@ -198,7 +192,7 @@ func (v *V1) GetEventSource(input GetEventSourceInput) (GetEventSourceOutput, er
 				Code:    1003,
 				Message: "No event source found with name: " + input.Name}
 		}
-		return GetEventSourceOutput{}, v.onError(DbError, "Error in db.GetEventSource", err)
+		return GetEventSourceOutput{}, v.onError(DbError, "v1.server: db.GetEventSource error", err)
 	}
 	return GetEventSourceOutput{EventSource: es}, nil
 }

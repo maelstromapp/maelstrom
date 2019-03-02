@@ -1,8 +1,8 @@
 package gateway
 
 import (
+	"github.com/mgutz/logxi/v1"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
-	"log"
 	"net/http"
 )
 
@@ -24,7 +24,7 @@ func (g *Gateway) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		if err == v1.NotFound {
 			respondText(rw, http.StatusNotFound, "No component matches the request")
 		} else {
-			log.Printf("ERROR ByHTTPRequest: %v", err)
+			log.Error("gateway: compResolver.ByHTTPRequest", "err", err)
 			respondText(rw, http.StatusInternalServerError, "Server Error")
 		}
 		return
@@ -35,13 +35,13 @@ func (g *Gateway) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		if err == v1.NotFound {
 			respondText(rw, http.StatusNotFound, "No handler found for component: "+comp.Name)
 		} else {
-			log.Printf("ERROR handlerFactory.ForComponent: %v", err)
+			log.Error("gateway: handlerFactory.GetHandlerAndRegisterRequest", "err", err)
 			respondText(rw, http.StatusInternalServerError, "Server Error")
 		}
 		return
 	}
 	if handler == nil {
-		log.Printf("ERROR handlerFactory returned nil handler for component: %s\n", comp.Name)
+		log.Error("gateway: handlerFactory returned nil handler", "component", comp.Name)
 		respondText(rw, http.StatusInternalServerError, "Server Error")
 		return
 	}
@@ -54,6 +54,6 @@ func respondText(rw http.ResponseWriter, statusCode int, body string) {
 	rw.WriteHeader(statusCode)
 	_, err := rw.Write([]byte(body))
 	if err != nil {
-		log.Printf("WARNING respondText.Write error: %v", err)
+		log.Warn("gateway: respondText.Write error", "err", err.Error())
 	}
 }

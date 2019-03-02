@@ -5,8 +5,8 @@ import (
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 	. "github.com/franela/goblin"
+	"github.com/mgutz/logxi/v1"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -42,8 +42,10 @@ func stopMaelstromContainers(g *G, dockerClient *docker.Client) {
 	g.Assert(err == nil).IsTrue(fmt.Sprintf("listContainers err != nil: %v", err))
 
 	for _, c := range containers {
-		err = stopContainer(dockerClient, c.ID)
-		log.Printf("ERROR stopContainer failed for %s: %v", c.ID, err)
+		err = stopContainer(dockerClient, c.ID, "", 0)
+		if err != nil {
+			log.Error("fixture_test: stopContainer failed", "container", c.ID, "err", err)
+		}
 	}
 }
 
@@ -174,10 +176,11 @@ func (f *Fixture) WhenNLongRunningRequestsMade(n int) *Fixture {
 		f.asyncReqWG.Add(1)
 		go func() {
 			defer f.asyncReqWG.Done()
-			log.Printf("requesting /sleep")
+			log.Info("fixture_test: requesting /sleep")
 			start := time.Now()
 			rw := f.makeHttpRequest("http://127.0.0.1:12345/sleep?seconds=5")
-			log.Printf("done requesting /sleep - status: %d response: %s", rw.Result().StatusCode, rw.Body.String())
+			log.Info("fixture_test: done requesting /sleep", "status", rw.Result().StatusCode,
+				"body", rw.Body.String())
 			if rw.Result().StatusCode == 200 && rw.Body.String() != "" {
 				elapsedMillis := time.Now().Sub(start) / 1e6
 				atomic.AddInt64(f.successfulReqs, 1)

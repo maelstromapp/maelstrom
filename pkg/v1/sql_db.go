@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"github.com/GuiaBolso/darwin"
 	"github.com/Masterminds/squirrel"
+	"github.com/mgutz/logxi/v1"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
-	"log"
 	"strconv"
 	"strings"
 )
@@ -33,7 +33,7 @@ type SqlDb struct {
 func (d *SqlDb) Close() {
 	err := d.db.Close()
 	if err != nil {
-		log.Printf("ERROR closing db: %v", err)
+		log.Error("sql_db: err closing db", "err", err)
 	}
 }
 
@@ -42,7 +42,7 @@ func (d *SqlDb) DeleteAll() error {
 	for _, t := range tables {
 		_, err := d.db.Exec(fmt.Sprintf("delete from %s", t))
 		if err != nil {
-			return fmt.Errorf("Unable to delete from: %s - %v", t, err)
+			return fmt.Errorf("sql_db: unable to delete from: %s - %v", t, err)
 		}
 	}
 	return nil
@@ -227,7 +227,7 @@ func (d *SqlDb) ListEventSources(input ListEventSourcesInput) (ListEventSourcesO
 func (d *SqlDb) insertRow(table string, name string, val interface{}, columns []string, bindVals []interface{}) error {
 	q := squirrel.Insert(table).Columns(columns...).Values(bindVals...)
 	if d.DebugLog {
-		log.Printf("SQL: %v", squirrel.DebugSqlizer(q))
+		log.Debug("sql_db: insertRow", "sql", squirrel.DebugSqlizer(q))
 	}
 	_, err := q.RunWith(d.db).Exec()
 	if err != nil {
@@ -247,7 +247,7 @@ func (d *SqlDb) updateRow(table string, name string, previousVersion int64, upda
 		SetMap(updates).
 		Where(squirrel.Eq{"name": name, "version": previousVersion})
 	if d.DebugLog {
-		log.Printf("SQL: %v", squirrel.DebugSqlizer(q))
+		log.Debug("sql_db: updateRow", "sql", squirrel.DebugSqlizer(q))
 	}
 	result, err := q.RunWith(d.db).Exec()
 	if err != nil {
@@ -255,7 +255,7 @@ func (d *SqlDb) updateRow(table string, name string, previousVersion int64, upda
 	}
 	rows, err2 := result.RowsAffected()
 	if err2 != nil {
-		log.Printf("WARNING: Put update RowsAffected returned err: %v", err)
+		log.Warn("sql_db: updateRow RowsAffected", "err", err)
 	}
 	if rows != 1 {
 		return IncorrectPreviousVersion

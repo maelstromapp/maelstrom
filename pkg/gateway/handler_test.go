@@ -1,9 +1,9 @@
 package gateway
 
 import (
+	"fmt"
 	docker "github.com/docker/docker/client"
 	. "github.com/franela/goblin"
-	"log"
 	"os"
 	"os/signal"
 	"runtime"
@@ -22,7 +22,7 @@ func TestLocalHandler(t *testing.T) {
 		for {
 			<-sigs
 			stacklen := runtime.Stack(buf, true)
-			log.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
+			fmt.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
 		}
 	}()
 
