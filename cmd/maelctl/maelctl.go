@@ -206,8 +206,7 @@ func logsGet(args docopt.Opts, baseUrl string) {
 	if since != "" {
 		qs.Add("since", since)
 	}
-	logUrl := fmt.Sprintf("%s/logs?%s", baseUrl, qs.Encode())
-	fmt.Printf("logs called: url=%s\n", logUrl)
+	logUrl := fmt.Sprintf("%s/_mael/logs?%s", baseUrl, qs.Encode())
 
 	client := &http.Client{
 		Timeout: 0,
@@ -287,11 +286,11 @@ Usage:
 		os.Exit(1)
 	}
 
-	baseUrl := os.Getenv("MAEL_ADMIN_URL")
+	baseUrl := os.Getenv("MAELSTROM_PRIVATE_URL")
 	if baseUrl == "" {
 		baseUrl = "http://127.0.0.1:8374"
 	}
-	apiUrl := fmt.Sprintf("%s/v1", baseUrl)
+	apiUrl := fmt.Sprintf("%s/_mael/v1", baseUrl)
 	svc := newMaelstromServiceClient(apiUrl)
 
 	if argBool(args, "comp") && argBool(args, "put") {

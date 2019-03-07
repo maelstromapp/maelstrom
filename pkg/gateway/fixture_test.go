@@ -20,6 +20,8 @@ import (
 // Test HTTP docker image. Has endpoints that return 200, 500, and sleep
 // See: https://github.com/coopernurse/go-hello-http
 const testImageName = "docker.io/coopernurse/go-hello-http:latest"
+const testGatewayUrl = "http://127.0.0.1:8000"
+const testGatewayPort = 8000
 
 var defaultComponent v1.Component
 
@@ -66,7 +68,7 @@ func newDb(g *G) *v1.SqlDb {
 func newFixture(g *G, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fixture {
 	successfulReqs := int64(0)
 	resolver := NewDbResolver(sqlDb)
-	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver)
+	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, testGatewayPort)
 	g.Assert(err == nil).IsTrue(fmt.Sprintf("NewDockerHandlerFactory err != nil: %v", err))
 
 	return &Fixture{
@@ -100,7 +102,7 @@ func GivenNoMaelstromContainers(g *G, dockerClient *docker.Client) *Fixture {
 
 func GivenExistingContainer(g *G, dockerClient *docker.Client) *Fixture {
 	sqlDb := newDb(g)
-	containerId, err := startContainer(dockerClient, defaultComponent)
+	containerId, err := startContainer(dockerClient, defaultComponent, testGatewayUrl)
 
 	f := newFixture(g, dockerClient, sqlDb)
 	f.g.Assert(err == nil).IsTrue(fmt.Sprintf("startContainer err != nil: %v", err))

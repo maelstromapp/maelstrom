@@ -6,20 +6,22 @@ import (
 	"net/http"
 )
 
-func NewGateway(r ComponentResolver, f HandlerFactory) *Gateway {
+func NewGateway(r ComponentResolver, f HandlerFactory, public bool) *Gateway {
 	return &Gateway{
 		compResolver:   r,
 		handlerFactory: f,
+		public:         public,
 	}
 }
 
 type Gateway struct {
 	compResolver   ComponentResolver
 	handlerFactory HandlerFactory
+	public         bool
 }
 
 func (g *Gateway) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	comp, err := g.compResolver.ByHTTPRequest(req)
+	comp, err := g.compResolver.ByHTTPRequest(req, g.public)
 	if err != nil {
 		if err == v1.NotFound {
 			respondText(rw, http.StatusNotFound, "No component matches the request")

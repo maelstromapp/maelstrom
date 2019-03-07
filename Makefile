@@ -29,5 +29,5 @@ idl:
 
 run-maelstromd:
 	mkdir -p tmp
-	./dist/maelstromd -revProxyPort 8008 -sqlDriver sqlite3 \
+	./dist/maelstromd -publicPort 8008 -sqlDriver sqlite3 \
 	    -sqlDSN 'file:./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY' &

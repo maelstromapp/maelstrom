@@ -8,6 +8,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	docker "github.com/docker/docker/client"
+	"github.com/mgutz/logxi/v1"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"io"
 	"net/http"
@@ -58,7 +59,7 @@ func (h *LogsHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	containers, err := listContainers(h.dockerClient)
 	if err != nil {
-		fmt.Printf("ERROR: can't list docker containers: %v\n", err)
+		log.Error("logs: listContainers failed", "err", err)
 		rw.WriteHeader(http.StatusInternalServerError)
 		_, _ = fmt.Fprintf(rw, "Can't list docker containers")
 		return
@@ -82,10 +83,12 @@ func (h *LogsHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			if err == nil {
 				line = string(msgBytes)
 			} else {
-				fmt.Printf("ERROR: can't marshal JSON: %s - %v\n", m, err)
+				log.Error("logs: json.Marshal failed", "err", err)
 			}
 		case m := <-msgCh:
-			fmt.Printf("got msg: from=%s actor=%v type=%s status=%s\n", m.From, m.Actor, m.Type, m.Status)
+			if log.IsDebug() {
+				log.Debug("logs: docker event", "from", m.From, "actor", m.Actor, "type", m.Type, "status", m.Status)
+			}
 			if m.Type == "container" && m.Status == "start" {
 				cont, err := h.dockerClient.ContainerInspect(context.Background(), m.Actor.ID)
 				if err == nil {
@@ -96,19 +99,16 @@ func (h *LogsHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 						}
 					}
 				} else {
-					fmt.Printf("ERROR: can't inspect container for: %s - %v\n", m.Actor.ID, err)
+					log.Error("logs: ContainerInspect failed", "containerId", m.Actor.ID, "err", err)
 				}
 			}
 		case m := <-errCh:
-			fmt.Printf("got err: %s\r\n", m.Error())
+			log.Warn("logs: docker error", "err", m.Error())
 		}
 
 		if line != "" {
 			_, err := rw.Write([]byte(line + "\r\n"))
 			if err == nil {
-				if line != common.PingLogMsg {
-					fmt.Printf("wrote line: %s\n", line)
-				}
 				if f, ok := rw.(http.Flusher); ok {
 					f.Flush()
 				}
@@ -118,11 +118,8 @@ func (h *LogsHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}
-	fmt.Println("canceling log")
 	logCancel()
-	fmt.Println("calling wg.Wait")
 	wg.Wait()
-	fmt.Println("log handler done")
 }
 
 func (h *LogsHandler) startStreamLogs(ctx context.Context, wg *sync.WaitGroup, logCh chan common.LogMsg,
@@ -140,13 +137,13 @@ func (h *LogsHandler) startStreamLogs(ctx context.Context, wg *sync.WaitGroup, l
 	if err == nil {
 		go streamLogs(component, wg, reader, logCh)
 	} else {
-		fmt.Printf("ERROR: can't read logs for: %s - %v\n", containerId, err)
+		log.Error("logs: dockerClient.ContainerLogs failed", "containerId", containerId, "err", err)
 	}
 }
 
 func logErr(err error, msg string) {
 	if err != nil && !strings.Contains(err.Error(), "broken pipe") {
-		fmt.Printf("ERROR: %s - %v", msg, err)
+		log.Error("logs: "+msg, "err", err)
 	}
 }
 
@@ -156,7 +153,9 @@ func streamLogs(component string, wg *sync.WaitGroup, reader io.ReadCloser, out 
 	defer wg.Done()
 	defer common.CheckClose(reader, &err)
 
-	fmt.Println("streamLogs start for:", component)
+	if log.IsDebug() {
+		log.Debug("streamLogs start", "component", component)
+	}
 
 	var header = make([]byte, 8)
 	for {
@@ -182,7 +181,9 @@ func streamLogs(component string, wg *sync.WaitGroup, reader io.ReadCloser, out 
 			break
 		}
 	}
-	fmt.Println("streamLogs done for:", component)
+	if log.IsDebug() {
+		log.Debug("streamLogs done", "component", component)
+	}
 }
 
 func followComponent(componentNames map[string]bool, component string) bool {

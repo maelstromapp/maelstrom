@@ -48,8 +48,8 @@ func main() {
 		log.ProcessLogxiFormatEnv("happy,maxcol=120")
 	}
 
-	var revProxyPort = flag.Int("revProxyPort", 80, "Port used for reverse proxying")
-	var mgmtPort = flag.Int("mgmtPort", 8374, "Port used for management operations")
+	var publicPort = flag.Int("publicPort", 80, "Port used for public reverse proxying")
+	var privatePort = flag.Int("privatePort", 8374, "Port used for private routing and management operations")
 	var sqlDriver = flag.String("sqlDriver", "", "database/sql driver to use. If so, -sqlDSN is required")
 	var sqlDSN = flag.String("sqlDSN", "", "DSN for sql database")
 	flag.Parse()
@@ -64,39 +64,40 @@ func main() {
 	}
 
 	resolver := gateway.NewDbResolver(db)
-	handlerFactory, err := gateway.NewDockerHandlerFactory(dockerClient, resolver)
+	handlerFactory, err := gateway.NewDockerHandlerFactory(dockerClient, resolver, *privatePort)
 	if err != nil {
 		log.Error("maelstromd: cannot create handler factory", "err", err)
 		os.Exit(2)
 	}
-	gw := gateway.NewGateway(resolver, handlerFactory)
+	publicSvr := gateway.NewGateway(resolver, handlerFactory, true)
 
 	componentSubscribers := []v1.ComponentSubscriber{handlerFactory}
 
 	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
 	v1Impl := v1.NewV1(db, componentSubscribers)
 	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl)
-	mgmtMux := http.NewServeMux()
-	mgmtMux.Handle("/v1", &v1Server)
-
 	logsHandler := gateway.NewLogsHandler(dockerClient)
-	mgmtMux.Handle("/logs", logsHandler)
+
+	privateSvrMux := http.NewServeMux()
+	privateSvrMux.Handle("/_mael/v1", &v1Server)
+	privateSvrMux.Handle("/_mael/logs", logsHandler)
+	privateSvrMux.Handle("/", gateway.NewGateway(resolver, handlerFactory, false))
 
 	servers := []*http.Server{
 		{
-			Addr:         fmt.Sprintf(":%d", *revProxyPort),
+			Addr:         fmt.Sprintf(":%d", *publicPort),
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 600 * time.Second,
-			Handler:      gw,
+			Handler:      publicSvr,
 		},
 		{
-			Addr:        fmt.Sprintf(":%d", *mgmtPort),
+			Addr:        fmt.Sprintf(":%d", *privatePort),
 			ReadTimeout: 30 * time.Second,
-			Handler:     mgmtMux,
+			Handler:     privateSvrMux,
 		},
 	}
 
-	log.Info("maelstromd: starting HTTP servers", "gatewayPort", revProxyPort, "mgmtPort", mgmtPort)
+	log.Info("maelstromd: starting HTTP servers", "publicPort", publicPort, "privatePort", privatePort)
 	for _, s := range servers {
 		go mustStart(s)
 	}

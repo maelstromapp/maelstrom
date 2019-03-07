@@ -42,11 +42,19 @@ type Handler interface {
 // DockerHandlerFactory //
 //////////////////////////
 
-func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentResolver) (*DockerHandlerFactory, error) {
+func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentResolver,
+	privatePort int) (*DockerHandlerFactory, error) {
 	containers, err := listContainers(dockerClient)
 	if err != nil {
 		return nil, err
 	}
+
+	maelstromHost, err := resolveMaelstromHost(dockerClient)
+	if err != nil {
+		return nil, err
+	}
+	maelstromUrl := fmt.Sprintf("http://%s:%d", maelstromHost, privatePort)
+	log.Info("handler: creating DockerHandlerFactory", "maelstromUrl", maelstromUrl)
 
 	byComponentName := map[string]*LocalHandler{}
 	for _, c := range containers {
@@ -56,7 +64,7 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 			comp, err := resolver.ByName(name)
 			if err == nil {
 				if strconv.Itoa(int(comp.Version)) == verStr {
-					handler, err := NewLocalHandler(dockerClient, comp, c.ID)
+					handler, err := NewLocalHandler(dockerClient, comp, c.ID, maelstromUrl)
 					if err == nil {
 						byComponentName[name] = handler
 					} else {
@@ -74,6 +82,7 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 	return &DockerHandlerFactory{
 		dockerClient:    dockerClient,
 		byComponentName: byComponentName,
+		maelstromUrl:    maelstromUrl,
 		lock:            &sync.Mutex{},
 	}, nil
 }
@@ -81,6 +90,7 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 type DockerHandlerFactory struct {
 	dockerClient    *docker.Client
 	byComponentName map[string]*LocalHandler
+	maelstromUrl    string
 	lock            *sync.Mutex
 }
 
@@ -110,7 +120,7 @@ func (f *DockerHandlerFactory) GetHandlerAndRegisterRequest(c v1.Component) (Han
 		// start new container for component
 		var err error
 		log.Info("handler: creating handler", "component", c.Name, "ver", c.Version)
-		handler, err = NewLocalHandler(f.dockerClient, c, "")
+		handler, err = NewLocalHandler(f.dockerClient, c, "", f.maelstromUrl)
 		if err == nil {
 			// container started ok - store in map so we can re-use on future requests
 			f.byComponentName[c.Name] = handler
@@ -163,7 +173,8 @@ func (f *DockerHandlerFactory) stopHandler(h *LocalHandler) {
 // LocalHandler //
 //////////////////
 
-func NewLocalHandler(dockerClient *docker.Client, c v1.Component, containerId string) (*LocalHandler, error) {
+func NewLocalHandler(dockerClient *docker.Client, c v1.Component, containerId string,
+	maelstromUrl string) (*LocalHandler, error) {
 	handler := &LocalHandler{
 		dockerClient: dockerClient,
 		component:    c,
@@ -172,6 +183,7 @@ func NewLocalHandler(dockerClient *docker.Client, c v1.Component, containerId st
 		lock:         &sync.Mutex{},
 		stopped:      false,
 		lastReqTime:  time.Now(),
+		maelstromUrl: maelstromUrl,
 	}
 
 	if containerId != "" {
@@ -196,6 +208,7 @@ type LocalHandler struct {
 	lock         *sync.Mutex
 	lastReqTime  time.Time
 	stopped      bool
+	maelstromUrl string
 }
 
 func (h *LocalHandler) monitorHealthCheck(containerId string, healthCheckUrl *url.URL) {
@@ -204,7 +217,7 @@ func (h *LocalHandler) monitorHealthCheck(containerId string, healthCheckUrl *ur
 		seconds = 10
 	}
 	interval := time.Second * time.Duration(seconds)
-	log.Info("handler: monitorHealthCheck starting", "interval", interval)
+	log.Info("handler: monitorHealthCheck starting", "interval", interval.String())
 	for {
 		time.Sleep(interval)
 		h.lock.Lock()
@@ -228,7 +241,7 @@ func (h *LocalHandler) monitorIdle() {
 	}
 	idleDuration := time.Second * time.Duration(idleTimeout)
 	sleepDuration := idleDuration
-	log.Info("handler: monitorIdle starting", "idleDuration", idleDuration)
+	log.Info("handler: monitorIdle starting", "idleDuration", idleDuration.String())
 	for {
 		time.Sleep(sleepDuration)
 
@@ -241,7 +254,7 @@ func (h *LocalHandler) monitorIdle() {
 			sleepDuration := idleDuration - sinceLastReq
 			if sleepDuration <= 0 {
 				log.Info("handler: monitorIdle stopping idle container", "component", h.component.Name,
-					"lastReq", sinceLastReq)
+					"lastReq", sinceLastReq.String())
 				h.stopped = true
 				h.lock.Unlock()
 				h.DrainAndStop()
@@ -293,7 +306,7 @@ func (h *LocalHandler) ensureContainer() error {
 				"err", err.Error())
 		}
 
-		containerId, err := startContainer(h.dockerClient, h.component)
+		containerId, err := startContainer(h.dockerClient, h.component, h.maelstromUrl)
 		if err != nil {
 			return err
 		}
@@ -448,12 +461,12 @@ func printContainerLogs(dockerClient *docker.Client, containerId string) error {
 	return err
 }
 
-func startContainer(dockerClient *docker.Client, c v1.Component) (string, error) {
+func startContainer(dockerClient *docker.Client, c v1.Component, maelstromUrl string) (string, error) {
 	ctx := context.Background()
 	if c.Docker == nil {
 		return "", fmt.Errorf("c.Docker is nil")
 	}
-	config := toContainerConfig(c)
+	config := toContainerConfig(c, maelstromUrl)
 	hostConfig := toContainerHostConfig(c)
 	resp, err := dockerClient.ContainerCreate(ctx, config, hostConfig, nil, "")
 	if err != nil {
@@ -492,9 +505,14 @@ func stopContainer(dockerClient *docker.Client, containerId string, componentNam
 	return nil
 }
 
-func toContainerConfig(c v1.Component) *container.Config {
+func toContainerConfig(c v1.Component, maelstromUrl string) *container.Config {
 	return &container.Config{
 		Image: c.Docker.Image,
+		Env: []string{
+			fmt.Sprintf("MAELSTROM_PRIVATE_URL=%s", maelstromUrl),
+			fmt.Sprintf("MAELSTROM_COMPONENT_NAME=%s", c.Name),
+			fmt.Sprintf("MAELSTROM_COMPONENT_VERSION=%d", c.Version),
+		},
 		ExposedPorts: nat.PortSet{
 			nat.Port(strconv.Itoa(int(c.Docker.HttpPort)) + "/tcp"): struct{}{},
 		},
@@ -528,4 +546,28 @@ func toContainerHostConfig(c v1.Component) *container.HostConfig {
 			},
 		},
 	}
+}
+
+func resolveMaelstromHost(dockerClient *docker.Client) (string, error) {
+	// figure out docker network interface
+	host := "172.17.0.1"
+	nets, err := dockerClient.NetworkList(context.Background(), types.NetworkListOptions{})
+	if err != nil {
+		return "", err
+	}
+	networkToGateway := make(map[string]string)
+	for _, n := range nets {
+		if len(n.IPAM.Config) > 0 {
+			networkToGateway[n.Name] = n.IPAM.Config[0].Gateway
+		}
+	}
+	networkPref := []string{"docker_gwbridge", "bridge"}
+	for _, n := range networkPref {
+		gateway := networkToGateway[n]
+		if gateway != "" {
+			host = gateway
+			break
+		}
+	}
+	return host, nil
 }

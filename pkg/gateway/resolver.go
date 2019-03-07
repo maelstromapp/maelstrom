@@ -9,7 +9,7 @@ import (
 
 type ComponentResolver interface {
 	ByName(componentName string) (v1.Component, error)
-	ByHTTPRequest(req *http.Request) (v1.Component, error)
+	ByHTTPRequest(req *http.Request, public bool) (v1.Component, error)
 }
 
 func NewDbResolver(db v1.Db) *DbComponentResolver {
@@ -26,7 +26,16 @@ func (r *DbComponentResolver) ByName(componentName string) (v1.Component, error)
 	return r.db.GetComponent(componentName)
 }
 
-func (r *DbComponentResolver) ByHTTPRequest(req *http.Request) (v1.Component, error) {
+func (r *DbComponentResolver) ByHTTPRequest(req *http.Request, public bool) (v1.Component, error) {
+	// private gateway allows component resolution by name or HTTP event source config
+	// public gateway only routes by HTTP event source
+	if !public {
+		compName := req.Header.Get("MAELSTROM-COMPONENT")
+		if compName != "" {
+			return r.ByName(compName)
+		}
+	}
+
 	httpEventSources, err := allHttpEventSources(r.db)
 	if err != nil {
 		return v1.Component{}, err
