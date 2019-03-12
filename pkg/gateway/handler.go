@@ -63,15 +63,32 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 		if name != "" && verStr != "" {
 			comp, err := resolver.ByName(name)
 			if err == nil {
-				if strconv.Itoa(int(comp.Version)) == verStr {
-					handler, err := NewLocalHandler(dockerClient, comp, c.ID, maelstromUrl)
-					if err == nil {
-						byComponentName[name] = handler
-					} else {
-						log.Error("handler: cannot create handler", "component", name, "err", err)
+				var currentImageId string
+				image, err := getImageByNameStripRepo(dockerClient, comp.Docker.Image)
+				if err == nil {
+					if image != nil {
+						currentImageId = image.ID
 					}
 				} else {
-					log.Warn("handler: invalid version of component", "component", name, "containerId", c.ID)
+					log.Error("handler: cannot list images", "component", name, "err", err)
+				}
+
+				handler, err := NewLocalHandler(dockerClient, comp, c.ID, maelstromUrl)
+				if err == nil {
+					if c.ImageID != currentImageId {
+						log.Info("handler: stopping old image for component", "component", name, "containerId", c.ID,
+							"currentImageId", c.ImageID, "newImageId", currentImageId)
+						handler.DrainAndStop()
+					} else if strconv.Itoa(int(comp.Version)) != verStr {
+						log.Info("handler: stopping old image for component", "component", name, "containerId", c.ID,
+							"currentVersion", verStr, "newVersion", comp.Version)
+						handler.DrainAndStop()
+					} else {
+						// happy path - running container matches docker image ID and component version
+						byComponentName[name] = handler
+					}
+				} else {
+					log.Error("handler: cannot create handler", "component", name, "err", err)
 				}
 			} else {
 				log.Warn("handler: cannot load component", "component", name, "err", err.Error())
@@ -135,6 +152,18 @@ func (f *DockerHandlerFactory) GetHandlerAndRegisterRequest(c v1.Component) (Han
 		return nil, fmt.Errorf("handler: unable to register request: %v", err)
 	}
 	return handler, nil
+}
+
+func (f *DockerHandlerFactory) OnImageUpdated(msg common.ImageUpdatedMessage) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	for componentName, handler := range f.byComponentName {
+		if normalizeImageName(handler.component.Docker.Image) == msg.ImageName {
+			log.Info("handler: OnImageUpdated - stopping image for component", "component", componentName,
+				"imageName", msg.ImageName, "newImageId", msg.ImageId)
+			f.stopHandler(handler)
+		}
+	}
 }
 
 func (f *DockerHandlerFactory) OnComponentNotification(cn v1.ComponentNotification) {
@@ -448,6 +477,40 @@ func pullImage(dockerClient *docker.Client, c v1.Component) error {
 	return err
 }
 
+func getImageByNameStripRepo(dockerClient *docker.Client, imageName string) (*types.ImageSummary, error) {
+	img, err := getImageByName(dockerClient, imageName)
+	if err != nil {
+		return nil, err
+	}
+	if img == nil {
+		slashes := strings.Count(imageName, "/")
+		if slashes > 1 {
+			imageName = imageName[strings.Index(imageName, "/")+1:]
+		}
+		img, err = getImageByName(dockerClient, imageName)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return img, nil
+}
+
+func getImageByName(dockerClient *docker.Client, imageName string) (*types.ImageSummary, error) {
+	filter := filters.NewArgs()
+	filter.Add("reference", normalizeImageName(imageName))
+	log.Info("ImageList", "filter", filter)
+	images, err := dockerClient.ImageList(context.Background(), types.ImageListOptions{
+		Filters: filter,
+	})
+	if err == nil {
+		if len(images) > 0 {
+			return &images[0], nil
+		}
+		return nil, nil
+	}
+	return nil, err
+}
+
 func printContainerLogs(dockerClient *docker.Client, containerId string) error {
 	out, err := dockerClient.ContainerLogs(context.Background(), containerId, types.ContainerLogsOptions{
 		ShowStdout: true,
@@ -570,4 +633,11 @@ func resolveMaelstromHost(dockerClient *docker.Client) (string, error) {
 		}
 	}
 	return host, nil
+}
+
+func normalizeImageName(name string) string {
+	if !strings.Contains(name, ":") {
+		return name + ":latest"
+	}
+	return name
 }

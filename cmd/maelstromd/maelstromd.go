@@ -7,6 +7,7 @@ import (
 	"github.com/coopernurse/barrister-go"
 	docker "github.com/docker/docker/client"
 	"github.com/mgutz/logxi/v1"
+	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"gitlab.com/coopernurse/maelstrom/pkg/gateway"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"net/http"
@@ -102,17 +103,23 @@ func main() {
 		go mustStart(s)
 	}
 
+	cancelCtx, cancelFx := context.WithCancel(context.Background())
+	dockerMonitor := common.NewDockerImageMonitor(dockerClient, handlerFactory, cancelCtx)
+	dockerMonitor.RunAsync()
+
 	shutdownDone := make(chan struct{})
-	go HandleShutdownSignal(servers, shutdownDone)
+	go HandleShutdownSignal(servers, cancelFx, shutdownDone)
 	<-shutdownDone
 }
 
-func HandleShutdownSignal(svrs []*http.Server, shutdownDone chan struct{}) {
+func HandleShutdownSignal(svrs []*http.Server, cancelFx context.CancelFunc, shutdownDone chan struct{}) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
 	log.Info("maelstromd: received shutdown signal, stopping HTTP servers")
+
+	cancelFx()
 
 	for _, s := range svrs {
 		err := s.Shutdown(context.Background())
