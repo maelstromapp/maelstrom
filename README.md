@@ -21,6 +21,9 @@ make maelstromd
 # Create a component named 'hello'
 maelctl comp put --json='{"name":"hello", "docker": { "image": "coopernurse/go-hello-http", "httpPort": 8080, "httpHealthCheckPath": "/"}}'
 
+# Same as above but including a volume mount and some custom environment variables
+maelctl comp put --json='{"name":"hello", "docker": { "image": "coopernurse/go-hello-http", "httpPort": 8080, "httpHealthCheckPath": "/", "env": ["MY_ENV1=foo", "OTHER_VAR=baz"], "volumes": [{ "source": "/home/james/src/maelstrom/tmp/static", "target": "/static" }] }}'
+
 # Bind component to hostname: hello.example.org
 maelctl es put --json='{"name": "hello-web", "componentName": "hello", "http": { "hostname": "hello.example.org" } }'
 ```

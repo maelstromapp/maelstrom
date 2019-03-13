@@ -127,6 +127,31 @@ struct DockerComponent {
     // If component is not invoked within this duration then
     // the docker container is stopped and removed.  (default=300)
     idleTimeoutSeconds           int     [optional]
+
+    // List of environment variables to set when starting container
+    // Format:  NAME=VALUE
+    // NOTE: values starting with MAELSTROM_ will be ignored, as this
+    // prefix is reserved for maelstrom defined variables
+    env                      []string       [optional]
+
+    // List of filesystem mounts to bind to container
+    // Use we care, as you must ensure these paths exist on any host in the maelstrom cluster
+    volumes                  []VolumeMount  [optional]
+}
+
+struct VolumeMount {
+    // See: https://godoc.org/github.com/docker/docker/api/types/mount#Type
+    // default=bind
+    type          string  [optional]
+
+    // Path to mount point on host
+    source        string
+
+    // Path to mount inside container
+    target        string
+
+    // default=false
+    readOnly      bool    [optional]
 }
 
 struct EventSource {

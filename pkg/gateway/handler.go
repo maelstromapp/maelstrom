@@ -6,6 +6,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/mount"
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/mgutz/logxi/v1"
@@ -569,13 +570,20 @@ func stopContainer(dockerClient *docker.Client, containerId string, componentNam
 }
 
 func toContainerConfig(c v1.Component, maelstromUrl string) *container.Config {
+
+	env := make([]string, 0)
+	for _, e := range c.Docker.Env {
+		if !strings.HasPrefix(e, "MAELSTROM_") {
+			env = append(env, e)
+		}
+	}
+	env = append(env, fmt.Sprintf("MAELSTROM_PRIVATE_URL=%s", maelstromUrl))
+	env = append(env, fmt.Sprintf("MAELSTROM_COMPONENT_NAME=%s", c.Name))
+	env = append(env, fmt.Sprintf("MAELSTROM_COMPONENT_VERSION=%d", c.Version))
+
 	return &container.Config{
 		Image: c.Docker.Image,
-		Env: []string{
-			fmt.Sprintf("MAELSTROM_PRIVATE_URL=%s", maelstromUrl),
-			fmt.Sprintf("MAELSTROM_COMPONENT_NAME=%s", c.Name),
-			fmt.Sprintf("MAELSTROM_COMPONENT_VERSION=%d", c.Version),
-		},
+		Env:   env,
 		ExposedPorts: nat.PortSet{
 			nat.Port(strconv.Itoa(int(c.Docker.HttpPort)) + "/tcp"): struct{}{},
 		},
@@ -588,27 +596,42 @@ func toContainerConfig(c v1.Component, maelstromUrl string) *container.Config {
 }
 
 func toContainerHostConfig(c v1.Component) *container.HostConfig {
-	dindHost := os.Getenv("DIND_HOST")
-	if dindHost == "" {
-		return nil
+	hc := &container.HostConfig{}
+
+	// Set volume mounts
+	if len(c.Docker.Volumes) > 0 {
+		hc.Mounts = make([]mount.Mount, 0)
+		for _, v := range c.Docker.Volumes {
+			if v.Type == "" {
+				v.Type = "bind"
+			}
+			hc.Mounts = append(hc.Mounts, mount.Mount{
+				Type:     mount.Type(v.Type),
+				Source:   v.Source,
+				Target:   v.Target,
+				ReadOnly: v.ReadOnly,
+			})
+		}
 	}
 
 	// Set HostConfig so that we can route to host when using docker-in-docker
 	// See: https://stackoverflow.com/questions/44830663/docker-container-networking-with-docker-in-docker
-
-	portStr := strconv.Itoa(int(c.Docker.HttpPort))
-	port := nat.Port(portStr + "/tcp")
-	bindPort := atomic.AddInt64(&hostBindPort, 1)
-	return &container.HostConfig{
-		PortBindings: nat.PortMap{
+	dindHost := os.Getenv("DIND_HOST")
+	if dindHost != "" {
+		portStr := strconv.Itoa(int(c.Docker.HttpPort))
+		port := nat.Port(portStr + "/tcp")
+		bindPort := atomic.AddInt64(&hostBindPort, 1)
+		hc.PortBindings = nat.PortMap{
 			port: []nat.PortBinding{
 				{
 					HostIP:   "0.0.0.0",
 					HostPort: strconv.Itoa(int(bindPort)),
 				},
 			},
-		},
+		}
 	}
+
+	return hc
 }
 
 func resolveMaelstromHost(dockerClient *docker.Client) (string, error) {
