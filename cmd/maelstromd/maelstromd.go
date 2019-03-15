@@ -53,6 +53,7 @@ func main() {
 	var privatePort = flag.Int("privatePort", 8374, "Port used for private routing and management operations")
 	var sqlDriver = flag.String("sqlDriver", "", "database/sql driver to use. If so, -sqlDSN is required")
 	var sqlDSN = flag.String("sqlDSN", "", "DSN for sql database")
+	var cronRefreshSec = flag.Int("cronRefreshSec", 60, "Interval to refresh cron rules from db")
 	flag.Parse()
 
 	log.Info("maelstromd: starting")
@@ -79,10 +80,11 @@ func main() {
 	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl)
 	logsHandler := gateway.NewLogsHandler(dockerClient)
 
+	privateGateway := gateway.NewGateway(resolver, handlerFactory, false)
 	privateSvrMux := http.NewServeMux()
 	privateSvrMux.Handle("/_mael/v1", &v1Server)
 	privateSvrMux.Handle("/_mael/logs", logsHandler)
-	privateSvrMux.Handle("/", gateway.NewGateway(resolver, handlerFactory, false))
+	privateSvrMux.Handle("/", privateGateway)
 
 	servers := []*http.Server{
 		{
@@ -106,6 +108,9 @@ func main() {
 	cancelCtx, cancelFx := context.WithCancel(context.Background())
 	dockerMonitor := common.NewDockerImageMonitor(dockerClient, handlerFactory, cancelCtx)
 	dockerMonitor.RunAsync()
+
+	cronSvc := gateway.NewCronService(db, privateGateway, cancelCtx, time.Second*time.Duration(*cronRefreshSec))
+	go cronSvc.Run()
 
 	shutdownDone := make(chan struct{})
 	go HandleShutdownSignal(servers, cancelFx, shutdownDone)

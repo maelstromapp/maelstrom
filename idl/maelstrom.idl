@@ -174,6 +174,7 @@ struct EventSource {
 
     // One and only one event source type may be provided
     http       HttpEventSource   [optional]
+    cron       CronEventSource   [optional]
 }
 
 struct HttpEventSource {
@@ -183,8 +184,34 @@ struct HttpEventSource {
     pathPrefix    string    [optional]
 }
 
+struct CronEventSource {
+    // UNIX-like cron expression specifying when rule should fire
+    // For format rules see: https://godoc.org/github.com/robfig/cron
+    schedule      string
+
+    // Request to mak
+    http          CronHttpRequest
+}
+
+struct CronHttpRequest {
+    // HTTP method: GET, POST, PUT, DELETE
+    method        string
+
+    // Request path, optionally including a query string
+    // If a query string is included, make sure the parameters are
+    // properly URL encoded as it will be used verbatim
+    path          string
+
+    // Request body (for POST, PUT)
+    data          string       [optional]
+
+    // HTTP headers
+    headers       []NameValue  [optional]
+}
+
 enum EventSourceType {
     http
+    cron
 }
 
 struct RemoveComponentInput {
@@ -308,4 +335,9 @@ struct ListEventSourcesOutput {
     // Client may make another ListEventSources() request setting this
     // as ListEventSourcesInput.nextToken
     nextToken   string  [optional]
+}
+
+struct NameValue {
+    name   string
+    value  string
 }

@@ -157,13 +157,15 @@ func eventSourceLs(args docopt.Opts, svc v1.MaelstromService) {
 		for _, es := range output.EventSources {
 			if first {
 				first = false
-				fmt.Printf("%-20s  %-20s  %-30s  %-5s  %-10s\n",
-					"Event Source", "Component", "HTTP", "Ver", "Last Modified")
-				fmt.Printf("------------------------------------------------------------------------------------------------\n")
+				fmt.Printf("%-20s  %-20s  %-5s  %-30s  %-5s  %-10s\n",
+					"Event Source", "Component", "Type", "Description", "Ver", "Last Modified")
+				fmt.Printf("--------------------------------------------------------------------------------------------------------\n")
 			}
 			mod := humanize.Time(time.Unix(0, es.ModifiedAt*1e6))
-			httpInfo := ""
+			esType := "??"
+			description := "??"
 			if es.Http != nil {
+				esType = "http"
 				parts := make([]string, 0)
 				if es.Http.Hostname != "" {
 					parts = append(parts, es.Http.Hostname)
@@ -171,10 +173,13 @@ func eventSourceLs(args docopt.Opts, svc v1.MaelstromService) {
 				if es.Http.PathPrefix != "" {
 					parts = append(parts, es.Http.PathPrefix)
 				}
-				httpInfo = strings.Join(parts, "/")
+				description = strings.Join(parts, "/")
+			} else if es.Cron != nil {
+				esType = "cron"
+				description = fmt.Sprintf("sched='%s' path=%s", es.Cron.Schedule, es.Cron.Http.Path)
 			}
-			fmt.Printf("%-20s  %-20s  %-30s  %-5d  %-13s\n", trunc(es.Name, 20),
-				trunc(es.ComponentName, 20), trunc(httpInfo, 30), es.Version, mod)
+			fmt.Printf("%-20s  %-20s  %-5s  %-30s  %-5d  %-13s\n", trunc(es.Name, 20),
+				trunc(es.ComponentName, 20), esType, trunc(description, 30), es.Version, mod)
 		}
 		nextToken = output.NextToken
 		if output.NextToken == "" {

@@ -171,14 +171,17 @@ func (d *SqlDb) PutEventSource(eventSource EventSource) (int64, error) {
 		return 0, fmt.Errorf("PutEventSource unable to marshal JSON: %v", err)
 	}
 
+	eventType := string(getEventSourceType(eventSource))
+
 	if previousVersion == 0 {
 		err = d.insertRow("eventsource", eventSource.Name, eventSource,
-			[]string{"name", "componentName", "version", "createdAt", "modifiedAt", "json"},
-			[]interface{}{eventSource.Name, eventSource.ComponentName, 1, now, now, jsonVal})
+			[]string{"name", "componentName", "type", "version", "createdAt", "modifiedAt", "json"},
+			[]interface{}{eventSource.Name, eventSource.ComponentName, eventType, 1, now, now, jsonVal})
 	} else {
 		err = d.updateRow("eventsource", eventSource.Name, previousVersion, map[string]interface{}{
 			"modifiedAt":    now,
 			"componentName": eventSource.ComponentName,
+			"type":          eventType,
 			"json":          jsonVal,
 			"version":       eventSource.Version,
 		})
@@ -206,6 +209,9 @@ func (d *SqlDb) ListEventSources(input ListEventSourcesInput) (ListEventSourcesO
 	}
 	if input.ComponentName != "" {
 		q = q.Where(squirrel.Eq{"componentName": input.ComponentName})
+	}
+	if input.EventSourceType != "" {
+		q = q.Where(squirrel.Eq{"type": string(input.EventSourceType)})
 	}
 
 	eventSources := make([]EventSource, 0)
@@ -330,6 +336,11 @@ func (d *SqlDb) Migrate() error {
                         modifiedAt     bigint not null,
                         json           mediumblob not null
                      )`,
+		},
+		{
+			Version:     3,
+			Description: "Add type column to eventsource table",
+			Script:      `alter table eventsource add type varchar(30)`,
 		},
 	}
 	darwinDriver := darwin.NewGenericDriver(d.db, migrationDialect(d.driver))

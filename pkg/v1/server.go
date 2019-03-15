@@ -156,7 +156,7 @@ func (v *V1) PutEventSource(input PutEventSourceInput) (PutEventSourceOutput, er
 	}
 
 	// * 1001 - No event source sub-type is provided
-	if input.EventSource.Http == nil {
+	if input.EventSource.Http == nil && input.EventSource.Cron == nil {
 		return PutEventSourceOutput{}, newRpcErr(1001, "No event source sub-type provided (e.g. http)")
 	}
 
@@ -164,6 +164,16 @@ func (v *V1) PutEventSource(input PutEventSourceInput) (PutEventSourceOutput, er
 	if input.EventSource.Http != nil {
 		if input.EventSource.Http.Hostname == "" && input.EventSource.Http.PathPrefix == "" {
 			return PutEventSourceOutput{}, newRpcErr(1001, "http.hostname or http.pathPrefix must be provided")
+		}
+	}
+
+	// * 1001 - input.cron is provided but has no method or path
+	if input.EventSource.Cron != nil {
+		if input.EventSource.Cron.Http.Method == "" {
+			return PutEventSourceOutput{}, newRpcErr(1001, "cron.http.method must be provided")
+		}
+		if input.EventSource.Cron.Http.Path == "" {
+			return PutEventSourceOutput{}, newRpcErr(1001, "cron.http.path must be provided")
 		}
 	}
 

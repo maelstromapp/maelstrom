@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
@@ -24,6 +25,8 @@ const testGatewayUrl = "http://127.0.0.1:8000"
 const testGatewayPort = 8000
 
 var defaultComponent v1.Component
+var cronService *CronService
+var contextCancelFx func()
 
 func resetDefaults() {
 	defaultComponent = v1.Component{
@@ -36,6 +39,13 @@ func resetDefaults() {
 			HttpHealthCheckSeconds:      2,
 			HttpStartHealthCheckSeconds: 60,
 		},
+	}
+}
+
+func stopCronService() {
+	if cronService != nil {
+		contextCancelFx()
+		cronService = nil
 	}
 }
 
@@ -71,6 +81,11 @@ func newFixture(g *G, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fixture {
 	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, testGatewayPort)
 	g.Assert(err == nil).IsTrue(fmt.Sprintf("NewDockerHandlerFactory err != nil: %v", err))
 
+	gateway := NewGateway(resolver, hFactory, false)
+	cancelCtx, cancelFx := context.WithCancel(context.Background())
+	contextCancelFx = cancelFx
+	cronService = NewCronService(sqlDb, gateway, cancelCtx, time.Second)
+
 	return &Fixture{
 		g:              g,
 		dockerClient:   dockerClient,
@@ -88,6 +103,7 @@ type Fixture struct {
 	component        v1.Component
 	hFactory         *DockerHandlerFactory
 	v1Impl           *v1.V1
+	cronService      *CronService
 	nextContainerId  string
 	beforeContainers []types.Container
 	successfulReqs   *int64
@@ -147,6 +163,31 @@ func (f *Fixture) makeHttpRequest(url string) *httptest.ResponseRecorder {
 		return nil
 	}
 	return nil
+}
+
+func (f *Fixture) WhenCronServiceStarted() *Fixture {
+	go cronService.Run()
+	return f
+}
+
+func (f *Fixture) WhenCronEventSourceRegistered(schedule string) *Fixture {
+	_, err := f.v1Impl.PutEventSource(v1.PutEventSourceInput{
+		EventSource: v1.EventSource{
+			Name:          "cron-" + defaultComponent.Name,
+			ComponentName: defaultComponent.Name,
+			Version:       0,
+			ModifiedAt:    0,
+			Cron: &v1.CronEventSource{
+				Schedule: schedule,
+				Http: v1.CronHttpRequest{
+					Method: "GET",
+					Path:   "/count",
+				},
+			},
+		},
+	})
+	f.g.Assert(err == nil).IsTrue(fmt.Sprintf("cron PutEventSource err != nil: %v", err))
+	return f
 }
 
 func (f *Fixture) WhenHTTPRequestReceived() *Fixture {
@@ -216,6 +257,11 @@ func (f *Fixture) WhenComponentIsUpdated() *Fixture {
 			Version: f.component.Version + 1,
 		},
 	})
+	return f
+}
+
+func (f *Fixture) AndTimePasses(duration time.Duration) *Fixture {
+	time.Sleep(duration)
 	return f
 }
 

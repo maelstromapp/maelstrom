@@ -21,5 +21,6 @@ require (
 	github.com/mgutz/logxi v0.0.0-20161027140823-aebf8a7d67ab
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/pkg/errors v0.8.0 // indirect
+	github.com/robfig/cron v0.0.0-20180505203441-b41be1df6967
 	golang.org/x/net v0.0.0-20181217023233-e147a9138326 // indirect
 )
