@@ -137,6 +137,11 @@ struct DockerComponent {
     // List of filesystem mounts to bind to container
     // Use we care, as you must ensure these paths exist on any host in the maelstrom cluster
     volumes                  []VolumeMount  [optional]
+
+    // network name to bind container to - useful if using docker compose
+    // locally with non-maelstrom resources (e.g. a database server) and you
+    // wish to address those resources by name on the docker overlay network
+    networkName              string         [optional]
 }
 
 struct VolumeMount {

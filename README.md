@@ -24,6 +24,9 @@ maelctl comp put --json='{"name":"hello", "docker": { "image": "coopernurse/go-h
 # Same as above but including a volume mount and some custom environment variables
 maelctl comp put --json='{"name":"hello", "docker": { "image": "coopernurse/go-hello-http", "httpPort": 8080, "httpHealthCheckPath": "/", "env": ["MY_ENV1=foo", "OTHER_VAR=baz"], "volumes": [{ "source": "/home/james/src/maelstrom/tmp/static", "target": "/static" }] }}'
 
+# Or bind a component to a specific network
+maelctl comp put --json='{"name":"hello-compose", "docker": { "image": "coopernurse/go-hello-http", "httpPort": 8080, "httpHealthCheckPath": "/", "networkName": "composetest_default"}}'
+
 # Bind component to hostname: hello.example.org
 maelctl es put --json='{"name": "hello-web", "componentName": "hello", "http": { "hostname": "hello.example.org" } }'
 ```

@@ -5,6 +5,7 @@ GO111MODULE = on
 
 test:
 	scripts/gofmt_check.sh
+	rm -f pkg/v1/test.db pkg/gateway/test.db
 	go test ./...
 	errcheck -ignore 'fmt:[FS]?[Pp]rint*' ./...
 

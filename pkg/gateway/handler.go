@@ -367,6 +367,16 @@ func (h *LocalHandler) initReverseProxy() error {
 		Host:   "",
 		Path:   "",
 	}
+
+	var ipAddr string
+	var port string
+
+	for _, endpoint := range cont.NetworkSettings.Networks {
+		if endpoint.IPAddress != "" {
+			ipAddr = endpoint.IPAddress
+			break
+		}
+	}
 	for p, portMap := range cont.NetworkSettings.Ports {
 		k := string(p)
 		if strings.HasSuffix(k, "/tcp") {
@@ -375,10 +385,14 @@ func (h *LocalHandler) initReverseProxy() error {
 				target.Host = dindHost + ":" + portMap[0].HostPort
 			} else {
 				// Normal mode where we can route directly to the container's IP addr
-				target.Host = cont.NetworkSettings.IPAddress + ":" + k[0:strings.Index(k, "/")]
+				port = k[0:strings.Index(k, "/")]
 			}
 			break
 		}
+	}
+
+	if target.Host == "" && ipAddr != "" && port != "" {
+		target.Host = ipAddr + ":" + port
 	}
 
 	if target.Host == "" {
@@ -413,10 +427,12 @@ func (h *LocalHandler) DrainAndStop() {
 
 	h.stopped = true
 	if h.containerId != "" {
-		h.requestWG.Wait()
-		t, ok := h.proxy.Transport.(*http.Transport)
-		if ok {
-			t.CloseIdleConnections()
+		if h.proxy != nil {
+			h.requestWG.Wait()
+			t, ok := h.proxy.Transport.(*http.Transport)
+			if ok {
+				t.CloseIdleConnections()
+			}
 		}
 		err := stopContainer(h.dockerClient, h.containerId, h.component.Name, h.component.Version)
 		if err != nil {
@@ -629,6 +645,10 @@ func toContainerHostConfig(c v1.Component) *container.HostConfig {
 				},
 			},
 		}
+	}
+
+	if c.Docker.NetworkName != "" {
+		hc.NetworkMode = container.NetworkMode(c.Docker.NetworkName)
 	}
 
 	return hc
