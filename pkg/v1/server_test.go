@@ -24,7 +24,7 @@ func createV1() (*V1, *SqlDb) {
 	panicOnErr(sqlDb.Migrate())
 	panicOnErr(sqlDb.DeleteAll())
 
-	return NewV1(sqlDb, nil), sqlDb
+	return NewV1(sqlDb, nil, nil), sqlDb
 }
 
 func TestComponent(t *testing.T) {

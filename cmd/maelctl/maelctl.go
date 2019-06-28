@@ -2,17 +2,21 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/coopernurse/barrister-go"
 	"github.com/docopt/docopt-go"
 	"github.com/dustin/go-humanize"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
+	"gitlab.com/coopernurse/maelstrom/pkg/config"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
+	"gitlab.com/coopernurse/maelstrom/pkg/vm"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -37,6 +41,80 @@ func readJSON(args docopt.Opts, target interface{}) {
 	}
 	err = json.Unmarshal(data, target)
 	checkErr(err, "Unable to parse JSON")
+}
+
+func loadConfig(args docopt.Opts) config.Config {
+	envFile := argStr(args, "--env-file")
+	if envFile != "" {
+		err := config.FileToEnv(envFile)
+		checkErr(err, "Failed to parse environment config from file: "+envFile)
+	}
+	cfg, err := config.FromEnv()
+	checkErr(err, "Failed to initialize config")
+	return cfg
+}
+
+func createClusterAdapter(cfg config.Config, ctx context.Context) vm.Adapter {
+	if cfg.DigitalOcean != nil && cfg.DigitalOcean.AccessToken != "" {
+		return vm.NewDOAdapter(cfg.DigitalOcean.AccessToken, &ctx)
+	}
+	fmt.Printf("ERROR: no cluster adapter configured\n")
+	os.Exit(1)
+	return nil
+}
+
+func clusterCreate(args docopt.Opts, ctx context.Context) {
+	outDir := argStr(args, "<outdir>")
+	cfg := loadConfig(args)
+	adapter := createClusterAdapter(cfg, ctx)
+	options := vm.CreateClusterOptions{
+		SSHPublicKeyFile:  filepath.Join(outDir, fmt.Sprintf("%s_ssh_public", cfg.Cluster.Name)),
+		SSHPrivateKeyFile: filepath.Join(outDir, fmt.Sprintf("%s_ssh_private.pem", cfg.Cluster.Name)),
+	}
+	fmt.Printf("Creating cluster. adapter=%s name=%s\n", adapter.Name(), cfg.Cluster.Name)
+	out, err := vm.CreateCluster(cfg, options, adapter)
+	checkErr(err, "CreateCluster failed for adapter: "+adapter.Name())
+	fmt.Printf("Created cluster. Root VM id=%s publicIp=%s privateIp=%s\n", out.RootVM.Id,
+		out.RootVM.PublicIpAddr, out.RootVM.PrivateIpAddr)
+}
+
+func clusterDestroy(args docopt.Opts, ctx context.Context) {
+
+}
+
+func clusterInfo(args docopt.Opts, ctx context.Context) {
+	cfg := loadConfig(args)
+	adapter := createClusterAdapter(cfg, ctx)
+	info, err := adapter.GetClusterInfo(cfg)
+	checkErr(err, "GetClusterInfo failed for adapter: "+adapter.Name())
+	fmt.Printf("Cluster name: %s\n", info.ClusterName)
+	if info.LoadBalancer == nil {
+		fmt.Println("No load balancer")
+	} else {
+		fmt.Println("Load balancer:")
+		if info.LoadBalancer.PublicIpAddr != "" {
+			fmt.Printf("  Public IP address: %s\n", info.LoadBalancer.PublicIpAddr)
+		}
+		if info.LoadBalancer.Hostname != "" {
+			fmt.Printf("  Hostname: %s\n", info.LoadBalancer.Hostname)
+		}
+	}
+	if len(info.VMs) == 0 {
+		fmt.Println("No Virtual machines")
+	} else {
+		fmt.Println("Virtual machines:")
+		for _, v := range info.VMs {
+			created := v.CreatedAt.Format("2006-01-02 15:04")
+			fmt.Printf("  publicIp=%s createdAt=%s id=%s\n", v.PublicIpAddr, created, v.Id)
+		}
+	}
+	if len(info.Meta) > 0 {
+		fmt.Println("Meta:")
+		keys := common.SortedMapKeys(info.Meta)
+		for _, k := range keys {
+			fmt.Printf("  %s=%s\n", k, info.Meta[k])
+		}
+	}
 }
 
 func componentPut(args docopt.Opts, svc v1.MaelstromService) {
@@ -277,6 +355,9 @@ func main() {
 	usage := `maelctl - Maelstrom Command Line Tool
 
 Usage:
+  maelctl cluster create [--out=<outdir>] [--env-file=<envfile>]
+  maelctl cluster destroy [--env-file=<envfile>]
+  maelctl cluster info [--env-file=<envfile>]
   maelctl comp put [--file=<file>] [--json=<json>]
   maelctl comp ls [--prefix=<prefix>]
   maelctl comp rm <name>
@@ -298,7 +379,13 @@ Usage:
 	apiUrl := fmt.Sprintf("%s/_mael/v1", baseUrl)
 	svc := newMaelstromServiceClient(apiUrl)
 
-	if argBool(args, "comp") && argBool(args, "put") {
+	if argBool(args, "cluster") && argBool(args, "create") {
+		clusterCreate(args, context.Background())
+	} else if argBool(args, "cluster") && argBool(args, "destroy") {
+		clusterDestroy(args, context.Background())
+	} else if argBool(args, "cluster") && argBool(args, "info") {
+		clusterInfo(args, context.Background())
+	} else if argBool(args, "comp") && argBool(args, "put") {
 		componentPut(args, svc)
 	} else if argBool(args, "comp") && argBool(args, "ls") {
 		componentLs(args, svc)

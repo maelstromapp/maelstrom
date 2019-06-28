@@ -3,6 +3,7 @@ package common
 import (
 	"bytes"
 	"io"
+	"sort"
 )
 
 func CheckClose(c io.Closer, err *error) {
@@ -10,6 +11,15 @@ func CheckClose(c io.Closer, err *error) {
 	if *err == nil {
 		*err = cerr
 	}
+}
+
+func SortedMapKeys(m map[string]string) []string {
+	keys := make([]string, 0)
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // dropCR drops a terminal \r from the data.

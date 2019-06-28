@@ -27,11 +27,11 @@ func TestCron(t *testing.T) {
 		})
 
 		g.It("Starts container when cron fires", func() {
+			g.Timeout(20 * time.Second)
 			GivenNoMaelstromContainers(g, dockerClient).
 				WhenCronEventSourceRegistered("* * * * * *").
 				WhenCronServiceStarted().
-				AndTimePasses(time.Second * 4).
-				ThenContainerIsStarted()
+				ThenContainerStartsWithin(15 * time.Second)
 		})
 	})
 }

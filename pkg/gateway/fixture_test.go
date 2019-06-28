@@ -77,7 +77,7 @@ func newDb(g *G) *v1.SqlDb {
 
 func newFixture(g *G, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fixture {
 	successfulReqs := int64(0)
-	resolver := NewDbResolver(sqlDb)
+	resolver := NewDbResolver(sqlDb, nil)
 	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, testGatewayPort)
 	g.Assert(err == nil).IsTrue(fmt.Sprintf("NewDockerHandlerFactory err != nil: %v", err))
 
@@ -90,7 +90,7 @@ func newFixture(g *G, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fixture {
 		g:              g,
 		dockerClient:   dockerClient,
 		successfulReqs: &successfulReqs,
-		v1Impl:         v1.NewV1(sqlDb, nil),
+		v1Impl:         v1.NewV1(sqlDb, nil, nil),
 		hFactory:       hFactory,
 		component:      defaultComponent,
 		asyncReqWG:     &sync.WaitGroup{},
@@ -262,6 +262,18 @@ func (f *Fixture) WhenComponentIsUpdated() *Fixture {
 
 func (f *Fixture) AndTimePasses(duration time.Duration) *Fixture {
 	time.Sleep(duration)
+	return f
+}
+
+func (f *Fixture) ThenContainerStartsWithin(timeout time.Duration) *Fixture {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if f.testImageContainerExists() {
+			return f
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	f.g.Fail("testImage container did not start before deadline elapsed")
 	return f
 }
 

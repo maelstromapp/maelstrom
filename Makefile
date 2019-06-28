@@ -22,7 +22,7 @@ maelctl:
 	go build -o dist/maelctl cmd/maelctl/*.go
 
 maelstromd:
-	go build -o dist/maelstromd cmd/maelstromd/*.go
+	go build -o dist/maelstromd --tags "libsqlite3 linux" cmd/maelstromd/*.go
 
 idl:
 	barrister idl/maelstrom.idl | idl2go -i -p v1 -d pkg
@@ -32,3 +32,7 @@ run-maelstromd:
 	mkdir -p tmp
 	./dist/maelstromd -publicPort 8008 -sqlDriver sqlite3 \
 	    -sqlDSN 'file:./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY' &
+
+copy-to-s3:
+	aws s3 cp --acl public-read ./dist/maelstromd s3://bitmech-west2/maelstrom/latest/maelstromd
+	aws s3 cp --acl public-read ./dist/maelctl s3://bitmech-west2/maelstrom/latest/maelctl

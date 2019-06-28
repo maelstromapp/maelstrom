@@ -7,6 +7,7 @@ import (
 	"github.com/coopernurse/barrister-go"
 	docker "github.com/docker/docker/client"
 	"github.com/mgutz/logxi/v1"
+	"gitlab.com/coopernurse/maelstrom/pkg/cert"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"gitlab.com/coopernurse/maelstrom/pkg/gateway"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
@@ -50,6 +51,7 @@ func main() {
 	}
 
 	var publicPort = flag.Int("publicPort", 80, "Port used for public reverse proxying")
+	var publicHTTPSPort = flag.Int("publicHTTPSPort", 443, "HTTPS Port used for public reverse proxying")
 	var privatePort = flag.Int("privatePort", 8374, "Port used for private routing and management operations")
 	var sqlDriver = flag.String("sqlDriver", "", "database/sql driver to use. If so, -sqlDSN is required")
 	var sqlDSN = flag.String("sqlDSN", "", "DSN for sql database")
@@ -65,18 +67,23 @@ func main() {
 		os.Exit(2)
 	}
 
-	resolver := gateway.NewDbResolver(db)
+	// to use its certificates and solve the TLS-ALPN challenge,
+	// you can get a TLS config to use in a TLS listener!
+	certWrapper := initCertMagic()
+
+	resolver := gateway.NewDbResolver(db, certWrapper)
 	handlerFactory, err := gateway.NewDockerHandlerFactory(dockerClient, resolver, *privatePort)
 	if err != nil {
 		log.Error("maelstromd: cannot create handler factory", "err", err)
 		os.Exit(2)
 	}
+
 	publicSvr := gateway.NewGateway(resolver, handlerFactory, true)
 
 	componentSubscribers := []v1.ComponentSubscriber{handlerFactory}
 
 	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
-	v1Impl := v1.NewV1(db, componentSubscribers)
+	v1Impl := v1.NewV1(db, componentSubscribers, certWrapper)
 	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl)
 	logsHandler := gateway.NewLogsHandler(dockerClient)
 
@@ -86,24 +93,35 @@ func main() {
 	privateSvrMux.Handle("/_mael/logs", logsHandler)
 	privateSvrMux.Handle("/", privateGateway)
 
-	servers := []*http.Server{
-		{
-			Addr:         fmt.Sprintf(":%d", *publicPort),
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 600 * time.Second,
-			Handler:      publicSvr,
-		},
-		{
-			Addr:        fmt.Sprintf(":%d", *privatePort),
-			ReadTimeout: 30 * time.Second,
-			Handler:     privateSvrMux,
-		},
+	var servers []*http.Server
+
+	if certWrapper == nil {
+		servers = []*http.Server{
+			{
+				Addr:         fmt.Sprintf(":%d", *publicPort),
+				ReadTimeout:  30 * time.Second,
+				WriteTimeout: 600 * time.Second,
+				Handler:      publicSvr,
+			},
+		}
+		go mustStart(servers[0])
+	} else {
+		servers, err = certWrapper.Start(publicSvr, *publicPort, *publicHTTPSPort)
+		if err != nil {
+			log.Error("maelstromd: cannot start public server", "err", err)
+			os.Exit(2)
+		}
 	}
 
-	log.Info("maelstromd: starting HTTP servers", "publicPort", publicPort, "privatePort", privatePort)
-	for _, s := range servers {
-		go mustStart(s)
+	privateSvr := &http.Server{
+		Addr:        fmt.Sprintf(":%d", *privatePort),
+		ReadTimeout: 30 * time.Second,
+		Handler:     privateSvrMux,
 	}
+	go mustStart(privateSvr)
+	servers = append(servers, privateSvr)
+
+	log.Info("maelstromd: starting HTTP servers", "publicPort", publicPort, "privatePort", privatePort)
 
 	cancelCtx, cancelFx := context.WithCancel(context.Background())
 	dockerMonitor := common.NewDockerImageMonitor(dockerClient, handlerFactory, cancelCtx)
@@ -134,4 +152,17 @@ func HandleShutdownSignal(svrs []*http.Server, cancelFx context.CancelFunc, shut
 	}
 	log.Info("maelstromd: HTTP servers shutdown gracefully")
 	close(shutdownDone)
+}
+
+func initCertMagic() *cert.CertMagicWrapper {
+	email := os.Getenv("LETSENCRYPT_EMAIL")
+	if email == "" {
+		return nil
+	}
+
+	log.Info("malestromd: letsencrypt enabled", "email", email)
+
+	return cert.NewCertMagicWrapper(cert.CertMagicOptions{
+		Email: email,
+	})
 }

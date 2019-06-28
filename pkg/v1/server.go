@@ -3,6 +3,7 @@ package v1
 import (
 	"github.com/coopernurse/barrister-go"
 	"github.com/mgutz/logxi/v1"
+	"gitlab.com/coopernurse/maelstrom/pkg/cert"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"regexp"
 	"strings"
@@ -39,16 +40,18 @@ func nameValid(errPrefix string, name string) (string, error) {
 	return name, nil
 }
 
-func NewV1(db Db, componentSubscribers []ComponentSubscriber) *V1 {
+func NewV1(db Db, componentSubscribers []ComponentSubscriber, certWrapper *cert.CertMagicWrapper) *V1 {
 	return &V1{
 		db:                   db,
 		componentSubscribers: componentSubscribers,
+		certWrapper:          certWrapper,
 	}
 }
 
 type V1 struct {
 	db                   Db
 	componentSubscribers []ComponentSubscriber
+	certWrapper          *cert.CertMagicWrapper
 }
 
 func (v *V1) onError(code ErrorCode, msg string, err error) error {
@@ -189,6 +192,10 @@ func (v *V1) PutEventSource(input PutEventSourceInput) (PutEventSourceOutput, er
 	newVersion, err := v.db.PutEventSource(input.EventSource)
 	if err != nil {
 		return PutEventSourceOutput{}, v.transformPutError("PutEventSource", err)
+	}
+
+	if input.EventSource.Http != nil && v.certWrapper != nil {
+		v.certWrapper.AddHost(input.EventSource.Http.Hostname)
 	}
 
 	return PutEventSourceOutput{Name: name, Version: newVersion}, nil

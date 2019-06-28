@@ -21,6 +21,11 @@ type Gateway struct {
 }
 
 func (g *Gateway) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	if req.RequestURI == "/_mael_health_check" {
+		respondText(rw, http.StatusOK, "OK")
+		return
+	}
+
 	comp, err := g.compResolver.ByHTTPRequest(req, g.public)
 	if err != nil {
 		if err == v1.NotFound {

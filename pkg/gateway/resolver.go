@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"fmt"
+	"gitlab.com/coopernurse/maelstrom/pkg/cert"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"net/http"
 	"strings"
@@ -12,14 +13,16 @@ type ComponentResolver interface {
 	ByHTTPRequest(req *http.Request, public bool) (v1.Component, error)
 }
 
-func NewDbResolver(db v1.Db) *DbComponentResolver {
+func NewDbResolver(db v1.Db, certWrapper *cert.CertMagicWrapper) *DbComponentResolver {
 	return &DbComponentResolver{
-		db: db,
+		db:          db,
+		certWrapper: certWrapper,
 	}
 }
 
 type DbComponentResolver struct {
-	db v1.Db
+	db          v1.Db
+	certWrapper *cert.CertMagicWrapper
 }
 
 func (r *DbComponentResolver) ByName(componentName string) (v1.Component, error) {
@@ -36,7 +39,7 @@ func (r *DbComponentResolver) ByHTTPRequest(req *http.Request, public bool) (v1.
 		}
 	}
 
-	httpEventSources, err := allHttpEventSources(r.db)
+	httpEventSources, err := allHttpEventSources(r.db, r.certWrapper)
 	if err != nil {
 		return v1.Component{}, err
 	}
@@ -62,7 +65,7 @@ func httpEventSourceMatches(es v1.EventSource, hostname string, path string) boo
 		(es.Http.PathPrefix == "" || strings.HasPrefix(path, es.Http.PathPrefix))
 }
 
-func allHttpEventSources(db v1.Db) ([]v1.EventSource, error) {
+func allHttpEventSources(db v1.Db, certWrapper *cert.CertMagicWrapper) ([]v1.EventSource, error) {
 	nextToken := ""
 	input := v1.ListEventSourcesInput{EventSourceType: v1.EventSourceTypeHttp}
 	allSources := make([]v1.EventSource, 0)
@@ -74,6 +77,9 @@ func allHttpEventSources(db v1.Db) ([]v1.EventSource, error) {
 		}
 		for _, es := range output.EventSources {
 			allSources = append(allSources, es)
+			if certWrapper != nil && es.Http != nil && es.Http.Hostname != "" {
+				certWrapper.AddHost(es.Http.Hostname)
+			}
 		}
 		nextToken = output.NextToken
 		if nextToken == "" {

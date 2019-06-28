@@ -14,5 +14,5 @@ RUN apt-get update && \
        $(lsb_release -cs) \
        stable" && \
     apt-get update && \
-    apt-get install -y docker-ce
+    apt-get install -y docker-ce libsqlite3-dev
 
