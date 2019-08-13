@@ -5,14 +5,19 @@ import (
 	"fmt"
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
-	. "github.com/franela/goblin"
 	"github.com/mgutz/logxi/v1"
+	"github.com/stretchr/testify/assert"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/signal"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
+	"testing"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -27,6 +32,41 @@ const testGatewayPort = 8000
 var defaultComponent v1.Component
 var cronService *CronService
 var contextCancelFx func()
+var dockerClient *docker.Client
+
+func init() {
+	dc, err := docker.NewEnvClient()
+	if err != nil {
+		panic(err)
+	}
+	dockerClient = dc
+
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGQUIT)
+		buf := make([]byte, 1<<20)
+		for {
+			<-sigs
+			stacklen := runtime.Stack(buf, true)
+			fmt.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
+		}
+	}()
+}
+
+func beforeTest() {
+	resetDefaults()
+}
+
+func afterTest(t *testing.T) {
+	stopCronService()
+	stopMaelstromContainers(t)
+}
+
+func wrapTest(t *testing.T, test func()) {
+	beforeTest()
+	defer afterTest(t)
+	test()
+}
 
 func resetDefaults() {
 	defaultComponent = v1.Component{
@@ -49,9 +89,9 @@ func stopCronService() {
 	}
 }
 
-func stopMaelstromContainers(g *G, dockerClient *docker.Client) {
+func stopMaelstromContainers(t *testing.T) {
 	containers, err := listContainers(dockerClient)
-	g.Assert(err == nil).IsTrue(fmt.Sprintf("listContainers err != nil: %v", err))
+	assert.Nil(t, err, "listContainers err != nil: %v", err)
 
 	for _, c := range containers {
 		err = stopContainer(dockerClient, c.ID, "", 0)
@@ -61,25 +101,25 @@ func stopMaelstromContainers(g *G, dockerClient *docker.Client) {
 	}
 }
 
-func newDb(g *G) *v1.SqlDb {
+func newDb(t *testing.T) *v1.SqlDb {
 	sqlDb, err := v1.NewSqlDb("sqlite3", "file:test.db?cache=shared&_journal_mode=MEMORY&mode=rwc")
-	g.Assert(err == nil).IsTrue(fmt.Sprintf("NewSqlDb err != nil: %v", err))
+	assert.Nil(t, err, "NewSqlDb err != nil: %v", err)
 	err = sqlDb.Migrate()
-	g.Assert(err == nil).IsTrue(fmt.Sprintf("sqlDb.Migrate err != nil: %v", err))
+	assert.Nil(t, err, "sqlDb.Migrate err != nil: %v", err)
 	err = sqlDb.DeleteAll()
-	g.Assert(err == nil).IsTrue(fmt.Sprintf("sqlDb.DeleteAll err != nil: %v", err))
+	assert.Nil(t, err, "sqlDb.DeleteAll err != nil: %v", err)
 	defaultComponent.Version = 0
 	_, err = sqlDb.PutComponent(defaultComponent)
-	g.Assert(err == nil).IsTrue(fmt.Sprintf("sqlDb.PutComponent err != nil: %v", err))
+	assert.Nil(t, err, "sqlDb.PutComponent err != nil: %v", err)
 	defaultComponent.Version = 1
 	return sqlDb
 }
 
-func newFixture(g *G, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fixture {
+func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fixture {
 	successfulReqs := int64(0)
 	resolver := NewDbResolver(sqlDb, nil)
 	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, testGatewayPort)
-	g.Assert(err == nil).IsTrue(fmt.Sprintf("NewDockerHandlerFactory err != nil: %v", err))
+	assert.Nil(t, err, "NewDockerHandlerFactory err != nil: %v", err)
 
 	gateway := NewGateway(resolver, hFactory, false)
 	cancelCtx, cancelFx := context.WithCancel(context.Background())
@@ -87,7 +127,7 @@ func newFixture(g *G, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fixture {
 	cronService = NewCronService(sqlDb, gateway, cancelCtx, time.Second)
 
 	return &Fixture{
-		g:              g,
+		t:              t,
 		dockerClient:   dockerClient,
 		successfulReqs: &successfulReqs,
 		v1Impl:         v1.NewV1(sqlDb, nil, nil),
@@ -98,7 +138,7 @@ func newFixture(g *G, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fixture {
 }
 
 type Fixture struct {
-	g                *G
+	t                *testing.T
 	dockerClient     *docker.Client
 	component        v1.Component
 	hFactory         *DockerHandlerFactory
@@ -110,41 +150,41 @@ type Fixture struct {
 	asyncReqWG       *sync.WaitGroup
 }
 
-func GivenNoMaelstromContainers(g *G, dockerClient *docker.Client) *Fixture {
-	stopMaelstromContainers(g, dockerClient)
-	f := newFixture(g, dockerClient, newDb(g))
+func GivenNoMaelstromContainers(t *testing.T) *Fixture {
+	stopMaelstromContainers(t)
+	f := newFixture(t, dockerClient, newDb(t))
 	return f
 }
 
-func GivenExistingContainer(g *G, dockerClient *docker.Client) *Fixture {
-	sqlDb := newDb(g)
+func GivenExistingContainer(t *testing.T) *Fixture {
+	sqlDb := newDb(t)
 	containerId, err := startContainer(dockerClient, defaultComponent, testGatewayUrl)
 
-	f := newFixture(g, dockerClient, sqlDb)
-	f.g.Assert(err == nil).IsTrue(fmt.Sprintf("startContainer err != nil: %v", err))
+	f := newFixture(t, dockerClient, sqlDb)
+	assert.Nil(t, err, "startContainer err != nil: %v", err)
 	f.nextContainerId = containerId
 
 	containers, err := listContainers(dockerClient)
-	f.g.Assert(err == nil).IsTrue(fmt.Sprintf("listContainers err != nil: %v", err))
+	assert.Nil(t, err, "listContainers err != nil: %v", err)
 	f.beforeContainers = containers
 
 	return f
 }
 
-func GivenExistingContainerWithIdleTimeout(g *G, dockerClient *docker.Client, seconds int64) *Fixture {
+func GivenExistingContainerWithIdleTimeout(t *testing.T, seconds int64) *Fixture {
 	defaultComponent.Docker.IdleTimeoutSeconds = seconds
-	return GivenExistingContainer(g, dockerClient)
+	return GivenExistingContainer(t)
 }
 
-func GivenExistingContainerWithBadHealthCheckPath(g *G, dockerClient *docker.Client) *Fixture {
+func GivenExistingContainerWithBadHealthCheckPath(t *testing.T) *Fixture {
 	defaultComponent.Docker.HttpHealthCheckPath = "/fail"
 	defaultComponent.Docker.HttpStartHealthCheckSeconds = -1
-	return GivenExistingContainer(g, dockerClient)
+	return GivenExistingContainer(t)
 }
 
 func (f *Fixture) makeHttpRequest(url string) *httptest.ResponseRecorder {
 	h, err := f.hFactory.GetHandlerAndRegisterRequest(f.component)
-	f.g.Assert(err == nil).IsTrue(fmt.Sprintf("hFactory.ForComponent err != nil: %v", err))
+	assert.Nil(f.t, err, "hFactory.ForComponent err != nil: %v", err)
 	if err == nil {
 		lh, ok := h.(*LocalHandler)
 		if ok && lh != nil {
@@ -154,11 +194,11 @@ func (f *Fixture) makeHttpRequest(url string) *httptest.ResponseRecorder {
 			}
 			req, err := http.NewRequest("GET", url, nil)
 			rw := httptest.NewRecorder()
-			f.g.Assert(err == nil).IsTrue(fmt.Sprintf("http.NewRequest err != nil: %v", err))
+			assert.Nil(f.t, err, "http.NewRequest err != nil: %v", err)
 			lh.ServeHTTP(rw, req)
 			return rw
 		} else {
-			f.g.Fail(fmt.Sprintf("GetHandler type assert failed for *LocalHandler: %+v", h))
+			f.t.Errorf("GetHandler type assert failed for *LocalHandler: %+v", h)
 		}
 		return nil
 	}
@@ -186,7 +226,7 @@ func (f *Fixture) WhenCronEventSourceRegistered(schedule string) *Fixture {
 			},
 		},
 	})
-	f.g.Assert(err == nil).IsTrue(fmt.Sprintf("cron PutEventSource err != nil: %v", err))
+	assert.Nil(f.t, err, "cron PutEventSource err != nil: %v", err)
 	return f
 }
 
@@ -199,7 +239,7 @@ func (f *Fixture) WhenContainerIsHealthy() *Fixture {
 	timeout := time.Now().Add(time.Second * 30)
 	for {
 		if time.Now().After(timeout) {
-			f.g.Fail("Container never became healthy")
+			f.t.Errorf("Container never became healthy")
 			break
 		} else {
 			rw := f.makeHttpRequest("http://127.0.0.1:12345/")
@@ -273,17 +313,17 @@ func (f *Fixture) ThenContainerStartsWithin(timeout time.Duration) *Fixture {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	f.g.Fail("testImage container did not start before deadline elapsed")
+	f.t.Errorf("testImage container did not start before deadline elapsed")
 	return f
 }
 
 func (f *Fixture) ThenContainerIsStarted() *Fixture {
-	f.g.Assert(f.testImageContainerExists()).IsTrue("testImage container is not running!")
+	assert.True(f.t, f.testImageContainerExists(), "testImage container is not running!")
 	return f
 }
 
 func (f *Fixture) ThenContainerIsStartedWithNewVersion() *Fixture {
-	f.g.Assert(f.componentContainerExists()).IsTrue("component container is not running!")
+	assert.True(f.t, f.componentContainerExists(), "component container is not running!")
 	return f
 }
 
@@ -296,26 +336,26 @@ func (f *Fixture) ThenContainerIsStopped() *Fixture {
 			return f
 		}
 	}
-	f.g.Fail("testImage container is running!")
+	f.t.Errorf("testImage container is running!")
 	return f
 }
 
 func (f *Fixture) ThenNoNewContainerStarted() *Fixture {
 	containers, err := listContainers(f.dockerClient)
-	f.g.Assert(err == nil).IsTrue(fmt.Sprintf("listContainers err != nil: %v", err))
-	f.g.Assert(containers).Eql(f.beforeContainers)
+	assert.Nil(f.t, err, "listContainers err != nil: %v", err)
+	assert.Equal(f.t, f.beforeContainers, containers)
 	return f
 }
 
 func (f *Fixture) ThenSuccessfulRequestCountEquals(x int) *Fixture {
 	f.asyncReqWG.Wait()
-	f.g.Assert(int64(x)).Eql(*f.successfulReqs)
+	assert.Equal(f.t, *f.successfulReqs, int64(x))
 	return f
 }
 
 func (f *Fixture) testImageContainerExists() bool {
 	containers, err := listContainers(f.dockerClient)
-	f.g.Assert(err == nil).IsTrue(fmt.Sprintf("listContainers err != nil: %v", err))
+	assert.Nil(f.t, err, "listContainers err != nil: %v", err)
 
 	for _, c := range containers {
 		if c.Image == testImageName {
@@ -327,7 +367,7 @@ func (f *Fixture) testImageContainerExists() bool {
 
 func (f *Fixture) componentContainerExists() bool {
 	containers, err := listContainers(f.dockerClient)
-	f.g.Assert(err == nil).IsTrue(fmt.Sprintf("listContainers err != nil: %v", err))
+	assert.Nil(f.t, err, "listContainers err != nil: %v", err)
 
 	compVer := strconv.Itoa(int(f.component.Version))
 

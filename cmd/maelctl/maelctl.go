@@ -187,6 +187,51 @@ func componentRm(args docopt.Opts, svc v1.MaelstromService) {
 	}
 }
 
+func projectPut(args docopt.Opts, svc v1.MaelstromService) {
+	fname := argStr(args, "--file")
+	if fname == "" {
+		fname = "maelstrom.yml"
+	}
+	proj, err := v1.ParseYamlFileAndInterpolateEnv(fname)
+	checkErr(err, "Unable to load project YAML file")
+	out, err := svc.PutProject(v1.PutProjectInput{Project: proj})
+	checkErr(err, "PutProject failed")
+	if v1.PutProjectOutputEmpty(out) {
+		fmt.Printf("PutProject: No project changes detected for project: %s using file: %s", out.Name, fname)
+	} else {
+		fmt.Printf("Project saved: %s from file: %s\n", out.Name, fname)
+		fmt.Printf("Type         Name                               Action\n")
+		for _, c := range out.ComponentsAdded {
+			fmt.Printf("%-11s  %-33s  %s\n", "Component", c.Name, "Added")
+		}
+		for _, c := range out.ComponentsUpdated {
+			fmt.Printf("%-11s  %-33s  %s\n", "Component", c.Name, "Updated")
+		}
+		for _, c := range out.ComponentsRemoved {
+			fmt.Printf("%-11s  %-33s  %s\n", "Component", c, "Removed")
+		}
+		for _, es := range out.EventSourcesAdded {
+			fmt.Printf("%-11s  %-33s  %s\n", "EventSource", es.Name, "Added")
+		}
+		for _, es := range out.EventSourcesUpdated {
+			fmt.Printf("%-11s  %-33s  %s\n", "EventSource", es.Name, "Updated")
+		}
+		for _, es := range out.EventSourcesRemoved {
+			fmt.Printf("%-11s  %-33s  %s\n", "EventSource", es, "Removed")
+		}
+	}
+}
+
+func projectRm(args docopt.Opts, svc v1.MaelstromService) {
+	out, err := svc.RemoveProject(v1.RemoveProjectInput{Name: argStr(args, "<name>")})
+	checkErr(err, "RemoveProject failed")
+	if out.Found {
+		fmt.Printf("Project removed: %s\n", out.Name)
+	} else {
+		fmt.Printf("Project not found: %s\n", out.Name)
+	}
+}
+
 ////////////////////////////////////
 
 func eventSourcePut(args docopt.Opts, svc v1.MaelstromService) {
@@ -365,6 +410,8 @@ Usage:
   maelctl es ls [--prefix=<prefix>] [--component=<component>] [--type=<type>]
   maelctl es rm <name>
   maelctl logs [--components=<components>] [--since=<since>]
+  maelctl project put [--file=<file>]
+  maelctl project rm <name>
 `
 	args, err := docopt.ParseDoc(usage)
 	if err != nil {
@@ -399,6 +446,10 @@ Usage:
 		eventSourceRm(args, svc)
 	} else if argBool(args, "logs") {
 		logsGet(args, baseUrl)
+	} else if argBool(args, "project") && argBool(args, "put") {
+		projectPut(args, svc)
+	} else if argBool(args, "project") && argBool(args, "rm") {
+		projectRm(args, svc)
 	} else {
 		fmt.Printf("ERROR: unsupported command. args=%v\n", args)
 		os.Exit(2)

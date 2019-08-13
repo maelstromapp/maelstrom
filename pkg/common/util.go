@@ -3,7 +3,9 @@ package common
 import (
 	"bytes"
 	"io"
+	"os"
 	"sort"
+	"strings"
 )
 
 func CheckClose(c io.Closer, err *error) {
@@ -11,6 +13,23 @@ func CheckClose(c io.Closer, err *error) {
 	if *err == nil {
 		*err = cerr
 	}
+}
+
+func EnvVarMap() map[string]string {
+	return ParseEnvVarMap(os.Environ())
+}
+
+func ParseEnvVarMap(nvpairs []string) map[string]string {
+	envVars := make(map[string]string)
+	for _, s := range nvpairs {
+		pos := strings.Index(s, "=")
+		if pos > -1 {
+			key := s[0:pos]
+			val := s[pos+1:]
+			envVars[key] = val
+		}
+	}
+	return envVars
 }
 
 func SortedMapKeys(m map[string]string) []string {

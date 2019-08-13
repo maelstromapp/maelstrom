@@ -11,6 +11,27 @@
 //
 
 interface MaelstromService {
+
+    // PutProject registers a set of components and event sources, grouped under a single name
+    // This call diffs the input project with the prior state of the project, updating components
+    // in the project that already exist, adding components that do not, and removing components
+    // associated with the project name that are no longer present in the input project.
+    //
+    // Validation is performed before any state changes are made. If invalid input is detected
+    // no changes to the system will occur.
+    //
+    // Error Codes:
+    //
+    // * 1001 - input.name is invalid
+    // * 1001 - input.components is empty
+    // * 1001 - input.components contains an invalid component or event source
+    //
+    PutProject(input PutProjectInput) PutProjectOutput
+
+    GetProject(input GetProjectInput) GetProjectOutput
+
+    RemoveProject(input RemoveProjectInput) RemoveProjectOutput
+
     // PutComponent registers a component definition
     //
     // Error Codes:
@@ -94,11 +115,30 @@ interface MaelstromService {
     ListEventSources(input ListEventSourcesInput) ListEventSourcesOutput
 }
 
+struct Project {
+    // Name of project. (a-zA-Z0-9_-)+
+    // Name max size is 20 characters
+    name         string
+    components   []ComponentWithEventSources
+}
+
+struct ComponentWithEventSources {
+    component     Component
+    eventSources  []EventSource
+}
+
 struct Component {
     // Name of the component (a-zA-Z0-9_-)+
     // Name max size is 60 characters
     // This value uniquely identifies the component in the system.
     name         string
+
+    // If the component is the member of a project, this is the project name
+    projectName  string    [optional]
+
+    // Environment variables - these override variables defined at the
+    // project level (if applicable)
+    environment  []NameValue
 
     // Current version of the component
     // If the current version in the db does not match, a 1004 error is raised.
@@ -113,6 +153,7 @@ struct Component {
 
 struct DockerComponent {
     image                   string
+    command                 string       [optional]
     httpPort                int
     httpHealthCheckPath     string
 
@@ -142,6 +183,18 @@ struct DockerComponent {
     // locally with non-maelstrom resources (e.g. a database server) and you
     // wish to address those resources by name on the docker overlay network
     networkName              string         [optional]
+
+    // Docker logging driver to use
+    // See: https://docs.docker.com/config/containers/logging/configure/
+    logDriver                string         [optional]
+
+    // Options to pass to the logging driver.  Names are the same as the
+    // keys specified in the docker documentation. For example "syslog-address"
+    // or "fluentd-buffer-limit"
+    logDriverOptions         []NameValue    [optional]
+
+    limitCpu                 float          [optional]
+    limitMemory              string         [optional]
 }
 
 struct VolumeMount {
@@ -169,12 +222,17 @@ struct EventSource {
     // Name max size is 60 characters
     componentName string
 
+    // If the component the event source is associated with is the member of a project,
+    // this is the project name
+    projectName  string    [optional]
+
     version      int
     modifiedAt   int
 
     // One and only one event source type may be provided
     http       HttpEventSource   [optional]
     cron       CronEventSource   [optional]
+    sqs        SqsEventSource    [optional]
 }
 
 struct HttpEventSource {
@@ -209,9 +267,51 @@ struct CronHttpRequest {
     headers       []NameValue  [optional]
 }
 
+struct SqsEventSource {
+    queueName           string
+    visibilityTimeout   int
+    maxConcurrency      int
+    targetUrl           string
+}
+
 enum EventSourceType {
     http
     cron
+    sqs
+}
+
+struct PutProjectInput {
+    project   Project
+}
+
+struct PutProjectOutput {
+    name                 string
+    componentsAdded      []Component
+    componentsUpdated    []Component
+    componentsRemoved    []string
+    eventSourcesAdded    []EventSource
+    eventSourcesUpdated  []EventSource
+    eventSourcesRemoved  []string
+}
+
+struct GetProjectInput {
+    name    string
+}
+
+struct GetProjectOutput {
+    project     Project
+}
+
+struct RemoveProjectInput {
+    // name of project to remove - will remove related components and event sources
+    name    string
+}
+
+struct RemoveProjectOutput {
+    name    string
+
+    // if project was found in the system this is true, otherwise false
+    found   bool
 }
 
 struct RemoveComponentInput {
@@ -229,6 +329,9 @@ struct RemoveComponentOutput {
 struct ListComponentsInput {
     // If specified only components matching this name prefix will be returned.
     namePrefix  string  [optional]
+
+    // If specified only components matching this project name will be returned
+    projectName      string            [optional]
 
     // Max items to return per response (1..1000)
     // default=1000
@@ -314,6 +417,9 @@ struct ListEventSourcesInput {
 
     // If specified only event sources matching this component name will be returned
     componentName    string            [optional]
+
+    // If specified only event sources belonging to components with this project name will be returned
+    projectName      string            [optional]
 
     // If specified only event sources matching this type will be returned
     eventSourceType  EventSourceType   [optional]

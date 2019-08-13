@@ -60,8 +60,8 @@ func (d *SqlDb) PutComponent(component Component) (int64, error) {
 
 	if previousVersion == 0 {
 		err = d.insertRow("component", component.Name, component,
-			[]string{"name", "version", "createdAt", "modifiedAt", "json"},
-			[]interface{}{component.Name, 1, now, now, jsonVal})
+			[]string{"name", "projectName", "version", "createdAt", "modifiedAt", "json"},
+			[]interface{}{component.Name, component.ProjectName, 1, now, now, jsonVal})
 	} else {
 		err = d.updateRow("component", component.Name, previousVersion, map[string]interface{}{
 			"modifiedAt": now,
@@ -85,6 +85,9 @@ func (d *SqlDb) ListComponents(input ListComponentsInput) (output ListComponents
 	q := squirrel.Select("json").From("component").OrderBy("name")
 	if input.NamePrefix != "" {
 		q = q.Where(squirrel.Like{"name": input.NamePrefix + "%"})
+	}
+	if input.ProjectName != "" {
+		q = q.Where(squirrel.Eq{"projectName": input.ProjectName})
 	}
 
 	components := make([]Component, 0)
@@ -175,8 +178,9 @@ func (d *SqlDb) PutEventSource(eventSource EventSource) (int64, error) {
 
 	if previousVersion == 0 {
 		err = d.insertRow("eventsource", eventSource.Name, eventSource,
-			[]string{"name", "componentName", "type", "version", "createdAt", "modifiedAt", "json"},
-			[]interface{}{eventSource.Name, eventSource.ComponentName, eventType, 1, now, now, jsonVal})
+			[]string{"name", "componentName", "projectName", "type", "version", "createdAt", "modifiedAt", "json"},
+			[]interface{}{eventSource.Name, eventSource.ComponentName, eventSource.ProjectName,
+				eventType, 1, now, now, jsonVal})
 	} else {
 		err = d.updateRow("eventsource", eventSource.Name, previousVersion, map[string]interface{}{
 			"modifiedAt":    now,
@@ -210,6 +214,9 @@ func (d *SqlDb) ListEventSources(input ListEventSourcesInput) (ListEventSourcesO
 	if input.ComponentName != "" {
 		q = q.Where(squirrel.Eq{"componentName": input.ComponentName})
 	}
+	if input.ProjectName != "" {
+		q = q.Where(squirrel.Eq{"projectName": input.ProjectName})
+	}
 	if input.EventSourceType != "" {
 		q = q.Where(squirrel.Eq{"type": string(input.EventSourceType)})
 	}
@@ -235,6 +242,7 @@ func (d *SqlDb) insertRow(table string, name string, val interface{}, columns []
 	if d.DebugLog {
 		log.Debug("sql_db: insertRow", "sql", squirrel.DebugSqlizer(q))
 	}
+
 	_, err := q.RunWith(d.db).Exec()
 	if err != nil {
 		var count int64
@@ -318,11 +326,12 @@ func (d *SqlDb) Migrate() error {
 			Version:     1,
 			Description: "Create component table",
 			Script: `create table component (
-                        name        varchar(60) primary key,
-                        version     int not null,
-                        createdAt   bigint not null,
-                        modifiedAt  bigint not null,
-                        json        mediumblob not null
+                        name          varchar(60) primary key,
+                        projectName   varchar(60) not null,
+                        version       int not null,
+                        createdAt     bigint not null,
+                        modifiedAt    bigint not null,
+                        json          mediumblob not null
                      )`,
 		},
 		{
@@ -331,16 +340,13 @@ func (d *SqlDb) Migrate() error {
 			Script: `create table eventsource (
                         name           varchar(60) primary key,
                         componentName  varchar(60) not null,
+                        projectName    varchar(60) not null,
                         version        int not null,
                         createdAt      bigint not null,
                         modifiedAt     bigint not null,
+                        type           varchar(30) not null,
                         json           mediumblob not null
                      )`,
-		},
-		{
-			Version:     3,
-			Description: "Add type column to eventsource table",
-			Script:      `alter table eventsource add type varchar(30)`,
 		},
 	}
 	darwinDriver := darwin.NewGenericDriver(d.db, migrationDialect(d.driver))

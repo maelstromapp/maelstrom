@@ -11,8 +11,8 @@ require (
 	github.com/docker/go-units v0.3.3 // indirect
 	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
 	github.com/dustin/go-humanize v1.0.0
-	github.com/franela/goblin v0.0.0-20181003173013-ead4ad1d2727
 	github.com/go-acme/lego v2.5.0+incompatible
+	github.com/go-yaml/yaml v2.1.0+incompatible
 	github.com/google/go-querystring v1.0.0 // indirect
 	github.com/google/gofuzz v0.0.0-20170612174753-24818f796faf
 	github.com/kelseyhightower/envconfig v1.4.0
