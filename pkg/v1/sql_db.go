@@ -10,6 +10,7 @@ import (
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func NewSqlDb(driver string, dsn string) (*SqlDb, error) {
@@ -38,7 +39,7 @@ func (d *SqlDb) Close() {
 }
 
 func (d *SqlDb) DeleteAll() error {
-	tables := []string{"component", "eventsource"}
+	tables := []string{"component", "eventsource", "nodestatus"}
 	for _, t := range tables {
 		_, err := d.db.Exec(fmt.Sprintf("delete from %s", t))
 		if err != nil {
@@ -237,6 +238,64 @@ func (d *SqlDb) ListEventSources(input ListEventSourcesInput) (ListEventSourcesO
 	return ListEventSourcesOutput{NextToken: nextToken, EventSources: eventSources}, nil
 }
 
+func (d *SqlDb) PutNodeStatus(status NodeStatus) error {
+	status.ModifiedAt = common.TimeToMillis(timeNow())
+	jsonVal, err := json.Marshal(status)
+	if err != nil {
+		return fmt.Errorf("PutNodeStatus unable to marshal JSON: %v", err)
+	}
+	q := squirrel.Update("nodestatus").
+		SetMap(map[string]interface{}{
+			"modifiedAt": status.ModifiedAt,
+			"json":       jsonVal,
+		}).Where(squirrel.Eq{"nodeId": status.NodeId})
+
+	result, err := q.RunWith(d.db).Exec()
+	if err != nil {
+		return fmt.Errorf("PutNodeStatus update failed for nodeId: %s err: %v", status.NodeId, err)
+	}
+	rows, err2 := result.RowsAffected()
+	if err2 != nil {
+		return fmt.Errorf("PutNodeStatus RowsAffected failed for nodeId: %s err: %v", status.NodeId, err)
+	}
+	if rows != 1 {
+		q := squirrel.Insert("nodestatus").
+			Columns("nodeId", "modifiedAt", "json").Values(status.NodeId, status.ModifiedAt, jsonVal)
+		_, err := q.RunWith(d.db).Exec()
+		if err != nil {
+			return fmt.Errorf("PutNodeStatus insert failed for nodeId: %s err: %v", status.NodeId, err)
+		}
+	}
+	return nil
+}
+
+func (d *SqlDb) ListNodeStatus(input ListNodeStatusInput) (ListNodeStatusOutput, error) {
+	q := squirrel.Select("json").From("nodestatus").OrderBy("nodeId")
+	nodes := make([]NodeStatus, 0)
+	nextToken, err := d.selectPaginated(q, input.NextToken, input.Limit, func(rows *sql.Rows) error {
+		var node NodeStatus
+		err := d.scanJSON(rows, &node)
+		if err != nil {
+			return fmt.Errorf("ListNodeStatus: %v", err)
+		}
+		nodes = append(nodes, node)
+		return nil
+	})
+	if err != nil {
+		return ListNodeStatusOutput{}, err
+	}
+	return ListNodeStatusOutput{NextToken: nextToken, Nodes: nodes}, nil
+}
+
+func (d *SqlDb) RemoveNodeStatusOlderThan(modifiedAt time.Time) (int64, error) {
+	del := squirrel.Delete("nodestatus").Where(squirrel.Lt{"modifiedAt": common.TimeToMillis(modifiedAt)})
+	return d.removeRows(del)
+}
+
+func (d *SqlDb) RemoveNodeStatus(nodeId string) (bool, error) {
+	return d.removeRowByColumn("nodestatus", "nodeId", nodeId)
+}
+
 func (d *SqlDb) insertRow(table string, name string, val interface{}, columns []string, bindVals []interface{}) error {
 	q := squirrel.Insert(table).Columns(columns...).Values(bindVals...)
 	if d.DebugLog {
@@ -304,19 +363,38 @@ func (d *SqlDb) getRow(table string, name string, target interface{}) error {
 }
 
 func (d *SqlDb) removeRow(table string, name string) (found bool, err error) {
+	return d.removeRowByColumn(table, "name", name)
+}
+
+func (d *SqlDb) removeRowByColumn(table string, colName string, colValue string) (found bool, err error) {
 	var result sql.Result
 	var rows int64
-	result, err = squirrel.Delete(table).Where(squirrel.Eq{"name": name}).RunWith(d.db).Exec()
+	result, err = squirrel.Delete(table).Where(squirrel.Eq{colName: colValue}).RunWith(d.db).Exec()
 	if err != nil {
-		err = fmt.Errorf("delete %s failed: %s err: %v", table, name, err)
+		err = fmt.Errorf("delete %s failed: %s err: %v", table, colValue, err)
 		return
 	}
 	rows, err = result.RowsAffected()
 	if err != nil {
-		err = fmt.Errorf("delete %s rowsaffected failed: %s err: %v", table, name, err)
+		err = fmt.Errorf("delete %s rowsaffected failed: %s err: %v", table, colValue, err)
 		return
 	}
 	found = rows > 0
+	return
+}
+
+func (d *SqlDb) removeRows(del squirrel.DeleteBuilder) (rows int64, err error) {
+	var result sql.Result
+	result, err = del.RunWith(d.db).Exec()
+	if err != nil {
+		err = fmt.Errorf("delete failed - err: %v", err)
+		return
+	}
+	rows, err = result.RowsAffected()
+	if err != nil {
+		err = fmt.Errorf("delete rowsaffected failed - err: %v", err)
+		return
+	}
 	return
 }
 
@@ -345,6 +423,15 @@ func (d *SqlDb) Migrate() error {
                         createdAt      bigint not null,
                         modifiedAt     bigint not null,
                         type           varchar(30) not null,
+                        json           mediumblob not null
+                     )`,
+		},
+		{
+			Version:     3,
+			Description: "Create nodestatus table",
+			Script: `create table nodestatus (
+                        nodeId         varchar(60) primary key,
+                        modifiedAt     bigint not null,
                         json           mediumblob not null
                      )`,
 		},

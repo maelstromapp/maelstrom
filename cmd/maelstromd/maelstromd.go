@@ -60,6 +60,12 @@ func main() {
 
 	log.Info("maelstromd: starting")
 
+	// increase default idle conns so that local roundtripper gets decent socket reuse
+	// this prevents the creation of tons of new sockets when relaying under high load, resulting
+	// in "cannot assign requested address" errors
+	// see: https://stackoverflow.com/questions/39813587/go-client-program-generates-a-lot-a-sockets-in-time-wait-state
+	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 500
+
 	db := initDb(*sqlDriver, *sqlDSN)
 	dockerClient, err := docker.NewEnvClient()
 	if err != nil {
@@ -126,6 +132,9 @@ func main() {
 	cancelCtx, cancelFx := context.WithCancel(context.Background())
 	dockerMonitor := common.NewDockerImageMonitor(dockerClient, handlerFactory, cancelCtx)
 	dockerMonitor.RunAsync()
+
+	nodeStatusLogger := v1.NewNodeStatusLogger(dockerClient, db, time.Minute, cancelCtx)
+	go nodeStatusLogger.Run()
 
 	cronSvc := gateway.NewCronService(db, privateGateway, cancelCtx, time.Second*time.Duration(*cronRefreshSec))
 	go cronSvc.Run()

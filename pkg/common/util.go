@@ -5,8 +5,17 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 )
+
+func ToIntOrDefault(s string, defaultVal int) int {
+	v, err := strconv.Atoi(s)
+	if err == nil {
+		return v
+	}
+	return defaultVal
+}
 
 func CheckClose(c io.Closer, err *error) {
 	cerr := c.Close()

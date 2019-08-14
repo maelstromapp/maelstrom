@@ -17,13 +17,7 @@ func panicOnErr(err error) {
 }
 
 func createV1() (*V1, *SqlDb) {
-	sqlDb, err := NewSqlDb("sqlite3", "file:test.db?cache=shared&_journal_mode=MEMORY&mode=rwc")
-	panicOnErr(err)
-
-	// run sql migrations and delete any existing data
-	panicOnErr(sqlDb.Migrate())
-	panicOnErr(sqlDb.DeleteAll())
-
+	sqlDb := createTestSqlDb()
 	return NewV1(sqlDb, nil, nil), sqlDb
 }
 

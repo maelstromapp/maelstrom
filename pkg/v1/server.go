@@ -8,10 +8,14 @@ import (
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var _ MaelstromService = (*V1)(nil)
 var nameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// tests can swap out
+var timeNow = func() time.Time { return time.Now() }
 
 type ErrorCode int
 
@@ -346,6 +350,10 @@ func (v *V1) RemoveEventSource(input RemoveEventSourceInput) (RemoveEventSourceO
 
 func (v *V1) ListEventSources(input ListEventSourcesInput) (ListEventSourcesOutput, error) {
 	return v.db.ListEventSources(input)
+}
+
+func (v *V1) ListNodeStatus(input ListNodeStatusInput) (ListNodeStatusOutput, error) {
+	return v.db.ListNodeStatus(input)
 }
 
 func validateComponent(errPrefix string, component Component) (string, error) {

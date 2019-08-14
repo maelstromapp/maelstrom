@@ -2,6 +2,7 @@ package v1
 
 import (
 	"fmt"
+	"time"
 )
 
 var NotFound = fmt.Errorf("Not Found")
@@ -20,4 +21,9 @@ type Db interface {
 	GetEventSource(eventSourceName string) (EventSource, error)
 	ListEventSources(input ListEventSourcesInput) (ListEventSourcesOutput, error)
 	RemoveEventSource(eventSourceName string) (bool, error)
+
+	PutNodeStatus(status NodeStatus) error
+	ListNodeStatus(input ListNodeStatusInput) (ListNodeStatusOutput, error)
+	RemoveNodeStatusOlderThan(modifiedAt time.Time) (int64, error)
+	RemoveNodeStatus(nodeId string) (bool, error)
 }

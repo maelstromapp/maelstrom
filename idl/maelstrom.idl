@@ -113,6 +113,15 @@ interface MaelstromService {
     // Results are sorted by name (ascending)
     //
     ListEventSources(input ListEventSourcesInput) ListEventSourcesOutput
+
+    // ListNodeStatus returns a paginated list of nodes registered in the system.
+    //
+    // If no nodes exist in the system, ListNodeStatusOutput.nodes
+    // will be an empty list.
+    //
+    // Results are sorted by nodeId (ascending)
+    //
+    ListNodeStatus(input ListNodeStatusInput) ListNodeStatusOutput
 }
 
 struct Project {
@@ -280,6 +289,27 @@ enum EventSourceType {
     sqs
 }
 
+struct NodeStatus {
+    nodeId        string
+    modifiedAt    int
+    totalMemoryMB int
+    numCPUs       int
+    totalCPUPct   float
+    containers    []ContainerStatus
+}
+
+struct ContainerStatus {
+    containerId      string
+    image            string
+    imageId          string
+    startedAt        int
+    componentName    string
+    componentVersion int
+    CPUPct           float
+    memoryUsedMB     int
+    memoryPeakMB     int
+}
+
 struct PutProjectInput {
     project   Project
 }
@@ -440,6 +470,26 @@ struct ListEventSourcesOutput {
     // If set there are additional results.
     // Client may make another ListEventSources() request setting this
     // as ListEventSourcesInput.nextToken
+    nextToken   string  [optional]
+}
+
+struct ListNodeStatusInput {
+    // Max items to return per response (1..1000)
+    // default=1000
+    limit       int     [optional]
+
+    // If set the next set of paginated results will be returned
+    nextToken   string  [optional]
+}
+
+struct ListNodeStatusOutput {
+    // Components in current page of output or an empty list if
+    // no additional results exist
+    nodes    []NodeStatus
+
+    // If set there are additional results.
+    // Client may make another ListNodeStatus() request setting this
+    // as ListNodeStatusInput.nextToken
     nextToken   string  [optional]
 }
 
