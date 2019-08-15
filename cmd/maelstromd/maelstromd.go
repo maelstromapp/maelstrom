@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,7 +23,7 @@ import (
 
 func mustStart(s *http.Server) {
 	err := s.ListenAndServe()
-	if err != nil {
+	if err != nil && err != http.ErrServerClosed {
 		log.Error("maelstromd: unable to start HTTP server", "addr", s.Addr, "err", err)
 		os.Exit(2)
 	}
@@ -66,6 +67,13 @@ func main() {
 	// see: https://stackoverflow.com/questions/39813587/go-client-program-generates-a-lot-a-sockets-in-time-wait-state
 	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 500
 
+	outboundIp, err := common.GetOutboundIP()
+	if err != nil {
+		log.Error("maelstromd: cannot resolve outbound IP address", "err", err)
+		os.Exit(2)
+	}
+	peerUrl := fmt.Sprintf("http://%s:%d", outboundIp, *privatePort)
+
 	db := initDb(*sqlDriver, *sqlDSN)
 	dockerClient, err := docker.NewEnvClient()
 	if err != nil {
@@ -84,13 +92,27 @@ func main() {
 		os.Exit(2)
 	}
 
+	cancelCtx, cancelFx := context.WithCancel(context.Background())
+	daemonWG := &sync.WaitGroup{}
+	dockerMonitor := common.NewDockerImageMonitor(dockerClient, handlerFactory, cancelCtx)
+	dockerMonitor.RunAsync(daemonWG)
+
 	publicSvr := gateway.NewGateway(resolver, handlerFactory, true)
 
 	componentSubscribers := []v1.ComponentSubscriber{handlerFactory}
 
+	nodeSvcImpl, err := gateway.NewNodeServiceImplFromDocker(handlerFactory, db, dockerClient, peerUrl)
+	if err != nil {
+		log.Error("maelstromd: cannot create NodeService", "err", err)
+		os.Exit(2)
+	}
+	daemonWG.Add(1)
+	go nodeSvcImpl.RunNodeStatusLoop(time.Minute, cancelCtx, daemonWG)
+	log.Info("maelstromd: created NodeService", nodeSvcImpl.LogPairs()...)
+
 	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
 	v1Impl := v1.NewV1(db, componentSubscribers, certWrapper)
-	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl)
+	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl, nodeSvcImpl)
 	logsHandler := gateway.NewLogsHandler(dockerClient)
 
 	privateGateway := gateway.NewGateway(resolver, handlerFactory, false)
@@ -129,22 +151,19 @@ func main() {
 
 	log.Info("maelstromd: starting HTTP servers", "publicPort", publicPort, "privatePort", privatePort)
 
-	cancelCtx, cancelFx := context.WithCancel(context.Background())
-	dockerMonitor := common.NewDockerImageMonitor(dockerClient, handlerFactory, cancelCtx)
-	dockerMonitor.RunAsync()
-
-	nodeStatusLogger := v1.NewNodeStatusLogger(dockerClient, db, time.Minute, cancelCtx)
-	go nodeStatusLogger.Run()
-
 	cronSvc := gateway.NewCronService(db, privateGateway, cancelCtx, time.Second*time.Duration(*cronRefreshSec))
-	go cronSvc.Run()
+	daemonWG.Add(1)
+	go cronSvc.Run(daemonWG)
 
-	shutdownDone := make(chan struct{})
-	go HandleShutdownSignal(servers, cancelFx, shutdownDone)
-	<-shutdownDone
+	daemonWG.Add(1)
+	go HandleShutdownSignal(servers, cancelFx, daemonWG)
+
+	daemonWG.Wait()
+	log.Info("maelstromd: exiting")
 }
 
-func HandleShutdownSignal(svrs []*http.Server, cancelFx context.CancelFunc, shutdownDone chan struct{}) {
+func HandleShutdownSignal(svrs []*http.Server, cancelFx context.CancelFunc, wg *sync.WaitGroup) {
+	defer wg.Done()
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
@@ -160,7 +179,6 @@ func HandleShutdownSignal(svrs []*http.Server, cancelFx context.CancelFunc, shut
 		}
 	}
 	log.Info("maelstromd: HTTP servers shutdown gracefully")
-	close(shutdownDone)
 }
 
 func initCertMagic() *cert.CertMagicWrapper {

@@ -239,14 +239,13 @@ func (d *SqlDb) ListEventSources(input ListEventSourcesInput) (ListEventSourcesO
 }
 
 func (d *SqlDb) PutNodeStatus(status NodeStatus) error {
-	status.ModifiedAt = common.TimeToMillis(timeNow())
 	jsonVal, err := json.Marshal(status)
 	if err != nil {
 		return fmt.Errorf("PutNodeStatus unable to marshal JSON: %v", err)
 	}
 	q := squirrel.Update("nodestatus").
 		SetMap(map[string]interface{}{
-			"modifiedAt": status.ModifiedAt,
+			"observedAt": status.ObservedAt,
 			"json":       jsonVal,
 		}).Where(squirrel.Eq{"nodeId": status.NodeId})
 
@@ -260,7 +259,7 @@ func (d *SqlDb) PutNodeStatus(status NodeStatus) error {
 	}
 	if rows != 1 {
 		q := squirrel.Insert("nodestatus").
-			Columns("nodeId", "modifiedAt", "json").Values(status.NodeId, status.ModifiedAt, jsonVal)
+			Columns("nodeId", "observedAt", "json").Values(status.NodeId, status.ObservedAt, jsonVal)
 		_, err := q.RunWith(d.db).Exec()
 		if err != nil {
 			return fmt.Errorf("PutNodeStatus insert failed for nodeId: %s err: %v", status.NodeId, err)
@@ -287,8 +286,8 @@ func (d *SqlDb) ListNodeStatus(input ListNodeStatusInput) (ListNodeStatusOutput,
 	return ListNodeStatusOutput{NextToken: nextToken, Nodes: nodes}, nil
 }
 
-func (d *SqlDb) RemoveNodeStatusOlderThan(modifiedAt time.Time) (int64, error) {
-	del := squirrel.Delete("nodestatus").Where(squirrel.Lt{"modifiedAt": common.TimeToMillis(modifiedAt)})
+func (d *SqlDb) RemoveNodeStatusOlderThan(observedAt time.Time) (int64, error) {
+	del := squirrel.Delete("nodestatus").Where(squirrel.Lt{"observedAt": common.TimeToMillis(observedAt)})
 	return d.removeRows(del)
 }
 
@@ -431,7 +430,7 @@ func (d *SqlDb) Migrate() error {
 			Description: "Create nodestatus table",
 			Script: `create table nodestatus (
                         nodeId         varchar(60) primary key,
-                        modifiedAt     bigint not null,
+                        observedAt     bigint not null,
                         json           mediumblob not null
                      )`,
 		},

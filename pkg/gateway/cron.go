@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,7 +34,8 @@ type CronService struct {
 	eventSources []v1.EventSource
 }
 
-func (c *CronService) Run() {
+func (c *CronService) Run(wg *sync.WaitGroup) {
+	defer wg.Done()
 	log.Info("cron: starting cron service", "refreshRate", c.refreshRate.String())
 	c.reloadRulesAndStartCron()
 	for {

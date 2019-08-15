@@ -124,6 +124,14 @@ interface MaelstromService {
     ListNodeStatus(input ListNodeStatusInput) ListNodeStatusOutput
 }
 
+interface NodeService {
+
+    GetStatus(input GetNodeStatusInput) GetNodeStatusOutput
+
+    StartStopComponents(input StartStopComponentsInput) StartStopComponentsOutput
+
+}
+
 struct Project {
     // Name of project. (a-zA-Z0-9_-)+
     // Name max size is 20 characters
@@ -290,12 +298,15 @@ enum EventSourceType {
 }
 
 struct NodeStatus {
-    nodeId        string
-    modifiedAt    int
-    totalMemoryMB int
-    numCPUs       int
-    totalCPUPct   float
-    containers    []ContainerStatus
+    nodeId             string
+    startedAt          int
+    observedAt         int
+    peerUrl            string
+    totalMemoryMB      int
+    numCPUs            int
+    totalCPUPct        float
+    runningComponents  []string
+    containers         []ContainerStatus    [optional]
 }
 
 struct ContainerStatus {
@@ -491,6 +502,52 @@ struct ListNodeStatusOutput {
     // Client may make another ListNodeStatus() request setting this
     // as ListNodeStatusInput.nextToken
     nextToken   string  [optional]
+}
+
+struct GetNodeStatusInput {
+    // status of the calling node. will not include ContainerStatus list.
+    // clients that do not wish to share their state (or non-peer clients) may omit this.
+    status           NodeStatus        [optional]
+
+    // if true, response NodeStatus should populate ContainerStatus
+    // optional (default=false)
+    includeContainerStatus     bool    [optional]
+}
+
+struct GetNodeStatusOutput {
+    // status of the responding node
+    status           NodeStatus
+}
+
+struct StartStopComponentsInput {
+    // Id of node making this request
+    clientNodeId        string
+
+    // Number of instances of each component the client would like the target
+    // node to scale to.  The receiver should compare this to the number of
+    // containers currently running start/stop containers to match the targetCount.
+    targetCounts        []ComponentCount
+}
+
+struct StartStopComponentsOutput {
+    // components started, or empty list if no containers started
+    started          []ComponentCount
+
+    // components stopped, or empty list if no containers stopped
+    stopped          []ComponentCount
+
+    // ComponentCount messages that resulted in errors are included here, or empty list if no errors
+    errors           []ComponentCountError
+}
+
+struct ComponentCount {
+    componentName     string
+    count             int
+}
+
+struct ComponentCountError {
+    componentCount    ComponentCount
+    error             string
 }
 
 struct NameValue {

@@ -44,7 +44,7 @@ func TestNodeStatusCRUD(t *testing.T) {
 	f.Fuzz(&node1)
 	node1Id := "3322:2322:7TKL:DLUP:5232:C2VA:XYCW:TEJM:FE6L:65PS:FISY:1234"
 	node1.NodeId = node1Id
-	node1.ModifiedAt = nowMillis
+	node1.ObservedAt = nowMillis
 
 	// insert first row and query
 	err = db.PutNodeStatus(node1)
@@ -57,14 +57,14 @@ func TestNodeStatusCRUD(t *testing.T) {
 	// insert second row and update first, query
 	node2 := NodeStatus{}
 	f.Fuzz(&node2)
-	node2.ModifiedAt = nowMillis
+	node2.ObservedAt = nowMillis
 	node2.NodeId = "node2"
-	node2.ModifiedAt = common.TimeToMillis(start.Add(time.Millisecond))
+	node2.ObservedAt = common.TimeToMillis(start.Add(time.Millisecond))
 	assert.Nil(t, db.PutNodeStatus(node2))
 	f.Fuzz(&node1)
-	node1.ModifiedAt = nowMillis
+	node1.ObservedAt = nowMillis
 	node1.NodeId = node1Id
-	node1.ModifiedAt = node2.ModifiedAt
+	node1.ObservedAt = node2.ObservedAt
 	assert.Nil(t, db.PutNodeStatus(node1))
 	listOut, err = db.ListNodeStatus(ListNodeStatusInput{})
 	assert.Nil(t, err)
@@ -106,7 +106,7 @@ func TestListNodeStatusPagination(t *testing.T) {
 	for i := 0; i < total; i++ {
 		var node NodeStatus
 		f.Fuzz(&node)
-		node.ModifiedAt = nowMillis
+		node.ObservedAt = nowMillis
 		node.NodeId = fmt.Sprintf("node-%40d", i)
 		nodes[i] = node
 		err := db.PutNodeStatus(node)

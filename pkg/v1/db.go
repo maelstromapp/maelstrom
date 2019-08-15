@@ -24,6 +24,6 @@ type Db interface {
 
 	PutNodeStatus(status NodeStatus) error
 	ListNodeStatus(input ListNodeStatusInput) (ListNodeStatusOutput, error)
-	RemoveNodeStatusOlderThan(modifiedAt time.Time) (int64, error)
+	RemoveNodeStatusOlderThan(observedAt time.Time) (int64, error)
 	RemoveNodeStatus(nodeId string) (bool, error)
 }

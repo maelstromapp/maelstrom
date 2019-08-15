@@ -3,6 +3,7 @@ package common
 import (
 	"bytes"
 	"io"
+	"net"
 	"os"
 	"sort"
 	"strconv"
@@ -73,4 +74,17 @@ func ScanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	}
 	// Request more data.
 	return 0, nil, nil
+}
+
+// Get preferred outbound IP of this machine
+// From: https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
+func GetOutboundIP() (net.IP, error) {
+	conn, err := net.Dial("udp", "8.8.8.8:53")
+	if err != nil {
+		return net.IP{}, err
+	}
+	err = conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP, err
 }

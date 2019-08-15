@@ -134,6 +134,7 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fix
 		hFactory:       hFactory,
 		component:      defaultComponent,
 		asyncReqWG:     &sync.WaitGroup{},
+		daemonWG:       &sync.WaitGroup{},
 	}
 }
 
@@ -148,6 +149,7 @@ type Fixture struct {
 	beforeContainers []types.Container
 	successfulReqs   *int64
 	asyncReqWG       *sync.WaitGroup
+	daemonWG         *sync.WaitGroup
 }
 
 func GivenNoMaelstromContainers(t *testing.T) *Fixture {
@@ -206,7 +208,8 @@ func (f *Fixture) makeHttpRequest(url string) *httptest.ResponseRecorder {
 }
 
 func (f *Fixture) WhenCronServiceStarted() *Fixture {
-	go cronService.Run()
+	f.daemonWG.Add(1)
+	go cronService.Run(f.daemonWG)
 	return f
 }
 

@@ -112,10 +112,44 @@ type DockerHandlerFactory struct {
 	lock            *sync.Mutex
 }
 
-func (f *DockerHandlerFactory) GetHandlerAndRegisterRequest(c v1.Component) (Handler, error) {
+func (f *DockerHandlerFactory) HandlerComponentNames() []string {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	names := make([]string, len(f.byComponentName))
+	i := 0
+	for name, _ := range f.byComponentName {
+		names[i] = name
+		i++
+	}
+	return names
+}
+
+func (f *DockerHandlerFactory) StopHandler(componentName string, stopContainerAsync bool) bool {
+	handler := f.getAndRemoveHandler(componentName)
+	if handler != nil {
+		if stopContainerAsync {
+			go handler.DrainAndStop()
+		} else {
+			handler.DrainAndStop()
+		}
+		return true
+	}
+	return false
+}
+
+func (f *DockerHandlerFactory) getAndRemoveHandler(componentName string) *LocalHandler {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
+	handler, ok := f.byComponentName[componentName]
+	if ok {
+		delete(f.byComponentName, componentName)
+		return handler
+	}
+	return nil
+}
+
+func (f *DockerHandlerFactory) getHandlerInternal(c v1.Component) (*LocalHandler, error) {
 	handler, ok := f.byComponentName[c.Name]
 
 	// if container is for an older version of component, stop it
@@ -148,7 +182,43 @@ func (f *DockerHandlerFactory) GetHandlerAndRegisterRequest(c v1.Component) (Han
 		}
 	}
 
-	err := handler.RegisterRequest()
+	return handler, nil
+}
+
+func (f *DockerHandlerFactory) EnsureHandler(c v1.Component, startContainerAsync bool) error {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	// get or create a LocalHandler instance for this component
+	// this will cycle the component if the version has changed
+	handler, err := f.getHandlerInternal(c)
+	if err != nil {
+		return err
+	}
+
+	if startContainerAsync {
+		go func() {
+			err := handler.ensureContainerWithLock()
+			if err != nil {
+				log.Error("handler: EnsureHandler error in ensureContainerWithLock",
+					"component", c.Name, "ver", c.Version, "err", err)
+			}
+		}()
+		return nil
+	}
+	return handler.ensureContainerWithLock()
+}
+
+func (f *DockerHandlerFactory) GetHandlerAndRegisterRequest(c v1.Component) (Handler, error) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	handler, err := f.getHandlerInternal(c)
+	if err != nil {
+		return nil, err
+	}
+
+	err = handler.RegisterRequest()
 	if err != nil {
 		return nil, fmt.Errorf("handler: unable to register request: %v", err)
 	}
@@ -326,6 +396,12 @@ func (h *LocalHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 func (h *LocalHandler) HandleMessage(message []byte) ([]byte, error) {
 	return nil, fmt.Errorf("HandleMessage - Not implemented")
+}
+
+func (h *LocalHandler) ensureContainerWithLock() error {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+	return h.ensureContainer()
 }
 
 func (h *LocalHandler) ensureContainer() error {
@@ -515,7 +591,6 @@ func getImageByNameStripRepo(dockerClient *docker.Client, imageName string) (*ty
 func getImageByName(dockerClient *docker.Client, imageName string) (*types.ImageSummary, error) {
 	filter := filters.NewArgs()
 	filter.Add("reference", normalizeImageName(imageName))
-	log.Info("ImageList", "filter", filter)
 	images, err := dockerClient.ImageList(context.Background(), types.ImageListOptions{
 		Filters: filter,
 	})
