@@ -147,7 +147,8 @@ type yamlComponent struct {
 	LogDriverOptions            map[string]string
 	EventSources                map[string]EventSource
 	LimitCpu                    float64
-	LimitMemory                 string
+	ReserveMemory               int64
+	LimitMemory                 int64
 }
 
 func (c yamlComponent) toComponentWithEventSources(name string, projectName string,
@@ -193,7 +194,8 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 				LogDriver:                   c.LogDriver,
 				LogDriverOptions:            mapToNameValues(c.LogDriverOptions),
 				LimitCpu:                    c.LimitCpu,
-				LimitMemory:                 c.LimitMemory,
+				ReserveMemoryMiB:            c.ReserveMemory,
+				LimitMemoryMiB:              c.LimitMemory,
 			},
 		},
 		EventSources: eventSources,

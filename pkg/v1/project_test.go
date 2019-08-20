@@ -113,7 +113,8 @@ components:
     logdriveroptions:
       syslog-host: localhost
     limitcpu: 1.5
-    limitmemory: 2G
+    reservememory: 1024
+    limitmemory: 2048
     eventsources:
       messages:
         sqs:
@@ -145,8 +146,9 @@ components:
 						LogDriverOptions: []NameValue{
 							{Name: "syslog-host", Value: "localhost"},
 						},
-						LimitCpu:    1.5,
-						LimitMemory: "2G",
+						LimitCpu:         1.5,
+						LimitMemoryMiB:   2048,
+						ReserveMemoryMiB: 1024,
 					},
 				},
 				EventSources: []EventSource{

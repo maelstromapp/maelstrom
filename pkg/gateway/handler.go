@@ -36,7 +36,33 @@ type HandlerFactory interface {
 
 type Handler interface {
 	http.Handler
-	HandleMessage(message []byte) ([]byte, error)
+}
+
+///////////////////////////////////////////////////////////
+// RemoteHandlerFactory //
+//////////////////////////
+
+func newRemoteHandlerFactory(componentName string, peerUrl string) (*RemoteHandlerFactory, error) {
+	target, err := url.Parse(peerUrl)
+	if err != nil {
+		return nil, err
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	return &RemoteHandlerFactory{proxy: proxy, componentName: componentName}, nil
+}
+
+type RemoteHandlerFactory struct {
+	proxy         *httputil.ReverseProxy
+	componentName string
+}
+
+func (r *RemoteHandlerFactory) GetHandlerAndRegisterRequest(c v1.Component) (Handler, error) {
+	return r, nil
+}
+
+func (r *RemoteHandlerFactory) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	req.Header.Set("MAELSTROM-COMPONENT", r.componentName)
+	r.proxy.ServeHTTP(rw, req)
 }
 
 ///////////////////////////////////////////////////////////
@@ -101,6 +127,7 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 		dockerClient:    dockerClient,
 		byComponentName: byComponentName,
 		maelstromUrl:    maelstromUrl,
+		version:         common.NowMillis(),
 		lock:            &sync.Mutex{},
 	}, nil
 }
@@ -109,19 +136,27 @@ type DockerHandlerFactory struct {
 	dockerClient    *docker.Client
 	byComponentName map[string]*LocalHandler
 	maelstromUrl    string
+	version         int64
 	lock            *sync.Mutex
 }
 
-func (f *DockerHandlerFactory) HandlerComponentNames() []string {
+func (f *DockerHandlerFactory) Version() int64 {
+	f.lock.Lock()
+	ver := f.version
+	f.lock.Unlock()
+	return ver
+}
+
+func (f *DockerHandlerFactory) HandlerComponentInfo() ([]v1.ComponentInfo, int64) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
-	names := make([]string, len(f.byComponentName))
-	i := 0
-	for name, _ := range f.byComponentName {
-		names[i] = name
-		i++
+	names := make([]v1.ComponentInfo, 0)
+	for _, handler := range f.byComponentName {
+		if !handler.Stopped() {
+			names = append(names, handler.componentInfo())
+		}
 	}
-	return names
+	return names, f.version
 }
 
 func (f *DockerHandlerFactory) StopHandler(componentName string, stopContainerAsync bool) bool {
@@ -143,6 +178,7 @@ func (f *DockerHandlerFactory) getAndRemoveHandler(componentName string) *LocalH
 
 	handler, ok := f.byComponentName[componentName]
 	if ok {
+		f.version++
 		delete(f.byComponentName, componentName)
 		return handler
 	}
@@ -170,6 +206,7 @@ func (f *DockerHandlerFactory) getHandlerInternal(c v1.Component) (*LocalHandler
 
 	if !ok {
 		// start new container for component
+		f.version++
 		var err error
 		log.Info("handler: creating handler", "component", c.Name, "ver", c.Version)
 		handler, err = NewLocalHandler(f.dockerClient, c, "", f.maelstromUrl)
@@ -207,6 +244,17 @@ func (f *DockerHandlerFactory) EnsureHandler(c v1.Component, startContainerAsync
 		return nil
 	}
 	return handler.ensureContainerWithLock()
+}
+
+func (f *DockerHandlerFactory) GetHandlerLastRequestTimeAndCount(componentName string) (time.Time, int64) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	handler, ok := f.byComponentName[componentName]
+	if ok {
+		return handler.lastReqTime, handler.totalRequests
+	}
+	return time.Time{}, 0
 }
 
 func (f *DockerHandlerFactory) GetHandlerAndRegisterRequest(c v1.Component) (Handler, error) {
@@ -265,6 +313,7 @@ func (f *DockerHandlerFactory) stopHandlerByComponent(c v1.Component) {
 
 func (f *DockerHandlerFactory) stopHandler(h *LocalHandler) {
 	log.Info("handler: stopping handler", "component", h.component.Name, "ver", h.component.Version)
+	f.version++
 	delete(f.byComponentName, h.component.Name)
 	go func() { h.DrainAndStop() }()
 }
@@ -299,16 +348,28 @@ func NewLocalHandler(dockerClient *docker.Client, c v1.Component, containerId st
 }
 
 type LocalHandler struct {
-	proxy        *httputil.ReverseProxy
-	targetUrl    *url.URL
-	dockerClient *docker.Client
-	component    v1.Component
-	containerId  string
-	requestWG    *sync.WaitGroup
-	lock         *sync.Mutex
-	lastReqTime  time.Time
-	stopped      bool
-	maelstromUrl string
+	proxy         *httputil.ReverseProxy
+	targetUrl     *url.URL
+	dockerClient  *docker.Client
+	component     v1.Component
+	containerId   string
+	requestWG     *sync.WaitGroup
+	lock          *sync.Mutex
+	lastReqTime   time.Time
+	totalRequests int64
+	stopped       bool
+	maelstromUrl  string
+}
+
+func (h *LocalHandler) componentInfo() v1.ComponentInfo {
+	h.lock.Lock()
+	info := v1.ComponentInfo{
+		ComponentName:     h.component.Name,
+		MemoryReservedMiB: h.component.Docker.ReserveMemoryMiB,
+		LastRequestTime:   common.TimeToMillis(h.lastReqTime),
+	}
+	h.lock.Unlock()
+	return info
 }
 
 func (h *LocalHandler) monitorHealthCheck(containerId string, healthCheckUrl *url.URL) {
@@ -351,7 +412,7 @@ func (h *LocalHandler) monitorIdle() {
 			return
 		} else {
 			sinceLastReq := time.Now().Sub(h.lastReqTime)
-			sleepDuration := idleDuration - sinceLastReq
+			sleepDuration = idleDuration - sinceLastReq
 			if sleepDuration <= 0 {
 				log.Info("handler: monitorIdle stopping idle container", "component", h.component.Name,
 					"lastReq", sinceLastReq.String())
@@ -386,16 +447,13 @@ func (h *LocalHandler) RegisterRequest() error {
 	}
 	h.requestWG.Add(1)
 	h.lastReqTime = time.Now()
+	h.totalRequests++
 	return nil
 }
 
 func (h *LocalHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	defer h.requestWG.Done()
 	h.proxy.ServeHTTP(rw, req)
-}
-
-func (h *LocalHandler) HandleMessage(message []byte) ([]byte, error) {
-	return nil, fmt.Errorf("HandleMessage - Not implemented")
 }
 
 func (h *LocalHandler) ensureContainerWithLock() error {
@@ -688,6 +746,18 @@ func toContainerConfig(c v1.Component, maelstromUrl string) *container.Config {
 
 func toContainerHostConfig(c v1.Component) *container.HostConfig {
 	hc := &container.HostConfig{}
+
+	// Set memory (RAM) limits
+	resMem := c.Docker.ReserveMemoryMiB
+	if resMem <= 0 {
+		resMem = 128
+	}
+	memoryResBytes := resMem * 1024 * 1024
+	hc.MemoryReservation = memoryResBytes
+	hc.KernelMemory = memoryResBytes
+	if c.Docker.LimitMemoryMiB > c.Docker.ReserveMemoryMiB {
+		hc.KernelMemory = c.Docker.LimitMemoryMiB * 1024 * 1024
+	}
 
 	// Set volume mounts
 	if len(c.Docker.Volumes) > 0 {

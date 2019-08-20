@@ -6,18 +6,18 @@ import (
 	"net/http"
 )
 
-func NewGateway(r ComponentResolver, f HandlerFactory, public bool) *Gateway {
+func NewGateway(r ComponentResolver, router *Router, public bool) *Gateway {
 	return &Gateway{
-		compResolver:   r,
-		handlerFactory: f,
-		public:         public,
+		compResolver: r,
+		router:       router,
+		public:       public,
 	}
 }
 
 type Gateway struct {
-	compResolver   ComponentResolver
-	handlerFactory HandlerFactory
-	public         bool
+	compResolver ComponentResolver
+	router       *Router
+	public       bool
 }
 
 func (g *Gateway) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
@@ -37,18 +37,18 @@ func (g *Gateway) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	handler, err := g.handlerFactory.GetHandlerAndRegisterRequest(comp)
+	handler, err := g.router.GetHandlerAndRegisterRequest(comp)
 	if err != nil {
 		if err == v1.NotFound {
 			respondText(rw, http.StatusNotFound, "No handler found for component: "+comp.Name)
 		} else {
-			log.Error("gateway: handlerFactory.GetHandlerAndRegisterRequest", "err", err)
+			log.Error("gateway: router.GetHandlerAndRegisterRequest", "err", err)
 			respondText(rw, http.StatusInternalServerError, "Server Error")
 		}
 		return
 	}
 	if handler == nil {
-		log.Error("gateway: handlerFactory returned nil handler", "component", comp.Name)
+		log.Error("gateway: router returned nil handler", "component", comp.Name)
 		respondText(rw, http.StatusInternalServerError, "Server Error")
 		return
 	}

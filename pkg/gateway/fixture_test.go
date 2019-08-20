@@ -121,7 +121,13 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fix
 	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, testGatewayPort)
 	assert.Nil(t, err, "NewDockerHandlerFactory err != nil: %v", err)
 
-	gateway := NewGateway(resolver, hFactory, false)
+	nodeSvcImpl, err := NewNodeServiceImplFromDocker(hFactory, sqlDb, dockerClient, "")
+	assert.Nil(t, err, "NewNodeServiceImplFromDocker err != nil: %v", err)
+
+	router := NewRouter(nodeSvcImpl.NodeId(), hFactory, nodeSvcImpl)
+	nodeSvcImpl.Cluster().AddObserver(router)
+
+	gateway := NewGateway(resolver, router, false)
 	cancelCtx, cancelFx := context.WithCancel(context.Background())
 	contextCancelFx = cancelFx
 	cronService = NewCronService(sqlDb, gateway, cancelCtx, time.Second)
@@ -131,6 +137,7 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fix
 		dockerClient:   dockerClient,
 		successfulReqs: &successfulReqs,
 		v1Impl:         v1.NewV1(sqlDb, nil, nil),
+		nodeSvcImpl:    nodeSvcImpl,
 		hFactory:       hFactory,
 		component:      defaultComponent,
 		asyncReqWG:     &sync.WaitGroup{},
@@ -144,6 +151,7 @@ type Fixture struct {
 	component        v1.Component
 	hFactory         *DockerHandlerFactory
 	v1Impl           *v1.V1
+	nodeSvcImpl      *NodeServiceImpl
 	cronService      *CronService
 	nextContainerId  string
 	beforeContainers []types.Container
@@ -161,6 +169,8 @@ func GivenNoMaelstromContainers(t *testing.T) *Fixture {
 func GivenExistingContainer(t *testing.T) *Fixture {
 	sqlDb := newDb(t)
 	containerId, err := startContainer(dockerClient, defaultComponent, testGatewayUrl)
+
+	fmt.Printf("GivenExistingContainer startContainer: %s\n", containerId)
 
 	f := newFixture(t, dockerClient, sqlDb)
 	assert.Nil(t, err, "startContainer err != nil: %v", err)

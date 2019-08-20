@@ -97,10 +97,6 @@ func main() {
 	dockerMonitor := common.NewDockerImageMonitor(dockerClient, handlerFactory, cancelCtx)
 	dockerMonitor.RunAsync(daemonWG)
 
-	publicSvr := gateway.NewGateway(resolver, handlerFactory, true)
-
-	componentSubscribers := []v1.ComponentSubscriber{handlerFactory}
-
 	nodeSvcImpl, err := gateway.NewNodeServiceImplFromDocker(handlerFactory, db, dockerClient, peerUrl)
 	if err != nil {
 		log.Error("maelstromd: cannot create NodeService", "err", err)
@@ -110,12 +106,19 @@ func main() {
 	go nodeSvcImpl.RunNodeStatusLoop(time.Minute, cancelCtx, daemonWG)
 	log.Info("maelstromd: created NodeService", nodeSvcImpl.LogPairs()...)
 
+	router := gateway.NewRouter(nodeSvcImpl.NodeId(), handlerFactory, nodeSvcImpl)
+	nodeSvcImpl.Cluster().AddObserver(router)
+
+	publicSvr := gateway.NewGateway(resolver, router, true)
+
+	componentSubscribers := []v1.ComponentSubscriber{handlerFactory}
+
 	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
 	v1Impl := v1.NewV1(db, componentSubscribers, certWrapper)
 	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl, nodeSvcImpl)
 	logsHandler := gateway.NewLogsHandler(dockerClient)
 
-	privateGateway := gateway.NewGateway(resolver, handlerFactory, false)
+	privateGateway := gateway.NewGateway(resolver, router, false)
 	privateSvrMux := http.NewServeMux()
 	privateSvrMux.Handle("/_mael/v1", &v1Server)
 	privateSvrMux.Handle("/_mael/logs", logsHandler)

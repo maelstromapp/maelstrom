@@ -128,6 +128,11 @@ interface NodeService {
 
     GetStatus(input GetNodeStatusInput) GetNodeStatusOutput
 
+    // Error Codes:
+    //
+    // * 1003 - input.componentName does not reference a component defined in the system
+    PlaceComponent(input PlaceComponentInput) PlaceComponentOutput
+
     StartStopComponents(input StartStopComponentsInput) StartStopComponentsOutput
 
 }
@@ -211,7 +216,14 @@ struct DockerComponent {
     logDriverOptions         []NameValue    [optional]
 
     limitCpu                 float          [optional]
-    limitMemory              string         [optional]
+
+    // RAM in MiB that should be reserved on a node when starting this component
+    // Optional. Default=128
+    reserveMemoryMiB         int            [optional]
+
+    // Hard RAM limit for this component. This must be greater than or equal to reserveMemoryMiB
+    // Optional. If not set, this will default to reserveMemoryMiB
+    limitMemoryMiB           int            [optional]
 }
 
 struct VolumeMount {
@@ -301,24 +313,37 @@ struct NodeStatus {
     nodeId             string
     startedAt          int
     observedAt         int
+    version            int
     peerUrl            string
-    totalMemoryMB      int
+    totalMemoryMiB     int
+    freeMemoryMiB      int
     numCPUs            int
-    totalCPUPct        float
-    runningComponents  []string
+    loadAvg1m          float
+    loadAvg5m          float
+    loadAvg15m         float
+    runningComponents  []ComponentInfo
     containers         []ContainerStatus    [optional]
 }
 
+struct ComponentInfo {
+    componentName      string
+    memoryReservedMiB  int
+    lastRequestTime    int
+}
+
 struct ContainerStatus {
-    containerId      string
-    image            string
-    imageId          string
-    startedAt        int
-    componentName    string
-    componentVersion int
-    CPUPct           float
-    memoryUsedMB     int
-    memoryPeakMB     int
+    containerId        string
+    image              string
+    imageId            string
+    startedAt          int
+    componentName      string
+    componentVersion   int
+    CPUPct             float
+    memoryReservedMiB  int
+    memoryUsedMiB      int
+    memoryPeakMiB      int
+    lastRequestTime    int
+    totalRequests      int
 }
 
 struct PutProjectInput {
@@ -519,17 +544,45 @@ struct GetNodeStatusOutput {
     status           NodeStatus
 }
 
+struct PlaceComponentInput {
+    componentName     string
+}
+
+struct PlaceComponentOutput {
+    componentName     string
+    node              NodeStatus
+}
+
 struct StartStopComponentsInput {
     // Id of node making this request
     clientNodeId        string
+
+    // NodeStatus.version that the client thinks the target is currently on
+    // If the target's version differs, that suggests a concurrent modification of the target,
+    // and this operation will be rejected by the target.
+    // This allows multiple nodes to optimistically attempt to schedule concurrent scaling operations
+    // without central coordination.
+    targetVersion       int
 
     // Number of instances of each component the client would like the target
     // node to scale to.  The receiver should compare this to the number of
     // containers currently running start/stop containers to match the targetCount.
     targetCounts        []ComponentCount
+
+    // If true, targetStatus will be populated after performing changes
+    // Optional. default=false
+    returnStatus        bool     [optional]
 }
 
 struct StartStopComponentsOutput {
+    // If targetVersion did not match current version, this struct will be returned
+    // so that client can adjust its state and potentially try again
+    // If this is true, started, stopped, and errors will all be empty.
+    targetVersionMismatch    bool
+
+    // This is populated if targetVersionMismatch=true, or if returnStatus=true
+    targetStatus             NodeStatus  [optional]
+
     // components started, or empty list if no containers started
     started          []ComponentCount
 
