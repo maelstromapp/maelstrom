@@ -463,13 +463,10 @@ func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context
 }
 
 func (n *NodeServiceImpl) logStatus(ctx context.Context) error {
-	start := time.Now()
-	log.Info("logStatus start")
 	status, err := n.loadNodeStatus(true, true, ctx)
 	if err != nil {
 		return err
 	}
-	log.Info("logStatus   end", "elapsed", time.Now().Sub(start).String())
 	return n.db.PutNodeStatus(status)
 }
 

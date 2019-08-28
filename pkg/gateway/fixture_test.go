@@ -119,7 +119,7 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fix
 	successfulReqs := int64(0)
 	daemonWG := &sync.WaitGroup{}
 	ctx := context.Background()
-	resolver := NewDbResolver(sqlDb, nil)
+	resolver := NewDbResolver(sqlDb, nil, 0)
 
 	router := NewRouter(nil, "", ctx)
 	daemonWG.Add(1)

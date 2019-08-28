@@ -6,6 +6,8 @@ import (
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 )
 
 type ComponentResolver interface {
@@ -13,20 +15,69 @@ type ComponentResolver interface {
 	ByHTTPRequest(req *http.Request, public bool) (v1.Component, error)
 }
 
-func NewDbResolver(db v1.Db, certWrapper *cert.CertMagicWrapper) *DbComponentResolver {
+func NewDbResolver(db v1.Db, certWrapper *cert.CertMagicWrapper, cacheDuration time.Duration) *DbComponentResolver {
 	return &DbComponentResolver{
-		db:          db,
-		certWrapper: certWrapper,
+		db:            db,
+		certWrapper:   certWrapper,
+		cacheDuration: cacheDuration,
+		lock:          &sync.Mutex{},
 	}
 }
 
 type DbComponentResolver struct {
-	db          v1.Db
-	certWrapper *cert.CertMagicWrapper
+	db            v1.Db
+	certWrapper   *cert.CertMagicWrapper
+	cacheDuration time.Duration
+	lock          *sync.Mutex
+
+	// caches
+	eventSources        []v1.EventSource
+	eventSourcesExpires time.Time
+	componentsByName    map[string]v1.Component
+	componentsExpires   time.Time
 }
 
-func (r *DbComponentResolver) ByName(componentName string) (v1.Component, error) {
-	return r.db.GetComponent(componentName)
+func (r *DbComponentResolver) ByName(componentName string) (comp v1.Component, err error) {
+	ok := false
+	r.lock.Lock()
+	now := time.Now()
+	if now.After(r.componentsExpires) {
+		r.componentsByName = make(map[string]v1.Component)
+		r.componentsExpires = now.Add(r.cacheDuration)
+	} else {
+		comp, ok = r.componentsByName[componentName]
+	}
+
+	if !ok {
+		comp, err = r.db.GetComponent(componentName)
+		if err == nil {
+			r.componentsByName[componentName] = comp
+		}
+	}
+
+	r.lock.Unlock()
+	return
+}
+
+func (r *DbComponentResolver) allHttpEventSources() (sources []v1.EventSource, err error) {
+	r.lock.Lock()
+	now := time.Now()
+	if now.After(r.eventSourcesExpires) {
+		r.eventSources = nil
+		r.eventSourcesExpires = now.Add(r.cacheDuration)
+	} else {
+		sources = r.eventSources
+	}
+
+	if r.eventSources == nil {
+		sources, err = allHttpEventSources(r.db, r.certWrapper)
+		if err == nil {
+			r.eventSources = sources
+		}
+	}
+
+	r.lock.Unlock()
+	return
 }
 
 func (r *DbComponentResolver) ByHTTPRequest(req *http.Request, public bool) (v1.Component, error) {
@@ -39,7 +90,7 @@ func (r *DbComponentResolver) ByHTTPRequest(req *http.Request, public bool) (v1.
 		}
 	}
 
-	httpEventSources, err := allHttpEventSources(r.db, r.certWrapper)
+	httpEventSources, err := r.allHttpEventSources()
 	if err != nil {
 		return v1.Component{}, err
 	}

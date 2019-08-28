@@ -179,7 +179,7 @@ func (f *DockerHandlerFactory) ConvergeToTarget(target v1.ComponentCount,
 func (f *DockerHandlerFactory) startContainer(component v1.Component) (*Container, error) {
 	err := pullImage(f.dockerClient, component)
 	if err != nil {
-		log.Warn("handler: unable to pull image", "err", err, "component", component.Name)
+		log.Warn("handler: unable to pull image", "err", err.Error(), "component", component.Name)
 	}
 
 	containerId, err := startContainer(f.dockerClient, component, f.maelstromUrl)

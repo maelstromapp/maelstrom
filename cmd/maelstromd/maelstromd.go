@@ -133,7 +133,7 @@ func main() {
 	daemonWG.Add(1)
 	go router.Run(daemonWG)
 
-	resolver := gateway.NewDbResolver(db, certWrapper)
+	resolver := gateway.NewDbResolver(db, certWrapper, time.Second)
 	handlerFactory, err := gateway.NewDockerHandlerFactory(dockerClient, resolver, db, router, cancelCtx, *privatePort)
 	if err != nil {
 		log.Error("maelstromd: cannot create handler factory", "err", err)
