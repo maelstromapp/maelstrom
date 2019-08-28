@@ -210,8 +210,8 @@ func (n *NodeServiceImpl) placeComponentInternal(componentName string, requiredR
 				}
 			}
 			log.Warn("nodesvc: started component, but node doesn't report it running",
-				"component", componentName, "clientNode", n.nodeId, "remoteNode", node.NodeId)
-
+				"component", componentName, "clientNode", n.nodeId, "remoteNode", node.NodeId,
+				"status", output.TargetStatus)
 		} else {
 			// some aspect of placement failed. we'll retry with any updated cluster state
 			log.Error("nodesvc: error in StartStopComponents", "errors", output.Errors,
@@ -226,9 +226,57 @@ func (n *NodeServiceImpl) placeComponentInternal(componentName string, requiredR
 	return nil, true
 }
 
+func (n *NodeServiceImpl) autoscale() {
+	for _, node := range n.cluster.GetNodes() {
+		var targetCounts []v1.ComponentCount
+		countByComponent := make(map[string]int)
+		deltaByComponent := make(map[string]int)
+		for _, info := range node.RunningComponents {
+			c, err := n.db.GetComponent(info.ComponentName)
+			if err == nil {
+				countByComponent[info.ComponentName] = countByComponent[info.ComponentName] + 1
+				minTime := common.TimeToMillis(time.Now().Add(-1 * time.Duration(c.Docker.IdleTimeoutSeconds) * time.Second))
+				if info.LastRequestTime < minTime {
+					deltaByComponent[info.ComponentName] = deltaByComponent[info.ComponentName] - 1
+				}
+			} else {
+				log.Error("nodesvc: autoscale error getting component", "err", err, "component", info.ComponentName)
+			}
+		}
+
+		for componentName, delta := range deltaByComponent {
+			targetCounts = append(targetCounts, v1.ComponentCount{
+				ComponentName: componentName,
+				Count:         int64(countByComponent[componentName] + delta),
+			})
+		}
+
+		if len(targetCounts) > 0 {
+			input := v1.StartStopComponentsInput{
+				ClientNodeId:  n.nodeId,
+				TargetVersion: node.Version,
+				TargetCounts:  targetCounts,
+				ReturnStatus:  true,
+			}
+			output, err := n.cluster.GetNodeService(node).StartStopComponents(input)
+			if err == nil {
+				log.Info("autoscale: StartStopComponents success", "targetNode", node.NodeId,
+					"targetCounts", targetCounts)
+				if output.TargetStatus != nil {
+					n.cluster.SetNode(*output.TargetStatus)
+				}
+			} else {
+				log.Error("autoscale: StartStopComponents failed", "err", err, "targetNode", node.NodeId,
+					"input", input)
+			}
+		}
+	}
+}
+
 func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput) (v1.StartStopComponentsOutput, error) {
 
-	version := n.handlerFactory.Version()
+	handlers, version := n.handlerFactory.HandlerComponentInfo()
+
 	if version != input.TargetVersion {
 		status, err := n.loadNodeStatus(true, false, context.Background())
 		if err != nil {
@@ -245,48 +293,78 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 
 	startedCount := map[string]int64{}
 	stoppedCount := map[string]int64{}
-	errors := make([]v1.ComponentCountError, 0)
+	var errors []v1.ComponentCountError
+	var stopRequests []v1.ComponentCount
+	var startRequests []v1.ComponentCount
+	countsByComponent := map[string]int{}
+
+	for _, handler := range handlers {
+		count := countsByComponent[handler.ComponentName]
+		countsByComponent[handler.ComponentName] = count + 1
+	}
+
+	for _, target := range input.TargetCounts {
+		currentCount := int64(countsByComponent[target.ComponentName])
+		if target.Count > currentCount {
+			startRequests = append(startRequests, target)
+		} else if target.Count < currentCount {
+			stopRequests = append(stopRequests, target)
+		}
+	}
 
 	// stop first - in parallel
-	stopWg := &sync.WaitGroup{}
-	stoppedComponentNamesCh := make(chan string, len(input.TargetCounts))
-	stopHandlerFx := func(componentName string) {
-		if n.handlerFactory.StopHandler(componentName, false) {
-			stoppedComponentNamesCh <- componentName
-		}
-		stopWg.Done()
-	}
-	for _, target := range input.TargetCounts {
-		if target.Count <= 0 {
-			stopWg.Add(1)
-			go stopHandlerFx(target.ComponentName)
-		}
-	}
-	stopWg.Wait()
-	close(stoppedComponentNamesCh)
-	for componentName := range stoppedComponentNamesCh {
-		count := stoppedCount[componentName]
-		stoppedCount[componentName] = count + 1
-	}
-
-	// then start
-	for _, target := range input.TargetCounts {
-		if target.Count > 0 {
+	if len(stopRequests) > 0 {
+		stopWg := &sync.WaitGroup{}
+		stoppedComponentNamesCh := make(chan string, len(input.TargetCounts))
+		stopHandlerFx := func(target v1.ComponentCount) {
 			comp, err := n.db.GetComponent(target.ComponentName)
 			if err != nil {
-				msg := "component not found"
+				msg := "error loading component: " + target.ComponentName
 				log.Error("nodesvc: unable to get component", "component", target.ComponentName, "err", err)
 				errors = append(errors, v1.ComponentCountError{ComponentCount: target, Error: msg})
 			} else {
-				err = n.handlerFactory.EnsureHandler(comp, true)
+				_, stopped, err := n.handlerFactory.ConvergeToTarget(target, comp, false)
 				if err != nil {
-					msg := "handlerFactory.EnsureHandler error"
-					log.Error("nodesvc: handlerFactory.EnsureHandler", "component", target.ComponentName, "err", err)
+					msg := "handlerFactory.ConvergeToTarget stop error"
+					log.Error("nodesvc: handlerFactory.ConvergeToTarget stop", "target", target, "err", err)
 					errors = append(errors, v1.ComponentCountError{ComponentCount: target, Error: msg})
-				} else {
-					count := startedCount[target.ComponentName]
-					startedCount[target.ComponentName] = count + 1
 				}
+				if stopped > 0 {
+					stoppedComponentNamesCh <- target.ComponentName
+				}
+			}
+			stopWg.Done()
+		}
+		for _, target := range stopRequests {
+			if target.Count <= 0 {
+				stopWg.Add(1)
+				go stopHandlerFx(target)
+			}
+		}
+		stopWg.Wait()
+		close(stoppedComponentNamesCh)
+		for componentName := range stoppedComponentNamesCh {
+			count := stoppedCount[componentName]
+			stoppedCount[componentName] = count + 1
+		}
+	}
+
+	// then start
+	for _, target := range startRequests {
+		comp, err := n.db.GetComponent(target.ComponentName)
+		if err != nil {
+			msg := "error loading component: " + target.ComponentName
+			log.Error("nodesvc: unable to get component", "component", target.ComponentName, "err", err)
+			errors = append(errors, v1.ComponentCountError{ComponentCount: target, Error: msg})
+		} else {
+			started, _, err := n.handlerFactory.ConvergeToTarget(target, comp, true)
+			if err != nil {
+				msg := "handlerFactory.ConvergeToTarget start error"
+				log.Error("nodesvc: handlerFactory.ConvergeToTarget start", "target", target, "err", err)
+				errors = append(errors, v1.ComponentCountError{ComponentCount: target, Error: msg})
+			} else {
+				count := startedCount[target.ComponentName]
+				startedCount[target.ComponentName] = count + int64(started)
 			}
 		}
 	}
@@ -313,6 +391,21 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 	}, nil
 }
 
+func (n *NodeServiceImpl) RunAutoscaleLoop(interval time.Duration, ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+	done := ctx.Done()
+	ticker := time.Tick(interval)
+	for {
+		select {
+		case <-ticker:
+			n.autoscale()
+		case <-done:
+			log.Info("nodesvc: autoscale loop shutdown gracefully")
+			return
+		}
+	}
+}
+
 func (n *NodeServiceImpl) RunNodeStatusLoop(interval time.Duration, ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	done := ctx.Done()
@@ -329,7 +422,7 @@ func (n *NodeServiceImpl) RunNodeStatusLoop(interval time.Duration, ctx context.
 					log.Error("nodesvc: error removing status", "err", err, "nodeId", n.nodeId)
 				}
 			}
-			log.Info("nodesvc: node status loop shutdown gracefully")
+			log.Info("nodesvc: status loop shutdown gracefully")
 			return
 		}
 	}
@@ -337,7 +430,7 @@ func (n *NodeServiceImpl) RunNodeStatusLoop(interval time.Duration, ctx context.
 
 func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context) {
 	err := n.logStatus(ctx)
-	if err != nil {
+	if err != nil && !docker.IsErrContainerNotFound(err) {
 		log.Error("nodesvc: error logging status", "err", err)
 	}
 	input := v1.ListNodeStatusInput{
@@ -370,10 +463,13 @@ func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context
 }
 
 func (n *NodeServiceImpl) logStatus(ctx context.Context) error {
+	start := time.Now()
+	log.Info("logStatus start")
 	status, err := n.loadNodeStatus(true, true, ctx)
 	if err != nil {
 		return err
 	}
+	log.Info("logStatus   end", "elapsed", time.Now().Sub(start).String())
 	return n.db.PutNodeStatus(status)
 }
 
@@ -435,21 +531,27 @@ func (n *NodeServiceImpl) loadNodeStatus(includeContainerStatus bool, mutateLoca
 				LastRequestTime:   0,
 			}
 
-			lastReqTime, totalRequests := n.handlerFactory.GetHandlerLastRequestTimeAndCount(maelStats.ComponentName)
-			if totalRequests > 0 {
-				maelStats.TotalRequests = totalRequests
-				maelStats.LastRequestTime = common.TimeToMillis(lastReqTime)
+			compInfo := n.handlerFactory.GetComponentInfo(maelStats.ComponentName, c.ID)
+			if compInfo.TotalRequests > 0 {
+				maelStats.TotalRequests = compInfo.TotalRequests
+				maelStats.LastRequestTime = compInfo.LastRequestTime
 			}
 
 			containerInfo, err := n.dockerClient.ContainerInspect(ctx, c.ID)
 			if err != nil {
-				return v1.NodeStatus{}, fmt.Errorf("docker.ContainerInspect error: %v", err)
+				if !docker.IsErrContainerNotFound(err) {
+					err = fmt.Errorf("docker.ContainerInspect error: %v", err)
+				}
+				return v1.NodeStatus{}, err
 			}
 			maelStats.MemoryReservedMiB = containerInfo.HostConfig.MemoryReservation / 1024 / 1024
 
 			stats, err := n.dockerClient.ContainerStats(ctx, c.ID, false)
 			if err != nil {
-				return v1.NodeStatus{}, fmt.Errorf("docker.ContainerStats error: %v", err)
+				if !docker.IsErrContainerNotFound(err) {
+					err = fmt.Errorf("docker.ContainerInspect error: %v", err)
+				}
+				return v1.NodeStatus{}, err
 			}
 			var containerStats types.StatsJSON
 			body, err := ioutil.ReadAll(stats.Body)

@@ -33,6 +33,11 @@ run-maelstromd:
 	./dist/maelstromd -publicPort 8008 -sqlDriver sqlite3 \
 	    -sqlDSN 'file:./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY' &
 
+profile-maelstromd:
+	mkdir -p tmp
+	./dist/maelstromd -publicPort 8008 -sqlDriver sqlite3 -cpuprofile=tmp/mael.prof \
+	    -sqlDSN 'file:./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY' &
+
 copy-to-s3:
 	aws s3 cp --acl public-read ./dist/maelstromd s3://bitmech-west2/maelstrom/latest/maelstromd
 	aws s3 cp --acl public-read ./dist/maelctl s3://bitmech-west2/maelstrom/latest/maelctl

@@ -14,9 +14,6 @@ import (
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"io"
 	"io/ioutil"
-	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -30,47 +27,12 @@ import (
 // only intended for use in CI via the DIND_HOST env var
 var hostBindPort = int64(33000)
 
-type HandlerFactory interface {
-	GetHandlerAndRegisterRequest(c v1.Component) (Handler, error)
-}
-
-type Handler interface {
-	http.Handler
-}
-
-///////////////////////////////////////////////////////////
-// RemoteHandlerFactory //
-//////////////////////////
-
-func newRemoteHandlerFactory(componentName string, peerUrl string) (*RemoteHandlerFactory, error) {
-	target, err := url.Parse(peerUrl)
-	if err != nil {
-		return nil, err
-	}
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	return &RemoteHandlerFactory{proxy: proxy, componentName: componentName}, nil
-}
-
-type RemoteHandlerFactory struct {
-	proxy         *httputil.ReverseProxy
-	componentName string
-}
-
-func (r *RemoteHandlerFactory) GetHandlerAndRegisterRequest(c v1.Component) (Handler, error) {
-	return r, nil
-}
-
-func (r *RemoteHandlerFactory) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	req.Header.Set("MAELSTROM-COMPONENT", r.componentName)
-	r.proxy.ServeHTTP(rw, req)
-}
-
 ///////////////////////////////////////////////////////////
 // DockerHandlerFactory //
 //////////////////////////
 
-func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentResolver,
-	privatePort int) (*DockerHandlerFactory, error) {
+func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentResolver, db v1.Db, router *Router,
+	ctx context.Context, privatePort int) (*DockerHandlerFactory, error) {
 	containers, err := listContainers(dockerClient)
 	if err != nil {
 		return nil, err
@@ -83,7 +45,7 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 	maelstromUrl := fmt.Sprintf("http://%s:%d", maelstromHost, privatePort)
 	log.Info("handler: creating DockerHandlerFactory", "maelstromUrl", maelstromUrl)
 
-	byComponentName := map[string]*LocalHandler{}
+	byComponentName := map[string][]*Container{}
 	for _, c := range containers {
 		name := c.Labels["maelstrom_component"]
 		verStr := c.Labels["maelstrom_version"]
@@ -100,22 +62,22 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 					log.Error("handler: cannot list images", "component", name, "err", err)
 				}
 
-				handler, err := NewLocalHandler(dockerClient, comp, c.ID, maelstromUrl)
-				if err == nil {
-					if c.ImageID != currentImageId {
-						log.Info("handler: stopping old image for component", "component", name, "containerId", c.ID,
-							"currentImageId", c.ImageID, "newImageId", currentImageId)
-						handler.DrainAndStop()
-					} else if strconv.Itoa(int(comp.Version)) != verStr {
-						log.Info("handler: stopping old image for component", "component", name, "containerId", c.ID,
-							"currentVersion", verStr, "newVersion", comp.Version)
-						handler.DrainAndStop()
-					} else {
-						// happy path - running container matches docker image ID and component version
-						byComponentName[name] = handler
-					}
+				if c.ImageID != currentImageId {
+					stopContainerLogErr(dockerClient, c.ID, name, verStr, "docker image modified")
+				} else if strconv.Itoa(int(comp.Version)) != verStr {
+					stopContainerLogErr(dockerClient, c.ID, name, verStr, "component version changed")
 				} else {
-					log.Error("handler: cannot create handler", "component", name, "err", err)
+					// happy path - running container matches docker image ID and component version
+					reqChans := router.getComponentChannels(name)
+					containerWrap, err := StartContainer(reqChans, dockerClient, comp, c.ID, ctx)
+					if err == nil {
+						list := byComponentName[name]
+						byComponentName[name] = append(list, containerWrap)
+					} else {
+						log.Error("handler: cannot create container wrapper", "component", name, "err", err)
+						stopContainerLogErr(dockerClient, c.ID, name, verStr, "container wrapper init failed")
+					}
+					log.Info("handler: added existing container", "component", name, "containerId", c.ID)
 				}
 			} else {
 				log.Warn("handler: cannot load component", "component", name, "err", err.Error())
@@ -125,8 +87,11 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 
 	return &DockerHandlerFactory{
 		dockerClient:    dockerClient,
+		router:          router,
+		db:              db,
 		byComponentName: byComponentName,
 		maelstromUrl:    maelstromUrl,
+		ctx:             ctx,
 		version:         common.NowMillis(),
 		lock:            &sync.Mutex{},
 	}, nil
@@ -134,8 +99,11 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 
 type DockerHandlerFactory struct {
 	dockerClient    *docker.Client
-	byComponentName map[string]*LocalHandler
+	router          *Router
+	db              v1.Db
+	byComponentName map[string][]*Container
 	maelstromUrl    string
+	ctx             context.Context
 	version         int64
 	lock            *sync.Mutex
 }
@@ -151,137 +119,163 @@ func (f *DockerHandlerFactory) HandlerComponentInfo() ([]v1.ComponentInfo, int64
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	names := make([]v1.ComponentInfo, 0)
-	for _, handler := range f.byComponentName {
-		if !handler.Stopped() {
-			names = append(names, handler.componentInfo())
+	for _, clist := range f.byComponentName {
+		for _, cont := range clist {
+			names = append(names, cont.componentInfo())
 		}
 	}
 	return names, f.version
 }
 
-func (f *DockerHandlerFactory) StopHandler(componentName string, stopContainerAsync bool) bool {
-	handler := f.getAndRemoveHandler(componentName)
-	if handler != nil {
-		if stopContainerAsync {
-			go handler.DrainAndStop()
-		} else {
-			handler.DrainAndStop()
-		}
-		return true
-	}
-	return false
-}
+func (f *DockerHandlerFactory) ConvergeToTarget(target v1.ComponentCount,
+	component v1.Component, async bool) (started int, stopped int, err error) {
 
-func (f *DockerHandlerFactory) getAndRemoveHandler(componentName string) *LocalHandler {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
-	handler, ok := f.byComponentName[componentName]
-	if ok {
-		f.version++
-		delete(f.byComponentName, componentName)
-		return handler
-	}
-	return nil
-}
+	targetCount := int(target.Count)
+	containers := f.byComponentName[target.ComponentName]
 
-func (f *DockerHandlerFactory) getHandlerInternal(c v1.Component) (*LocalHandler, error) {
-	handler, ok := f.byComponentName[c.Name]
+	// Count non-stopped handlers
+	currentCount := len(containers)
 
-	// if container is for an older version of component, stop it
-	if ok && handler.component.Version < c.Version {
-		ok = false
-		log.Info("handler: stopping handler for old version", "component", handler.component.Name,
-			"ver", handler.component.Version)
-		f.stopHandler(handler)
+	// No-op if counts already match
+	if currentCount == targetCount {
+		return
 	}
 
-	// this case could happen if handler health check failed and handler stopped
-	if ok && handler.Stopped() {
-		ok = false
-		log.Info("handler: removing stopped handler", "component", handler.component.Name,
-			"ver", handler.component.Version)
-		delete(f.byComponentName, c.Name)
-	}
+	// Bump internal version
+	f.version++
 
-	if !ok {
-		// start new container for component
-		f.version++
-		var err error
-		log.Info("handler: creating handler", "component", c.Name, "ver", c.Version)
-		handler, err = NewLocalHandler(f.dockerClient, c, "", f.maelstromUrl)
-		if err == nil {
-			// container started ok - store in map so we can re-use on future requests
-			f.byComponentName[c.Name] = handler
-		} else {
-			log.Error("handler: cannot create handler", "component", c.Name, "ver", c.Version, "err", err)
-			return nil, err
-		}
-	}
-
-	return handler, nil
-}
-
-func (f *DockerHandlerFactory) EnsureHandler(c v1.Component, startContainerAsync bool) error {
-	f.lock.Lock()
-	defer f.lock.Unlock()
-
-	// get or create a LocalHandler instance for this component
-	// this will cycle the component if the version has changed
-	handler, err := f.getHandlerInternal(c)
-	if err != nil {
-		return err
-	}
-
-	if startContainerAsync {
-		go func() {
-			err := handler.ensureContainerWithLock()
-			if err != nil {
-				log.Error("handler: EnsureHandler error in ensureContainerWithLock",
-					"component", c.Name, "ver", c.Version, "err", err)
+	if currentCount > targetCount {
+		// scale down
+		stopCount := currentCount - targetCount
+		for i := 0; i < stopCount; i++ {
+			idx := currentCount - i - 1
+			if async {
+				go containers[idx].Stop("scale down")
+			} else {
+				containers[idx].Stop("scale down")
 			}
-		}()
-		return nil
+		}
+		f.byComponentName[target.ComponentName] = containers[:targetCount]
+	} else if currentCount < targetCount {
+		// scale up
+		startCount := targetCount - currentCount
+		for i := 0; i < startCount; i++ {
+			cont, err := f.startContainer(component)
+			if err == nil {
+				containers = append(containers, cont)
+			} else {
+				log.Error("handler: unable to start container", "err", err, "component", component.Name)
+			}
+		}
+		f.byComponentName[target.ComponentName] = containers
 	}
-	return handler.ensureContainerWithLock()
+
+	return
 }
 
-func (f *DockerHandlerFactory) GetHandlerLastRequestTimeAndCount(componentName string) (time.Time, int64) {
-	f.lock.Lock()
-	defer f.lock.Unlock()
-
-	handler, ok := f.byComponentName[componentName]
-	if ok {
-		return handler.lastReqTime, handler.totalRequests
+func (f *DockerHandlerFactory) startContainer(component v1.Component) (*Container, error) {
+	err := pullImage(f.dockerClient, component)
+	if err != nil {
+		log.Warn("handler: unable to pull image", "err", err, "component", component.Name)
 	}
-	return time.Time{}, 0
-}
 
-func (f *DockerHandlerFactory) GetHandlerAndRegisterRequest(c v1.Component) (Handler, error) {
-	f.lock.Lock()
-	defer f.lock.Unlock()
-
-	handler, err := f.getHandlerInternal(c)
+	containerId, err := startContainer(f.dockerClient, component, f.maelstromUrl)
 	if err != nil {
 		return nil, err
 	}
 
-	err = handler.RegisterRequest()
+	reqChans := f.router.getComponentChannels(component.Name)
+	c, err := StartContainer(reqChans, f.dockerClient, component, containerId, f.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("handler: unable to register request: %v", err)
+		return nil, err
 	}
-	return handler, nil
+
+	return c, nil
+}
+
+func (f *DockerHandlerFactory) GetComponentInfo(componentName string, containerId string) v1.ComponentInfo {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	containers, ok := f.byComponentName[componentName]
+	if ok {
+		for _, cont := range containers {
+			if cont.containerId == containerId {
+				return cont.componentInfo()
+			}
+		}
+	}
+	return v1.ComponentInfo{}
+}
+
+func (f *DockerHandlerFactory) OnDockerEvent(msg common.DockerEvent) {
+	if msg.ContainerExited != nil {
+		f.OnContainerExited(*msg.ContainerExited)
+	}
+	if msg.ImageUpdated != nil {
+		f.OnImageUpdated(*msg.ImageUpdated)
+	}
+}
+
+func (f *DockerHandlerFactory) OnContainerExited(msg common.ContainerExitedMessage) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	for componentName, containers := range f.byComponentName {
+		removeIdx := -1
+		for idx, cont := range containers {
+			if cont.containerId == msg.ContainerId {
+				removeIdx = idx
+				break
+			}
+		}
+		if removeIdx >= 0 {
+			var keep []*Container
+			for i, cont := range containers {
+				if i == removeIdx {
+					log.Info("handler: OnContainerExited - restarting component", "component", cont.component.Name)
+					newContainer, err := f.restartComponent(cont, true)
+					if err == nil {
+						keep = append(keep, newContainer)
+					} else {
+						log.Error("handler: OnContainerExited - unable to restart component", "err", err,
+							"component", cont.component.Name)
+					}
+				} else {
+					keep = append(keep, cont)
+				}
+			}
+			f.byComponentName[componentName] = keep
+			return
+		}
+	}
 }
 
 func (f *DockerHandlerFactory) OnImageUpdated(msg common.ImageUpdatedMessage) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
-	for componentName, handler := range f.byComponentName {
-		if normalizeImageName(handler.component.Docker.Image) == msg.ImageName {
-			log.Info("handler: OnImageUpdated - stopping image for component", "component", componentName,
-				"imageName", msg.ImageName, "newImageId", msg.ImageId)
-			f.stopHandler(handler)
+
+	for componentName, containers := range f.byComponentName {
+		var keep []*Container
+		for _, cont := range containers {
+			if normalizeImageName(cont.component.Docker.Image) == msg.ImageName {
+				log.Info("handler: OnImageUpdated - stopping image for component", "component", componentName,
+					"imageName", msg.ImageName, "newImageId", msg.ImageId)
+				newContainer, err := f.restartComponent(cont, false)
+				if err == nil {
+					keep = append(keep, newContainer)
+				} else {
+					log.Error("handler: OnImageUpdated - unable to restart component", "err", err,
+						"component", componentName)
+				}
+			} else {
+				keep = append(keep, cont)
+			}
 		}
+		f.byComponentName[componentName] = keep
 	}
 }
 
@@ -290,325 +284,51 @@ func (f *DockerHandlerFactory) OnComponentNotification(cn v1.ComponentNotificati
 	defer f.lock.Unlock()
 
 	if cn.PutComponent != nil {
-		handler, ok := f.byComponentName[cn.PutComponent.Name]
-		if ok && handler.component.Version < cn.PutComponent.Version {
-			f.stopHandler(handler)
+		containers, ok := f.byComponentName[cn.PutComponent.Name]
+		if ok {
+			var keep []*Container
+			for _, cont := range containers {
+				if cont.component.Version < cn.PutComponent.Version {
+					newContainer, err := f.restartComponent(cont, false)
+					if err == nil {
+						keep = append(keep, newContainer)
+					} else {
+						log.Error("handler: OnComponentNotification - unable to restart component", "err", err,
+							"component", cn.PutComponent.Name)
+					}
+				} else {
+					keep = append(keep, cont)
+				}
+			}
+			f.byComponentName[cn.PutComponent.Name] = keep
 		}
 	} else if cn.RemoveComponent != nil {
-		handler, ok := f.byComponentName[cn.RemoveComponent.Name]
-		if ok {
-			f.stopHandler(handler)
-		}
+		f.stopContainersByComponent(cn.RemoveComponent.Name, "component removed")
 	}
 }
 
-func (f *DockerHandlerFactory) stopHandlerByComponent(c v1.Component) {
+func (f *DockerHandlerFactory) stopContainersByComponent(componentName string, reason string) {
 	f.lock.Lock()
-	handler, ok := f.byComponentName[c.Name]
+	containers := f.byComponentName[componentName]
+	f.byComponentName[componentName] = []*Container{}
 	f.lock.Unlock()
-	if ok {
-		f.stopHandler(handler)
+	for _, cont := range containers {
+		cont.Stop(reason)
 	}
 }
 
-func (f *DockerHandlerFactory) stopHandler(h *LocalHandler) {
-	log.Info("handler: stopping handler", "component", h.component.Name, "ver", h.component.Version)
-	f.version++
-	delete(f.byComponentName, h.component.Name)
-	go func() { h.DrainAndStop() }()
-}
-
-///////////////////////////////////////////////////////////
-// LocalHandler //
-//////////////////
-
-func NewLocalHandler(dockerClient *docker.Client, c v1.Component, containerId string,
-	maelstromUrl string) (*LocalHandler, error) {
-	handler := &LocalHandler{
-		dockerClient: dockerClient,
-		component:    c,
-		containerId:  containerId,
-		requestWG:    &sync.WaitGroup{},
-		lock:         &sync.Mutex{},
-		stopped:      false,
-		lastReqTime:  time.Now(),
-		maelstromUrl: maelstromUrl,
-	}
-
-	if containerId != "" {
-		err := handler.initReverseProxy()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	go handler.monitorIdle()
-
-	return handler, nil
-}
-
-type LocalHandler struct {
-	proxy         *httputil.ReverseProxy
-	targetUrl     *url.URL
-	dockerClient  *docker.Client
-	component     v1.Component
-	containerId   string
-	requestWG     *sync.WaitGroup
-	lock          *sync.Mutex
-	lastReqTime   time.Time
-	totalRequests int64
-	stopped       bool
-	maelstromUrl  string
-}
-
-func (h *LocalHandler) componentInfo() v1.ComponentInfo {
-	h.lock.Lock()
-	info := v1.ComponentInfo{
-		ComponentName:     h.component.Name,
-		MemoryReservedMiB: h.component.Docker.ReserveMemoryMiB,
-		LastRequestTime:   common.TimeToMillis(h.lastReqTime),
-	}
-	h.lock.Unlock()
-	return info
-}
-
-func (h *LocalHandler) monitorHealthCheck(containerId string, healthCheckUrl *url.URL) {
-	seconds := h.component.Docker.HttpHealthCheckSeconds
-	if seconds < 1 {
-		seconds = 10
-	}
-	interval := time.Second * time.Duration(seconds)
-	log.Info("handler: monitorHealthCheck starting", "interval", interval.String())
-	for {
-		time.Sleep(interval)
-		h.lock.Lock()
-		stopped := h.stopped
-		currentContainerId := h.containerId
-		h.lock.Unlock()
-		if stopped || currentContainerId != containerId {
-			return
-		} else if !getUrlOK(healthCheckUrl) {
-			log.Error("handler: health check failed", "url", healthCheckUrl, "containerId", containerId[0:8])
-			h.DrainAndStop()
-			return
-		}
-	}
-}
-
-func (h *LocalHandler) monitorIdle() {
-	idleTimeout := h.component.Docker.IdleTimeoutSeconds
-	if idleTimeout < 1 {
-		idleTimeout = 300
-	}
-	idleDuration := time.Second * time.Duration(idleTimeout)
-	sleepDuration := idleDuration
-	log.Info("handler: monitorIdle starting", "idleDuration", idleDuration.String())
-	for {
-		time.Sleep(sleepDuration)
-
-		h.lock.Lock()
-		if h.stopped {
-			h.lock.Unlock()
-			return
-		} else {
-			sinceLastReq := time.Now().Sub(h.lastReqTime)
-			sleepDuration = idleDuration - sinceLastReq
-			if sleepDuration <= 0 {
-				log.Info("handler: monitorIdle stopping idle container", "component", h.component.Name,
-					"lastReq", sinceLastReq.String())
-				h.stopped = true
-				h.lock.Unlock()
-				h.DrainAndStop()
-				return
-			} else {
-				h.lock.Unlock()
-			}
-		}
-	}
-}
-
-func (h *LocalHandler) Stopped() bool {
-	h.lock.Lock()
-	defer h.lock.Unlock()
-	return h.stopped
-}
-
-func (h *LocalHandler) RegisterRequest() error {
-	h.lock.Lock()
-	defer h.lock.Unlock()
-
-	if h.stopped {
-		return fmt.Errorf("cannot proxy request to stopped handler: %s.%d", h.component.Name, h.component.Version)
-	}
-
-	err := h.ensureContainer()
+func (f *DockerHandlerFactory) restartComponent(oldContainer *Container, stopAsync bool) (*Container, error) {
+	component, err := f.db.GetComponent(oldContainer.component.Name)
 	if err != nil {
-		return err
-	}
-	h.requestWG.Add(1)
-	h.lastReqTime = time.Now()
-	h.totalRequests++
-	return nil
-}
-
-func (h *LocalHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	defer h.requestWG.Done()
-	h.proxy.ServeHTTP(rw, req)
-}
-
-func (h *LocalHandler) ensureContainerWithLock() error {
-	h.lock.Lock()
-	defer h.lock.Unlock()
-	return h.ensureContainer()
-}
-
-func (h *LocalHandler) ensureContainer() error {
-	if h.containerId == "" || h.proxy == nil {
-		err := pullImage(h.dockerClient, h.component)
-		if err != nil {
-			log.Warn("handler: ensureContainer unable to pull image", "image", h.component.Docker.Image,
-				"err", err.Error())
-		}
-
-		containerId, err := startContainer(h.dockerClient, h.component, h.maelstromUrl)
-		if err != nil {
-			return err
-		}
-
-		h.containerId = containerId
-		err = h.initReverseProxy()
-		if err != nil {
-			err2 := stopContainer(h.dockerClient, containerId, h.component.Name, h.component.Version)
-			if err2 != nil {
-				log.Error("handler: ensureContainer.stopContainer failed", "component", h.component.Name, "err", err2)
-			}
-			return err
-		}
-	}
-	return nil
-}
-
-func (h *LocalHandler) initReverseProxy() error {
-	cont, err := h.dockerClient.ContainerInspect(context.Background(), h.containerId)
-	if err != nil {
-		return fmt.Errorf("handler: initReverseProxy ContainerInspect error: %v", err)
+		return nil, fmt.Errorf("restartComponent: error loading component: %s - %v", oldContainer.component.Name, err)
 	}
 
-	dindHost := os.Getenv("DIND_HOST")
-
-	target := &url.URL{
-		Scheme: "http",
-		Host:   "",
-		Path:   "",
+	if stopAsync {
+		go oldContainer.Stop("restarting component")
+	} else {
+		oldContainer.Stop("restarting component")
 	}
-
-	var ipAddr string
-	var port string
-
-	for _, endpoint := range cont.NetworkSettings.Networks {
-		if endpoint.IPAddress != "" {
-			ipAddr = endpoint.IPAddress
-			break
-		}
-	}
-	for p, portMap := range cont.NetworkSettings.Ports {
-		k := string(p)
-		if strings.HasSuffix(k, "/tcp") {
-			if len(portMap) > 0 && dindHost != "" && portMap[0].HostIP == "0.0.0.0" {
-				// CI docker-in-docker mode
-				target.Host = dindHost + ":" + portMap[0].HostPort
-			} else {
-				// Normal mode where we can route directly to the container's IP addr
-				port = k[0:strings.Index(k, "/")]
-			}
-			break
-		}
-	}
-
-	if target.Host == "" && ipAddr != "" && port != "" {
-		target.Host = ipAddr + ":" + port
-	}
-
-	if target.Host == "" {
-		return fmt.Errorf("handler: initReverseProxy unable to find exposed port for component: " + h.component.Name)
-	}
-
-	// wait for health check to pass
-	healthCheckUrl := toHealthCheckURL(h.component, target)
-	healthCheckStartSecs := h.component.Docker.HttpStartHealthCheckSeconds
-	if healthCheckStartSecs == 0 {
-		healthCheckStartSecs = 60
-	}
-	if healthCheckStartSecs > 0 {
-		if !tryUntilUrlOk(healthCheckUrl, time.Second*time.Duration(healthCheckStartSecs)) {
-			return fmt.Errorf("handler: health check never passed for: %s url: %s", h.component.Name, healthCheckUrl)
-		}
-	}
-
-	// start background goroutine to monitor health check
-	go h.monitorHealthCheck(cont.ID, healthCheckUrl)
-
-	log.Info("handler: active for component", "component", h.component.Name, "ver", h.component.Version,
-		"containerId", cont.ID[0:8], "url", target.String())
-	h.proxy = httputil.NewSingleHostReverseProxy(target)
-	h.targetUrl = target
-	return nil
-}
-
-func (h *LocalHandler) DrainAndStop() {
-	h.lock.Lock()
-	defer h.lock.Unlock()
-
-	h.stopped = true
-	if h.containerId != "" {
-		if h.proxy != nil {
-			h.requestWG.Wait()
-			t, ok := h.proxy.Transport.(*http.Transport)
-			if ok {
-				t.CloseIdleConnections()
-			}
-		}
-		err := stopContainer(h.dockerClient, h.containerId, h.component.Name, h.component.Version)
-		if err != nil {
-			log.Error("handler: stopContainer failed", "component", h.component.Name, "ver", h.component.Version,
-				"containerId", h.containerId[0:8], "err", err)
-		}
-		h.proxy = nil
-		h.containerId = ""
-	}
-}
-
-func tryUntilUrlOk(u *url.URL, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if getUrlOK(u) {
-			return true
-		} else {
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
-	return false
-}
-
-func getUrlOK(u *url.URL) bool {
-	resp, err := http.Get(u.String())
-	if resp != nil && resp.Body != nil {
-		defer common.CheckClose(resp.Body, &err)
-	}
-	return (err == nil) && (resp.StatusCode == 200)
-}
-
-func toHealthCheckURL(c v1.Component, baseUrl *url.URL) *url.URL {
-	path := "/"
-	if c.Docker != nil && c.Docker.HttpHealthCheckPath != "" {
-		path = c.Docker.HttpHealthCheckPath
-	}
-	return &url.URL{
-		Scheme: baseUrl.Scheme,
-		Opaque: baseUrl.Opaque,
-		Host:   baseUrl.Host,
-		Path:   path,
-	}
+	return f.startContainer(component)
 }
 
 func listContainers(dockerClient *docker.Client) ([]types.Container, error) {
@@ -695,24 +415,43 @@ func startContainer(dockerClient *docker.Client, c v1.Component, maelstromUrl st
 	return resp.ID, nil
 }
 
-func stopContainer(dockerClient *docker.Client, containerId string, componentName string, version int64) error {
+func stopContainerLogErr(dockerClient *docker.Client, containerId string, componentName string, version string,
+	reason string) {
+	err := stopContainer(dockerClient, containerId, componentName, version, reason)
+	if err != nil {
+		log.Error("handler: unable to stop container", "err", err, "component", componentName, "ver", version,
+			"containerId", containerId[0:8])
+	}
+}
+
+func stopContainer(dockerClient *docker.Client, containerId string, componentName string, version string,
+	reason string) error {
 	ctx := context.Background()
 
-	log.Info("handler: stopping container", "component", componentName, "ver", version,
+	log.Info("handler: stopping container", "component", componentName, "ver", version, "reason", reason,
 		"containerId", containerId[0:8])
-	timeout := time.Duration(time.Second * 60)
+	timeout := time.Second * 60
 	err := dockerClient.ContainerStop(ctx, containerId, &timeout)
 	if err != nil {
+		if docker.IsErrContainerNotFound(err) {
+			return err
+		}
 		return fmt.Errorf("containerStop error for: %s - %v", containerId, err)
 	}
 
 	_, err = dockerClient.ContainerWait(ctx, containerId)
 	if err != nil {
+		if docker.IsErrContainerNotFound(err) {
+			return err
+		}
 		return fmt.Errorf("containerWait error for: %s - %v", containerId, err)
 	}
 
 	err = dockerClient.ContainerRemove(ctx, containerId, types.ContainerRemoveOptions{})
 	if err != nil {
+		if docker.IsErrContainerNotFound(err) {
+			return err
+		}
 		return fmt.Errorf("containerRemove error for: %s - %v", containerId, err)
 	}
 	return nil

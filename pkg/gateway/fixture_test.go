@@ -94,7 +94,7 @@ func stopMaelstromContainers(t *testing.T) {
 	assert.Nil(t, err, "listContainers err != nil: %v", err)
 
 	for _, c := range containers {
-		err = stopContainer(dockerClient, c.ID, "", 0)
+		err = stopContainer(dockerClient, c.ID, "", "", "fixture stopMaelstromContainers")
 		if err != nil {
 			log.Error("fixture_test: stopContainer failed", "container", c.ID, "err", err)
 		}
@@ -117,15 +117,20 @@ func newDb(t *testing.T) *v1.SqlDb {
 
 func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fixture {
 	successfulReqs := int64(0)
+	daemonWG := &sync.WaitGroup{}
+	ctx := context.Background()
 	resolver := NewDbResolver(sqlDb, nil)
-	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, testGatewayPort)
+
+	router := NewRouter(nil, "", ctx)
+	daemonWG.Add(1)
+	go router.Run(daemonWG)
+
+	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, sqlDb, router, ctx, testGatewayPort)
 	assert.Nil(t, err, "NewDockerHandlerFactory err != nil: %v", err)
 
 	nodeSvcImpl, err := NewNodeServiceImplFromDocker(hFactory, sqlDb, dockerClient, "")
 	assert.Nil(t, err, "NewNodeServiceImplFromDocker err != nil: %v", err)
-
-	router := NewRouter(nodeSvcImpl.NodeId(), hFactory, nodeSvcImpl)
-	nodeSvcImpl.Cluster().AddObserver(router)
+	router.SetNodeService(nodeSvcImpl, nodeSvcImpl.nodeId)
 
 	gateway := NewGateway(resolver, router, false)
 	cancelCtx, cancelFx := context.WithCancel(context.Background())
@@ -139,9 +144,10 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fix
 		v1Impl:         v1.NewV1(sqlDb, nil, nil),
 		nodeSvcImpl:    nodeSvcImpl,
 		hFactory:       hFactory,
+		router:         router,
 		component:      defaultComponent,
 		asyncReqWG:     &sync.WaitGroup{},
-		daemonWG:       &sync.WaitGroup{},
+		daemonWG:       daemonWG,
 	}
 }
 
@@ -150,6 +156,7 @@ type Fixture struct {
 	dockerClient     *docker.Client
 	component        v1.Component
 	hFactory         *DockerHandlerFactory
+	router           *Router
 	v1Impl           *v1.V1
 	nodeSvcImpl      *NodeServiceImpl
 	cronService      *CronService
@@ -195,26 +202,11 @@ func GivenExistingContainerWithBadHealthCheckPath(t *testing.T) *Fixture {
 }
 
 func (f *Fixture) makeHttpRequest(url string) *httptest.ResponseRecorder {
-	h, err := f.hFactory.GetHandlerAndRegisterRequest(f.component)
-	assert.Nil(f.t, err, "hFactory.ForComponent err != nil: %v", err)
-	if err == nil {
-		lh, ok := h.(*LocalHandler)
-		if ok && lh != nil {
-			cid := lh.containerId
-			if len(cid) > 8 {
-				cid = lh.containerId[0:8]
-			}
-			req, err := http.NewRequest("GET", url, nil)
-			rw := httptest.NewRecorder()
-			assert.Nil(f.t, err, "http.NewRequest err != nil: %v", err)
-			lh.ServeHTTP(rw, req)
-			return rw
-		} else {
-			f.t.Errorf("GetHandler type assert failed for *LocalHandler: %+v", h)
-		}
-		return nil
-	}
-	return nil
+	req, err := http.NewRequest("GET", url, nil)
+	rw := httptest.NewRecorder()
+	assert.Nil(f.t, err, "http.NewRequest err != nil: %v", err)
+	f.router.Route(rw, req, f.component)
+	return rw
 }
 
 func (f *Fixture) WhenCronServiceStarted() *Fixture {
@@ -289,7 +281,7 @@ func (f *Fixture) WhenNLongRunningRequestsMade(n int) *Fixture {
 }
 
 func (f *Fixture) WhenStopRequestReceived() *Fixture {
-	f.hFactory.stopHandlerByComponent(f.component)
+	f.hFactory.stopContainersByComponent(f.component.Name, "fixture WhenStopRequestReceived")
 	return f
 }
 
@@ -300,6 +292,11 @@ func (f *Fixture) WhenIdleTimeoutElapses() *Fixture {
 
 func (f *Fixture) WhenHealthCheckTimeoutElapses() *Fixture {
 	time.Sleep(time.Second * time.Duration(f.component.Docker.HttpHealthCheckSeconds+1))
+	return f
+}
+
+func (f *Fixture) WhenAutoscaleRuns() *Fixture {
+	f.nodeSvcImpl.autoscale()
 	return f
 }
 
@@ -356,6 +353,8 @@ func (f *Fixture) ThenContainerIsStopped() *Fixture {
 func (f *Fixture) ThenNoNewContainerStarted() *Fixture {
 	containers, err := listContainers(f.dockerClient)
 	assert.Nil(f.t, err, "listContainers err != nil: %v", err)
+	f.scrubContainers(f.beforeContainers)
+	f.scrubContainers(containers)
 	assert.Equal(f.t, f.beforeContainers, containers)
 	return f
 }
@@ -364,6 +363,14 @@ func (f *Fixture) ThenSuccessfulRequestCountEquals(x int) *Fixture {
 	f.asyncReqWG.Wait()
 	assert.Equal(f.t, *f.successfulReqs, int64(x))
 	return f
+}
+
+// strip status from Container structs, as this encodes relative time info
+// that may change during the test run and cause equality tests to fail
+func (f *Fixture) scrubContainers(containers []types.Container) {
+	for i, _ := range containers {
+		containers[i].Status = ""
+	}
 }
 
 func (f *Fixture) testImageContainerExists() bool {

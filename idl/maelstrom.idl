@@ -162,6 +162,13 @@ struct Component {
     // project level (if applicable)
     environment  []NameValue
 
+    // Maximum concurrent requests to proxy to a single instance of this component
+    maxConcurrency      int
+
+    // Maximum request duration (in seconds)
+    // Default = 60
+    maxDurationSeconds  int   [optional]
+
     // Current version of the component
     // If the current version in the db does not match, a 1004 error is raised.
     // When creating a new component, set this to zero.
@@ -327,8 +334,10 @@ struct NodeStatus {
 
 struct ComponentInfo {
     componentName      string
+    maxConcurrency     int
     memoryReservedMiB  int
     lastRequestTime    int
+    totalRequests      int
 }
 
 struct ContainerStatus {

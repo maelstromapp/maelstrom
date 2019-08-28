@@ -58,11 +58,13 @@ func TestComponentCRUD(t *testing.T) {
 
 		expected := GetComponentOutput{
 			Component: Component{
-				Name:        input.Component.Name,
-				Version:     1,
-				Docker:      input.Component.Docker,
-				ProjectName: input.Component.ProjectName,
-				Environment: input.Component.Environment,
+				Name:               input.Component.Name,
+				Version:            1,
+				Docker:             input.Component.Docker,
+				ProjectName:        input.Component.ProjectName,
+				Environment:        input.Component.Environment,
+				MaxConcurrency:     input.Component.MaxConcurrency,
+				MaxDurationSeconds: input.Component.MaxDurationSeconds,
 			},
 		}
 

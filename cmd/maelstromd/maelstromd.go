@@ -14,6 +14,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
+	"runtime/pprof"
 	"sync"
 	"syscall"
 	"time"
@@ -44,6 +47,17 @@ func initDb(sqlDriver, sqlDSN string) v1.Db {
 }
 
 func main() {
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGQUIT)
+		buf := make([]byte, 1<<20)
+		for {
+			<-sigs
+			stacklen := runtime.Stack(buf, true)
+			fmt.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
+		}
+	}()
+
 	if os.Getenv("LOGXI") == "" {
 		log.DefaultLog.SetLevel(log.LevelInfo)
 	}
@@ -57,7 +71,34 @@ func main() {
 	var sqlDriver = flag.String("sqlDriver", "", "database/sql driver to use. If so, -sqlDSN is required")
 	var sqlDSN = flag.String("sqlDSN", "", "DSN for sql database")
 	var cronRefreshSec = flag.Int("cronRefreshSec", 60, "Interval to refresh cron rules from db")
+	var logGc = flag.Int("loggc", 0, "If > 0, print gc stats every x seconds")
+	var cpuprofile = flag.String("cpuprofile", "", "If set, log profile data to file")
 	flag.Parse()
+
+	if *logGc > 0 {
+		go func() {
+			var stats debug.GCStats
+			for {
+				time.Sleep(time.Duration(*logGc) * time.Second)
+				debug.ReadGCStats(&stats)
+				log.Info("stats", "last", stats.LastGC, "num", stats.NumGC, "pause", stats.PauseTotal.String())
+			}
+		}()
+	}
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Error("maelstromd: cannot create profile file", "err", err)
+			os.Exit(2)
+		}
+		err = pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+		if err != nil {
+			log.Error("maelstromd: cannot start profiler", "err", err)
+			os.Exit(2)
+		}
+	}
 
 	log.Info("maelstromd: starting")
 
@@ -85,15 +126,20 @@ func main() {
 	// you can get a TLS config to use in a TLS listener!
 	certWrapper := initCertMagic()
 
+	cancelCtx, cancelFx := context.WithCancel(context.Background())
+	daemonWG := &sync.WaitGroup{}
+
+	router := gateway.NewRouter(nil, "", cancelCtx)
+	daemonWG.Add(1)
+	go router.Run(daemonWG)
+
 	resolver := gateway.NewDbResolver(db, certWrapper)
-	handlerFactory, err := gateway.NewDockerHandlerFactory(dockerClient, resolver, *privatePort)
+	handlerFactory, err := gateway.NewDockerHandlerFactory(dockerClient, resolver, db, router, cancelCtx, *privatePort)
 	if err != nil {
 		log.Error("maelstromd: cannot create handler factory", "err", err)
 		os.Exit(2)
 	}
 
-	cancelCtx, cancelFx := context.WithCancel(context.Background())
-	daemonWG := &sync.WaitGroup{}
 	dockerMonitor := common.NewDockerImageMonitor(dockerClient, handlerFactory, cancelCtx)
 	dockerMonitor.RunAsync(daemonWG)
 
@@ -102,12 +148,11 @@ func main() {
 		log.Error("maelstromd: cannot create NodeService", "err", err)
 		os.Exit(2)
 	}
-	daemonWG.Add(1)
+	router.SetNodeService(nodeSvcImpl, nodeSvcImpl.NodeId())
+	daemonWG.Add(2)
 	go nodeSvcImpl.RunNodeStatusLoop(time.Minute, cancelCtx, daemonWG)
+	go nodeSvcImpl.RunAutoscaleLoop(time.Minute, cancelCtx, daemonWG)
 	log.Info("maelstromd: created NodeService", nodeSvcImpl.LogPairs()...)
-
-	router := gateway.NewRouter(nodeSvcImpl.NodeId(), handlerFactory, nodeSvcImpl)
-	nodeSvcImpl.Cluster().AddObserver(router)
 
 	publicSvr := gateway.NewGateway(resolver, router, true)
 

@@ -45,7 +45,7 @@ func (c *CronService) Run(wg *sync.WaitGroup) {
 			if c.cron != nil {
 				c.cron.Stop()
 			}
-			log.Info("cron: stop received. exiting gracefully.")
+			log.Info("cron: shutdown gracefully")
 			return
 
 		case <-reload:

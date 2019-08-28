@@ -37,23 +37,10 @@ func (g *Gateway) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	handler, err := g.router.GetHandlerAndRegisterRequest(comp)
-	if err != nil {
-		if err == v1.NotFound {
-			respondText(rw, http.StatusNotFound, "No handler found for component: "+comp.Name)
-		} else {
-			log.Error("gateway: router.GetHandlerAndRegisterRequest", "err", err)
-			respondText(rw, http.StatusInternalServerError, "Server Error")
-		}
-		return
-	}
-	if handler == nil {
-		log.Error("gateway: router returned nil handler", "component", comp.Name)
-		respondText(rw, http.StatusInternalServerError, "Server Error")
-		return
-	}
+	// TODO: need to look for a request header with deadline and adjust accordingly
+	// should only look for header if gateway is private
 
-	handler.ServeHTTP(rw, req)
+	g.router.Route(rw, req, comp)
 }
 
 func respondText(rw http.ResponseWriter, statusCode int, body string) {
