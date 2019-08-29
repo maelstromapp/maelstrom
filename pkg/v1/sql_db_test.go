@@ -5,12 +5,18 @@ import (
 	fuzz "github.com/google/gofuzz"
 	"github.com/stretchr/testify/assert"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
+	"sort"
+	"sync"
 	"testing"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func createTestSqlDb() *SqlDb {
-	sqlDb, err := NewSqlDb("sqlite3", "file:test.db?cache=shared&_journal_mode=MEMORY&mode=rwc")
+	sqlDb, err := NewSqlDb("sqlite3", "file:test.db?cache=shared&_journal_mode=WAL&mode=memory&_busy_timeout=5000")
+	//sqlDb, err := NewSqlDb("mysql", "root:test@(127.0.0.1:3306)/foo")
 	panicOnErr(err)
 
 	// run sql migrations and delete any existing data
@@ -135,4 +141,98 @@ func TestListNodeStatusPagination(t *testing.T) {
 	})
 	assert.Nil(t, err)
 	assert.Equal(t, ListNodeStatusOutput{Nodes: nodes[190:], NextToken: ""}, listOut)
+}
+
+func TestAcquireReleaseRole(t *testing.T) {
+	db := createTestSqlDb()
+	node1 := "node1"
+	node2 := "node2"
+	r1 := "role1"
+	r2 := "role2"
+
+	// acquire role1 as node1 - OK
+	acquired, lockNode, err := db.AcquireOrRenewRole(r1, node1, time.Minute)
+	assert.Nil(t, err)
+	assert.True(t, acquired)
+	assert.Equal(t, node1, lockNode)
+
+	// acquire same role as node2 - DENY
+	acquired, lockNode, err = db.AcquireOrRenewRole(r1, node2, time.Minute)
+	assert.Nil(t, err)
+	assert.False(t, acquired)
+	assert.Equal(t, node1, lockNode)
+
+	// acquire role2 as node2 - OK
+	acquired, lockNode, err = db.AcquireOrRenewRole(r2, node2, time.Minute)
+	assert.Nil(t, err)
+	assert.True(t, acquired)
+	assert.Equal(t, node2, lockNode)
+
+	// release all roles as node1
+	err = db.ReleaseAllRoles(node1)
+	assert.Nil(t, err)
+
+	// acquire role1 as node2 - OK
+	acquired, lockNode, err = db.AcquireOrRenewRole(r1, node2, time.Millisecond)
+	assert.Nil(t, err)
+	assert.True(t, acquired)
+	assert.Equal(t, node2, lockNode)
+
+	// let lock expire
+	time.Sleep(time.Millisecond * 2)
+
+	// acquire role1 as node1 - OK
+	acquired, lockNode, err = db.AcquireOrRenewRole(r1, node1, time.Second)
+	assert.Nil(t, err)
+	assert.True(t, acquired)
+	assert.Equal(t, node1, lockNode)
+
+	// extend lock with same node id
+	acquired, lockNode, err = db.AcquireOrRenewRole(r1, node1, time.Minute)
+	assert.Nil(t, err)
+	assert.True(t, acquired)
+	assert.Equal(t, node1, lockNode)
+
+	// wait for 1sec orig lock to expire
+	time.Sleep(time.Millisecond * 1100)
+
+	// node2 should not be able to get lock because lock was extended by 1 minute
+	acquired, lockNode, err = db.AcquireOrRenewRole(r1, node2, time.Minute)
+	assert.Nil(t, err)
+	assert.False(t, acquired)
+	assert.Equal(t, node1, lockNode)
+}
+
+func TestAcquireReleaseRoleConcurrency(t *testing.T) {
+	db := createTestSqlDb()
+	roles := make([]string, 300)
+	for i := 0; i < len(roles); i++ {
+		roles[i] = fmt.Sprintf("role%d", i)
+	}
+	wg := &sync.WaitGroup{}
+	lock := &sync.Mutex{}
+	acquiredRoles := make([]string, 0)
+	wg.Add(5)
+	for i := 0; i < 5; i++ {
+		nodeId := fmt.Sprintf("n%d", i)
+		go func() {
+			defer wg.Done()
+			for x := 0; x < len(roles); x++ {
+				acquired, _, err := db.AcquireOrRenewRole(roles[x], nodeId, time.Minute)
+				assert.Nil(t, err)
+				if acquired {
+					lock.Lock()
+					acquiredRoles = append(acquiredRoles, roles[x])
+					lock.Unlock()
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	sort.Strings(roles)
+	sort.Strings(acquiredRoles)
+	assert.Equal(t, len(roles), len(acquiredRoles))
+	for i := 0; i < len(roles); i++ {
+		assert.Equal(t, roles[i], acquiredRoles[i])
+	}
 }

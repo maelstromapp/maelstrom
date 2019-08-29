@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -199,7 +200,8 @@ func main() {
 
 	log.Info("maelstromd: starting HTTP servers", "publicPort", publicPort, "privatePort", privatePort)
 
-	cronSvc := gateway.NewCronService(db, privateGateway, cancelCtx, time.Second*time.Duration(*cronRefreshSec))
+	cronSvc := gateway.NewCronService(db, privateGateway, cancelCtx, nodeSvcImpl.NodeId(),
+		time.Second*time.Duration(*cronRefreshSec))
 	daemonWG.Add(1)
 	go cronSvc.Run(daemonWG)
 
@@ -207,6 +209,10 @@ func main() {
 	go HandleShutdownSignal(servers, cancelFx, daemonWG)
 
 	daemonWG.Wait()
+	err = db.ReleaseAllRoles(nodeSvcImpl.NodeId())
+	if err != nil {
+		log.Error("maelstromd: ReleaseAllRoles error", "err", err, "nodeId", nodeSvcImpl.NodeId())
+	}
 	log.Info("maelstromd: exiting")
 }
 

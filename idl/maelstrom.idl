@@ -329,7 +329,6 @@ struct NodeStatus {
     loadAvg5m          float
     loadAvg15m         float
     runningComponents  []ComponentInfo
-    containers         []ContainerStatus    [optional]
 }
 
 struct ComponentInfo {
@@ -338,21 +337,12 @@ struct ComponentInfo {
     memoryReservedMiB  int
     lastRequestTime    int
     totalRequests      int
+    activity           []ComponentActivity
 }
 
-struct ContainerStatus {
-    containerId        string
-    image              string
-    imageId            string
-    startedAt          int
-    componentName      string
-    componentVersion   int
-    CPUPct             float
-    memoryReservedMiB  int
-    memoryUsedMiB      int
-    memoryPeakMiB      int
-    lastRequestTime    int
-    totalRequests      int
+struct ComponentActivity {
+    requests      int
+    concurrency   float
 }
 
 struct PutProjectInput {
@@ -539,13 +529,9 @@ struct ListNodeStatusOutput {
 }
 
 struct GetNodeStatusInput {
-    // status of the calling node. will not include ContainerStatus list.
+    // status of the calling node.
     // clients that do not wish to share their state (or non-peer clients) may omit this.
     status           NodeStatus        [optional]
-
-    // if true, response NodeStatus should populate ContainerStatus
-    // optional (default=false)
-    includeContainerStatus     bool    [optional]
 }
 
 struct GetNodeStatusOutput {

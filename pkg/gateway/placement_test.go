@@ -59,7 +59,6 @@ func randNodeWithComponents(nodeNum int, maxComponents int, maxRam int64, rand *
 		LoadAvg5m:         0,
 		LoadAvg15m:        0,
 		RunningComponents: randComponents(maxComponents, totalMemoryMiB, rand),
-		Containers:        nil,
 	}
 }
 

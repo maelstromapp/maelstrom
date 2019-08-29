@@ -135,7 +135,7 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fix
 	gateway := NewGateway(resolver, router, false)
 	cancelCtx, cancelFx := context.WithCancel(context.Background())
 	contextCancelFx = cancelFx
-	cronService = NewCronService(sqlDb, gateway, cancelCtx, time.Second)
+	cronService = NewCronService(sqlDb, gateway, cancelCtx, "testnode", time.Second)
 
 	return &Fixture{
 		t:              t,

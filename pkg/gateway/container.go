@@ -27,21 +27,24 @@ func StartContainer(channels *componentChannels, dockerClient *docker.Client, co
 
 	ctx, cancelFx := context.WithCancel(parentCtx)
 	wg := &sync.WaitGroup{}
-	internalCh := make(chan *MaelRequest)
 
 	maxConcur := int(component.MaxConcurrency)
 	if maxConcur <= 0 {
 		maxConcur = 5
 	}
 
+	internalCh := make(chan *MaelRequest)
+	statCh := make(chan time.Duration, maxConcur)
+
 	for i := 0; i < maxConcur; i++ {
 		wg.Add(1)
-		go localRevProxy(internalCh, proxy, ctx, wg)
+		go localRevProxy(internalCh, statCh, proxy, ctx, wg)
 	}
 
 	c := &Container{
 		channels:       channels,
 		internalCh:     internalCh,
+		statCh:         statCh,
 		containerId:    containerId,
 		component:      component,
 		healthCheckUrl: healthCheckUrl,
@@ -51,6 +54,7 @@ func StartContainer(channels *componentChannels, dockerClient *docker.Client, co
 		lastReqTime:    time.Now(),
 		lock:           &sync.Mutex{},
 		dockerClient:   dockerClient,
+		activity:       []v1.ComponentActivity{},
 	}
 	c.wg.Add(1)
 	go c.Run()
@@ -61,6 +65,7 @@ func StartContainer(channels *componentChannels, dockerClient *docker.Client, co
 type Container struct {
 	channels       *componentChannels
 	internalCh     chan *MaelRequest
+	statCh         chan time.Duration
 	containerId    string
 	component      v1.Component
 	healthCheckUrl *url.URL
@@ -68,7 +73,8 @@ type Container struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	lastReqTime    time.Time
-	requestCount   int64
+	totalRequests  int64
+	activity       []v1.ComponentActivity
 	lock           *sync.Mutex
 	dockerClient   *docker.Client
 }
@@ -94,16 +100,34 @@ func (c *Container) componentInfo() v1.ComponentInfo {
 		MaxConcurrency:    c.component.MaxConcurrency,
 		MemoryReservedMiB: c.component.Docker.ReserveMemoryMiB,
 		LastRequestTime:   common.TimeToMillis(c.lastReqTime),
+		TotalRequests:     c.totalRequests,
+		Activity:          c.activity,
 	}
 	c.lock.Unlock()
 	return info
 }
 
-func (c *Container) setLastReqTime() {
+func (c *Container) bumpReqStats() {
 	c.lock.Lock()
 	c.lastReqTime = time.Now()
-	c.requestCount++
+	c.totalRequests++
 	c.lock.Unlock()
+}
+
+func (c *Container) appendActivity(previousTotal int64, rolloverStartTime time.Time, totalDuration time.Duration) int64 {
+	concurrency := float64(totalDuration) / float64(time.Now().Sub(rolloverStartTime))
+	c.lock.Lock()
+	currentTotal := c.totalRequests
+	activity := v1.ComponentActivity{
+		Requests:    currentTotal - previousTotal,
+		Concurrency: concurrency,
+	}
+	c.activity = append([]v1.ComponentActivity{activity}, c.activity...)
+	if len(c.activity) > 5 {
+		c.activity = c.activity[0:5]
+	}
+	c.lock.Unlock()
+	return currentTotal
 }
 
 func (c *Container) Run() {
@@ -115,15 +139,26 @@ func (c *Container) Run() {
 
 	heartbeatTicker := time.Tick(5 * time.Second)
 	healthCheckTicker := time.Tick(time.Duration(healthCheckSecs) * time.Second)
+	concurrencyTicker := time.Tick(time.Minute)
+
+	var durationSinceRollover time.Duration
+	rolloverStartTime := time.Now()
+	previousTotalRequests := c.totalRequests
 
 	for {
 		select {
 		case mr := <-c.channels.localCh:
-			c.setLastReqTime()
+			c.bumpReqStats()
 			c.internalCh <- mr
 		case mr := <-c.channels.allCh:
-			c.setLastReqTime()
+			c.bumpReqStats()
 			c.internalCh <- mr
+		case dur := <-c.statCh:
+			durationSinceRollover += dur
+		case <-concurrencyTicker:
+			previousTotalRequests = c.appendActivity(previousTotalRequests, rolloverStartTime, durationSinceRollover)
+			rolloverStartTime = time.Now()
+			durationSinceRollover = 0
 		case <-heartbeatTicker:
 			c.channels.consumerHeartbeat()
 		case <-healthCheckTicker:

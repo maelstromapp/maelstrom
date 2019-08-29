@@ -4,13 +4,16 @@ import (
 	"context"
 	"net/http/httputil"
 	"sync"
+	"time"
 )
 
-func localRevProxy(reqCh <-chan *MaelRequest, proxy *httputil.ReverseProxy, ctx context.Context, wg *sync.WaitGroup) {
-	revProxyLoop(reqCh, proxy, ctx, wg, "", "")
+func localRevProxy(reqCh <-chan *MaelRequest, statCh chan<- time.Duration, proxy *httputil.ReverseProxy,
+	ctx context.Context, wg *sync.WaitGroup) {
+	revProxyLoop(reqCh, statCh, proxy, ctx, wg, "", "")
 }
 
-func revProxyLoop(reqCh <-chan *MaelRequest, proxy *httputil.ReverseProxy, ctx context.Context,
+func revProxyLoop(reqCh <-chan *MaelRequest, statCh chan<- time.Duration,
+	proxy *httputil.ReverseProxy, ctx context.Context,
 	wg *sync.WaitGroup, myNodeId string, componentName string) {
 
 	defer wg.Done()
@@ -41,6 +44,9 @@ func revProxyLoop(reqCh <-chan *MaelRequest, proxy *httputil.ReverseProxy, ctx c
 			success := make(chan bool, 1)
 			go func() {
 				proxy.ServeHTTP(mr.rw, mr.req)
+				if statCh != nil {
+					statCh <- time.Now().Sub(mr.startTime)
+				}
 				success <- true
 			}()
 

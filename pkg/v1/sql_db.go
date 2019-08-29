@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/GuiaBolso/darwin"
 	"github.com/Masterminds/squirrel"
+	"github.com/mattn/go-sqlite3"
 	"github.com/mgutz/logxi/v1"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"strconv"
@@ -39,7 +40,7 @@ func (d *SqlDb) Close() {
 }
 
 func (d *SqlDb) DeleteAll() error {
-	tables := []string{"component", "eventsource", "nodestatus"}
+	tables := []string{"component", "eventsource", "nodestatus", "rolelock"}
 	for _, t := range tables {
 		_, err := d.db.Exec(fmt.Sprintf("delete from %s", t))
 		if err != nil {
@@ -47,6 +48,96 @@ func (d *SqlDb) DeleteAll() error {
 		}
 	}
 	return nil
+}
+
+func (d *SqlDb) AcquireOrRenewRole(roleId string, nodeId string, lockDur time.Duration) (bool, string, error) {
+	for i := 0; i < 5; i++ {
+		acquired, lockNodeId, err := d.acquireOrRenewRoleOnce(roleId, nodeId, lockDur)
+		if lockNodeId == "" && err == nil {
+			// retry terminal case where insert failed. this ensures we resolve the current nodeId
+		} else {
+			return acquired, lockNodeId, err
+		}
+	}
+	return false, "", fmt.Errorf("sql_db: rolelock failed to acquire lock for: %s", roleId)
+}
+
+func (d *SqlDb) acquireOrRenewRoleOnce(roleId string, nodeId string, lockDur time.Duration) (bool, string, error) {
+	var curNodeId string
+	var curExpires int64
+	rows, err := squirrel.Select("nodeId", "expiresAt").
+		From("rolelock").
+		Where(squirrel.Eq{"roleId": roleId}).
+		RunWith(d.db).Query()
+	if err != nil {
+		return false, "", fmt.Errorf("sql_db: rolelock Select failed for: %s - %v", roleId, err)
+	}
+	if rows.Next() {
+		err = rows.Scan(&curNodeId, &curExpires)
+		if err != nil {
+			_ = rows.Close()
+			return false, "", fmt.Errorf("sql_db: rolelock Scan failed for: %s - %v", roleId, err)
+		}
+	}
+	err = rows.Close()
+	if err != nil {
+		return false, "", fmt.Errorf("sql_db: rolelock Select close failed for: %s - %v", roleId, err)
+	}
+
+	now := time.Now()
+	nowMillis := common.TimeToMillis(now)
+	expiresAt := common.TimeToMillis(now.Add(lockDur))
+
+	if curNodeId != "" {
+
+		if curExpires > nowMillis && curNodeId != nodeId {
+			// lock is not expired and is held by a different node
+			return false, curNodeId, nil
+		}
+
+		q := squirrel.Update("rolelock").
+			SetMap(map[string]interface{}{
+				"nodeId":    nodeId,
+				"expiresAt": expiresAt,
+			}).Where(squirrel.And{
+			squirrel.Eq{"roleId": roleId},
+			squirrel.Or{
+				squirrel.Lt{"expiresAt": nowMillis},
+				squirrel.And{squirrel.Eq{"nodeId": nodeId}, squirrel.Eq{"expiresAt": curExpires}},
+			},
+		})
+
+		result, err := q.RunWith(d.db).Exec()
+		if err != nil {
+			return false, "", fmt.Errorf("sql_db: update failed for roleId: %s err: %v", roleId, err)
+		}
+		rows, err := result.RowsAffected()
+
+		if err != nil {
+			return false, "", fmt.Errorf("sql_db: RowsAffected failed for roleId: %s err: %v", roleId, err)
+		}
+		if rows == 1 {
+			return true, nodeId, nil
+		}
+	}
+
+	insertQ := squirrel.Insert("rolelock").
+		Columns("roleId", "nodeId", "expiresAt").Values(roleId, nodeId, expiresAt)
+	_, err = insertQ.RunWith(d.db).Exec()
+	if err == nil {
+		return true, nodeId, nil
+	} else {
+		// retry: nodeId and err are nil/empty
+		return false, "", nil
+	}
+}
+
+func (d *SqlDb) ReleaseAllRoles(nodeId string) error {
+	_, err := squirrel.Delete("rolelock").Where(squirrel.Eq{"nodeId": nodeId}).RunWith(d.db).Exec()
+	if err != nil {
+		err = fmt.Errorf("delete rolelock by nodeId failed: err: %v", err)
+	}
+	return err
 }
 
 func (d *SqlDb) PutComponent(component Component) (int64, error) {
@@ -434,6 +525,15 @@ func (d *SqlDb) Migrate() error {
                         json           mediumblob not null
                      )`,
 		},
+		{
+			Version:     4,
+			Description: "Create rolelock table",
+			Script: `create table rolelock (
+                        roleId         varchar(80) primary key,
+                        nodeId         varchar(60) not null,
+                        expiresAt      bigint not null
+                     )`,
+		},
 	}
 	darwinDriver := darwin.NewGenericDriver(d.db, migrationDialect(d.driver))
 	m := darwin.New(darwinDriver, migrations, nil)
@@ -451,4 +551,14 @@ func migrationDialect(driver string) darwin.Dialect {
 		return darwin.PostgresDialect{}
 	}
 	return darwin.MySQLDialect{}
+}
+
+func sqliteErr(err error, num sqlite3.ErrNo) bool {
+	if err != nil {
+		serr, ok := err.(sqlite3.Error)
+		if ok && serr.Code == num {
+			return true
+		}
+	}
+	return false
 }

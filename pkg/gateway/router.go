@@ -10,11 +10,12 @@ import (
 )
 
 type MaelRequest struct {
-	ready chan bool
-	rw    http.ResponseWriter
-	req   *http.Request
-	comp  *v1.Component
-	ctx   context.Context
+	ready     chan bool
+	startTime time.Time
+	rw        http.ResponseWriter
+	req       *http.Request
+	comp      *v1.Component
+	ctx       context.Context
 }
 
 type resolveChannels struct {
@@ -59,11 +60,12 @@ func (r *Router) Route(rw http.ResponseWriter, req *http.Request, c v1.Component
 	ctx, _ := context.WithDeadline(r.ctx, time.Now().Add(time.Duration(maxDur)*time.Second))
 
 	mr := &MaelRequest{
-		ready: make(chan bool, 1),
-		rw:    rw,
-		req:   req,
-		comp:  &c,
-		ctx:   ctx,
+		ready:     make(chan bool, 1),
+		startTime: time.Now(),
+		rw:        rw,
+		req:       req,
+		comp:      &c,
+		ctx:       ctx,
 	}
 
 	go r.getComponentChannels(c.Name).send(mr)

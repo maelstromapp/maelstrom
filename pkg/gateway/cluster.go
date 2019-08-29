@@ -81,6 +81,26 @@ func (c *Cluster) GetNodes() []v1.NodeStatus {
 	return nodes
 }
 
+func (c *Cluster) GetNodeById(nodeId string) *v1.NodeStatus {
+	var node *v1.NodeStatus
+	c.lock.Lock()
+	n, ok := c.nodesById[nodeId]
+	c.lock.Unlock()
+	if ok {
+		node = &n
+	}
+	return node
+}
+
+func (c *Cluster) GetNodeServiceById(nodeId string) v1.NodeService {
+	node := c.GetNodeById(nodeId)
+	if node == nil {
+		return nil
+	} else {
+		return c.GetNodeService(*node)
+	}
+}
+
 func (c *Cluster) GetNodeService(node v1.NodeStatus) v1.NodeService {
 	if node.NodeId == c.nodeId {
 		return c.localNodeService

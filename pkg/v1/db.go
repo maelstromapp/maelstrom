@@ -12,6 +12,9 @@ var IncorrectPreviousVersion = fmt.Errorf("Incorrect PreviousVersion")
 type Db interface {
 	Migrate() error
 
+	AcquireOrRenewRole(roleId string, nodeId string, lockDur time.Duration) (bool, string, error)
+	ReleaseAllRoles(nodeId string) error
+
 	PutComponent(component Component) (int64, error)
 	GetComponent(componentName string) (Component, error)
 	ListComponents(input ListComponentsInput) (ListComponentsOutput, error)

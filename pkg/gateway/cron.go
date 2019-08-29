@@ -16,12 +16,14 @@ import (
 	"time"
 )
 
-func NewCronService(db v1.Db, gateway *Gateway, ctx context.Context, refreshRate time.Duration) *CronService {
+func NewCronService(db v1.Db, gateway *Gateway, ctx context.Context, nodeId string, refreshRate time.Duration) *CronService {
 	return &CronService{
-		db:          db,
-		gateway:     gateway,
-		ctx:         ctx,
-		refreshRate: refreshRate,
+		db:           db,
+		gateway:      gateway,
+		ctx:          ctx,
+		nodeId:       nodeId,
+		refreshRate:  refreshRate,
+		acquiredRole: false,
 	}
 }
 
@@ -29,6 +31,8 @@ type CronService struct {
 	db           v1.Db
 	gateway      *Gateway
 	ctx          context.Context
+	nodeId       string
+	acquiredRole bool
 	refreshRate  time.Duration
 	cron         *cron.Cron
 	eventSources []v1.EventSource
@@ -37,6 +41,8 @@ type CronService struct {
 func (c *CronService) Run(wg *sync.WaitGroup) {
 	defer wg.Done()
 	log.Info("cron: starting cron service", "refreshRate", c.refreshRate.String())
+	lockTicker := time.Tick(15 * time.Second)
+	c.acquireRole()
 	c.reloadRulesAndStartCron()
 	for {
 		reload := time.After(c.refreshRate)
@@ -47,6 +53,9 @@ func (c *CronService) Run(wg *sync.WaitGroup) {
 			}
 			log.Info("cron: shutdown gracefully")
 			return
+
+		case <-lockTicker:
+			c.acquireRole()
 
 		case <-reload:
 			c.reloadRulesAndStartCron()
@@ -80,7 +89,40 @@ func (c *CronService) createCronInvoker(es v1.EventSource) func() {
 	}
 }
 
+func (c *CronService) acquireRole() {
+	previous := c.acquiredRole
+	c.acquiredRole = false
+	roleOk, roleNode, err := c.db.AcquireOrRenewRole(roleCron, c.nodeId, time.Minute)
+	if err == nil {
+		c.acquiredRole = roleOk
+
+		if previous && !roleOk {
+			log.Info("cron: lost role lock", "node", c.nodeId, "newCronNode", roleNode)
+		} else if !previous && roleOk {
+			log.Info("cron: acquired role lock, starting cron")
+		}
+
+		if !roleOk {
+			c.stopCron()
+		}
+	} else {
+		log.Error("cron: db.AcquireOrRenewRole error", "err", err, "node", c.nodeId)
+	}
+}
+
+func (c *CronService) stopCron() {
+	if c.cron != nil {
+		log.Info("cron: stopping old cron scheduler")
+		c.cron.Stop()
+		c.cron = nil
+	}
+}
+
 func (c *CronService) reloadRulesAndStartCron() {
+	if !c.acquiredRole {
+		return
+	}
+
 	eventSources, err := c.loadAllCronEventSources()
 	if err == nil {
 		if c.cron == nil || c.eventSources == nil || !reflect.DeepEqual(eventSources, c.eventSources) {
@@ -98,10 +140,8 @@ func (c *CronService) reloadRulesAndStartCron() {
 				}
 			}
 
-			if c.cron != nil {
-				log.Info("cron: stopping old cron scheduler")
-				c.cron.Stop()
-			}
+			c.stopCron()
+
 			if newCron != nil {
 				newCron.Start()
 			}

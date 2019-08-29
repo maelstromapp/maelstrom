@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	"github.com/coopernurse/barrister-go"
@@ -11,11 +10,13 @@ import (
 	log "github.com/mgutz/logxi/v1"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
-	"io/ioutil"
 	"math/rand"
 	"sync"
 	"time"
 )
+
+const rolePlacement = "placement"
+const roleCron = "cron"
 
 func NewNodeServiceImpl(handlerFactory *DockerHandlerFactory, db v1.Db, dockerClient *docker.Client, nodeId string,
 	peerUrl string, startTime time.Time, numCPUs int64) (*NodeServiceImpl, error) {
@@ -30,7 +31,7 @@ func NewNodeServiceImpl(handlerFactory *DockerHandlerFactory, db v1.Db, dockerCl
 		statsByContainerId: map[string]containerStats{},
 		loadStatusLock:     &sync.Mutex{},
 	}
-	status, err := nodeSvc.loadNodeStatus(true, false, context.Background())
+	status, err := nodeSvc.loadNodeStatus(false, context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("nodesvc: unable to load node status: %v", err)
 	}
@@ -77,7 +78,7 @@ func (n *NodeServiceImpl) LogPairs() []interface{} {
 }
 
 func (n *NodeServiceImpl) GetStatus(input v1.GetNodeStatusInput) (v1.GetNodeStatusOutput, error) {
-	status, err := n.loadNodeStatus(input.IncludeContainerStatus, false, context.Background())
+	status, err := n.loadNodeStatus(false, context.Background())
 	if err != nil {
 		code := v1.MiscError
 		msg := "nodesvc: GetStatus - error loading node status"
@@ -88,6 +89,30 @@ func (n *NodeServiceImpl) GetStatus(input v1.GetNodeStatusInput) (v1.GetNodeStat
 }
 
 func (n *NodeServiceImpl) PlaceComponent(input v1.PlaceComponentInput) (v1.PlaceComponentOutput, error) {
+	// determine if we're the placement node
+	roleOk, roleNode, err := n.db.AcquireOrRenewRole(rolePlacement, n.nodeId, time.Minute)
+	if err != nil {
+		msg := "nodesvc: db.AcquireOrRenewRole error"
+		log.Error(msg, "component", input.ComponentName, "role", rolePlacement, "err", err)
+		return v1.PlaceComponentOutput{}, &barrister.JsonRpcError{Code: int(v1.DbError), Message: msg}
+	}
+	if !roleOk {
+		if roleNode == n.nodeId {
+			msg := "nodesvc: db.AcquireOrRenewRole returned false, but also returned our nodeId"
+			log.Error(msg, "component", input.ComponentName, "role", rolePlacement, "node", n.nodeId)
+			return v1.PlaceComponentOutput{}, &barrister.JsonRpcError{Code: int(v1.MiscError), Message: msg}
+		} else {
+			peerSvc := n.cluster.GetNodeServiceById(roleNode)
+			if peerSvc == nil {
+				msg := "nodesvc: PlaceComponent can't find peer node"
+				log.Error(msg, "component", input.ComponentName, "peerNode", roleNode)
+				return v1.PlaceComponentOutput{}, &barrister.JsonRpcError{Code: int(v1.MiscError), Message: msg}
+			} else {
+				return peerSvc.PlaceComponent(input)
+			}
+		}
+	}
+
 	// get component
 	comp, err := n.db.GetComponent(input.ComponentName)
 	if err == v1.NotFound {
@@ -160,7 +185,7 @@ func (n *NodeServiceImpl) placeComponentInternal(componentName string, requiredR
 
 	// if we found any candidates, contact them and verify
 	for _, node := range nodesWithComponent {
-		output, err := n.cluster.GetNodeService(node).GetStatus(v1.GetNodeStatusInput{IncludeContainerStatus: true})
+		output, err := n.cluster.GetNodeService(node).GetStatus(v1.GetNodeStatusInput{})
 		if err == nil {
 			n.cluster.SetNode(output.Status)
 			for _, c := range output.Status.RunningComponents {
@@ -227,6 +252,15 @@ func (n *NodeServiceImpl) placeComponentInternal(componentName string, requiredR
 }
 
 func (n *NodeServiceImpl) autoscale() {
+	roleOk, _, err := n.db.AcquireOrRenewRole(rolePlacement, n.nodeId, time.Minute)
+	if err != nil {
+		log.Error("nodesvc: autoscale AcquireOrRenewRole error", "role", rolePlacement, "err", err)
+		return
+	}
+	if !roleOk {
+		return
+	}
+
 	for _, node := range n.cluster.GetNodes() {
 		var targetCounts []v1.ComponentCount
 		countByComponent := make(map[string]int)
@@ -234,8 +268,12 @@ func (n *NodeServiceImpl) autoscale() {
 		for _, info := range node.RunningComponents {
 			c, err := n.db.GetComponent(info.ComponentName)
 			if err == nil {
+				idleSecs := c.Docker.IdleTimeoutSeconds
+				if idleSecs <= 0 {
+					idleSecs = 300
+				}
 				countByComponent[info.ComponentName] = countByComponent[info.ComponentName] + 1
-				minTime := common.TimeToMillis(time.Now().Add(-1 * time.Duration(c.Docker.IdleTimeoutSeconds) * time.Second))
+				minTime := common.TimeToMillis(time.Now().Add(-1 * time.Duration(idleSecs) * time.Second))
 				if info.LastRequestTime < minTime {
 					deltaByComponent[info.ComponentName] = deltaByComponent[info.ComponentName] - 1
 				}
@@ -278,7 +316,7 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 	handlers, version := n.handlerFactory.HandlerComponentInfo()
 
 	if version != input.TargetVersion {
-		status, err := n.loadNodeStatus(true, false, context.Background())
+		status, err := n.loadNodeStatus(false, context.Background())
 		if err != nil {
 			return v1.StartStopComponentsOutput{}, fmt.Errorf("nodesvc: StartStopComponents:loadNodeStatus failed: %v", err)
 		}
@@ -378,7 +416,7 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 		stopped = append(stopped, v1.ComponentCount{ComponentName: name, Count: count})
 	}
 
-	status, err := n.loadNodeStatus(true, false, context.Background())
+	status, err := n.loadNodeStatus(false, context.Background())
 	if err != nil {
 		return v1.StartStopComponentsOutput{}, fmt.Errorf("nodesvc: StartStopComponents:loadNodeStatus failed: %v", err)
 	}
@@ -463,15 +501,14 @@ func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context
 }
 
 func (n *NodeServiceImpl) logStatus(ctx context.Context) error {
-	status, err := n.loadNodeStatus(true, true, ctx)
+	status, err := n.loadNodeStatus(true, ctx)
 	if err != nil {
 		return err
 	}
 	return n.db.PutNodeStatus(status)
 }
 
-func (n *NodeServiceImpl) loadNodeStatus(includeContainerStatus bool, mutateLocalStats bool,
-	ctx context.Context) (v1.NodeStatus, error) {
+func (n *NodeServiceImpl) loadNodeStatus(mutateLocalStats bool, ctx context.Context) (v1.NodeStatus, error) {
 
 	components, version := n.handlerFactory.HandlerComponentInfo()
 	nodeStatus := v1.NodeStatus{
@@ -482,7 +519,6 @@ func (n *NodeServiceImpl) loadNodeStatus(includeContainerStatus bool, mutateLoca
 		NumCPUs:           n.numCPUs,
 		Version:           version,
 		RunningComponents: components,
-		Containers:        nil,
 	}
 
 	meminfo, err := linuxproc.ReadMemInfo("/proc/meminfo")
@@ -499,90 +535,6 @@ func (n *NodeServiceImpl) loadNodeStatus(includeContainerStatus bool, mutateLoca
 	nodeStatus.LoadAvg1m = loadavg.Last1Min
 	nodeStatus.LoadAvg5m = loadavg.Last5Min
 	nodeStatus.LoadAvg15m = loadavg.Last15Min
-
-	if includeContainerStatus {
-		n.loadStatusLock.Lock()
-		defer n.loadStatusLock.Unlock()
-
-		nodeStatus.Containers = make([]v1.ContainerStatus, 0)
-
-		containers, err := n.dockerClient.ContainerList(ctx, types.ContainerListOptions{})
-		if err != nil {
-			return v1.NodeStatus{}, fmt.Errorf("docker.ContainerList error: %v", err)
-		}
-
-		for _, c := range containers {
-			contStats := n.statsByContainerId[c.ID]
-			maelStats := v1.ContainerStatus{
-				ContainerId:       c.ID,
-				Image:             c.Image,
-				ImageId:           c.ImageID,
-				StartedAt:         c.Created * 1000,
-				ComponentName:     c.Labels["maelstrom_component"],
-				ComponentVersion:  int64(common.ToIntOrDefault(c.Labels["maelstrom_version"], 0)),
-				CPUPct:            0,
-				MemoryReservedMiB: 0,
-				MemoryUsedMiB:     0,
-				MemoryPeakMiB:     0,
-				TotalRequests:     0,
-				LastRequestTime:   0,
-			}
-
-			compInfo := n.handlerFactory.GetComponentInfo(maelStats.ComponentName, c.ID)
-			if compInfo.TotalRequests > 0 {
-				maelStats.TotalRequests = compInfo.TotalRequests
-				maelStats.LastRequestTime = compInfo.LastRequestTime
-			}
-
-			containerInfo, err := n.dockerClient.ContainerInspect(ctx, c.ID)
-			if err != nil {
-				if !docker.IsErrContainerNotFound(err) {
-					err = fmt.Errorf("docker.ContainerInspect error: %v", err)
-				}
-				return v1.NodeStatus{}, err
-			}
-			maelStats.MemoryReservedMiB = containerInfo.HostConfig.MemoryReservation / 1024 / 1024
-
-			stats, err := n.dockerClient.ContainerStats(ctx, c.ID, false)
-			if err != nil {
-				if !docker.IsErrContainerNotFound(err) {
-					err = fmt.Errorf("docker.ContainerInspect error: %v", err)
-				}
-				return v1.NodeStatus{}, err
-			}
-			var containerStats types.StatsJSON
-			body, err := ioutil.ReadAll(stats.Body)
-			if err != nil {
-				return v1.NodeStatus{}, fmt.Errorf("json stats ReadAll containerId: %s error: %v", c.ID, err)
-			}
-			if len(body) > 0 {
-				err = json.Unmarshal(body, &containerStats)
-				if err != nil {
-					return v1.NodeStatus{}, fmt.Errorf("json unmarshal containerId: %s json: %s error: %v", c.ID,
-						string(body), err)
-				}
-			}
-			err = stats.Body.Close()
-			if err != nil {
-				return v1.NodeStatus{}, fmt.Errorf("json body close error: %v", err)
-			}
-
-			if contStats.systemCPU > 0 {
-				maelStats.CPUPct = calculateCPUPercent(contStats.containerCPU, contStats.systemCPU, &containerStats)
-			}
-
-			maelStats.MemoryUsedMiB = int64(containerStats.MemoryStats.Usage / 1024 / 1024)
-			if maelStats.MemoryUsedMiB > contStats.memoryPeakMB {
-				contStats.memoryPeakMB = maelStats.MemoryUsedMiB
-			}
-			maelStats.MemoryPeakMiB = contStats.memoryPeakMB
-			contStats.containerCPU = containerStats.CPUStats.CPUUsage.TotalUsage
-			contStats.systemCPU = containerStats.CPUStats.SystemUsage
-			n.statsByContainerId[c.ID] = contStats
-
-			nodeStatus.Containers = append(nodeStatus.Containers, maelStats)
-		}
-	}
 
 	return nodeStatus, nil
 }
