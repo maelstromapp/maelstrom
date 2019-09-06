@@ -5,7 +5,6 @@ import (
 	"fmt"
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	"github.com/coopernurse/barrister-go"
-	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 	log "github.com/mgutz/logxi/v1"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
@@ -21,15 +20,14 @@ const roleCron = "cron"
 func NewNodeServiceImpl(handlerFactory *DockerHandlerFactory, db v1.Db, dockerClient *docker.Client, nodeId string,
 	peerUrl string, startTime time.Time, numCPUs int64) (*NodeServiceImpl, error) {
 	nodeSvc := &NodeServiceImpl{
-		handlerFactory:     handlerFactory,
-		db:                 db,
-		dockerClient:       dockerClient,
-		nodeId:             nodeId,
-		peerUrl:            peerUrl,
-		startTimeMillis:    common.TimeToMillis(startTime),
-		numCPUs:            numCPUs,
-		statsByContainerId: map[string]containerStats{},
-		loadStatusLock:     &sync.Mutex{},
+		handlerFactory:  handlerFactory,
+		db:              db,
+		dockerClient:    dockerClient,
+		nodeId:          nodeId,
+		peerUrl:         peerUrl,
+		startTimeMillis: common.TimeToMillis(startTime),
+		numCPUs:         numCPUs,
+		loadStatusLock:  &sync.Mutex{},
 	}
 	status, err := nodeSvc.loadNodeStatus(false, context.Background())
 	if err != nil {
@@ -53,16 +51,15 @@ func NewNodeServiceImplFromDocker(handlerFactory *DockerHandlerFactory, db v1.Db
 }
 
 type NodeServiceImpl struct {
-	handlerFactory     *DockerHandlerFactory
-	dockerClient       *docker.Client
-	db                 v1.Db
-	cluster            *Cluster
-	nodeId             string
-	peerUrl            string
-	startTimeMillis    int64
-	numCPUs            int64
-	statsByContainerId map[string]containerStats
-	loadStatusLock     *sync.Mutex
+	handlerFactory  *DockerHandlerFactory
+	dockerClient    *docker.Client
+	db              v1.Db
+	cluster         *Cluster
+	nodeId          string
+	peerUrl         string
+	startTimeMillis int64
+	numCPUs         int64
+	loadStatusLock  *sync.Mutex
 }
 
 func (n *NodeServiceImpl) NodeId() string {
@@ -206,7 +203,7 @@ func (n *NodeServiceImpl) placeComponentInternal(componentName string, requiredR
 		return nil, false
 	}
 
-	option := BestPlacementOption(nodes, componentName, requiredRAM)
+	option := BestStartComponentOption(nodes, map[string]*PlacementOption{}, componentName, requiredRAM, true)
 	if option == nil {
 		log.Error("nodesvc: PlaceComponent failed - BestPlacementOption returned nil",
 			"component", componentName, "requiredRAM", requiredRAM, "nodeMaxRAM", maxNodeRAM, "nodeCount", len(nodes))
@@ -261,61 +258,35 @@ func (n *NodeServiceImpl) autoscale() {
 		return
 	}
 
-	for _, node := range n.cluster.GetNodes() {
-		var targetCounts []v1.ComponentCount
-		countByComponent := make(map[string]int)
-		deltaByComponent := make(map[string]int)
-		for _, info := range node.RunningComponents {
-			c, err := n.db.GetComponent(info.ComponentName)
-			if err == nil {
-				idleSecs := c.Docker.IdleTimeoutSeconds
-				if idleSecs <= 0 {
-					idleSecs = 300
-				}
-				countByComponent[info.ComponentName] = countByComponent[info.ComponentName] + 1
-				minTime := common.TimeToMillis(time.Now().Add(-1 * time.Duration(idleSecs) * time.Second))
-				if info.LastRequestTime < minTime {
-					deltaByComponent[info.ComponentName] = deltaByComponent[info.ComponentName] - 1
-				}
-			} else {
-				log.Error("nodesvc: autoscale error getting component", "err", err, "component", info.ComponentName)
-			}
-		}
+	nodes := n.cluster.GetNodes()
+	componentsByName, err := loadActiveComponents(nodes, n.db)
+	if err != nil {
+		log.Error("nodesvc: autoscale loadActiveComponents error", "err", err)
+		return
+	}
 
-		for componentName, delta := range deltaByComponent {
-			targetCounts = append(targetCounts, v1.ComponentCount{
-				ComponentName: componentName,
-				Count:         int64(countByComponent[componentName] + delta),
-			})
-		}
+	inputs := CalcAutoscalePlacement(nodes, componentsByName, 0.25, 0.5)
 
-		if len(targetCounts) > 0 {
-			input := v1.StartStopComponentsInput{
-				ClientNodeId:  n.nodeId,
-				TargetVersion: node.Version,
-				TargetCounts:  targetCounts,
-				ReturnStatus:  true,
+	for _, input := range inputs {
+		output, err := n.cluster.GetNodeService(input.TargetNode).StartStopComponents(input.Input)
+		if err == nil {
+			log.Info("autoscale: StartStopComponents success", "targetNode", input.TargetNode.NodeId,
+				"targetCounts", input.Input.TargetCounts)
+			if output.TargetStatus != nil {
+				n.cluster.SetNode(*output.TargetStatus)
 			}
-			output, err := n.cluster.GetNodeService(node).StartStopComponents(input)
-			if err == nil {
-				log.Info("autoscale: StartStopComponents success", "targetNode", node.NodeId,
-					"targetCounts", targetCounts)
-				if output.TargetStatus != nil {
-					n.cluster.SetNode(*output.TargetStatus)
-				}
-			} else {
-				log.Error("autoscale: StartStopComponents failed", "err", err, "targetNode", node.NodeId,
-					"input", input)
-			}
+		} else {
+			log.Error("autoscale: StartStopComponents failed", "err", err, "targetNode", input.TargetNode.NodeId,
+				"input", input)
 		}
 	}
 }
 
 func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput) (v1.StartStopComponentsOutput, error) {
 
-	handlers, version := n.handlerFactory.HandlerComponentInfo()
+	prevVersion := n.handlerFactory.IncrementVersion()
 
-	if version != input.TargetVersion {
+	if prevVersion != input.TargetVersion {
 		status, err := n.loadNodeStatus(false, context.Background())
 		if err != nil {
 			return v1.StartStopComponentsOutput{}, fmt.Errorf("nodesvc: StartStopComponents:loadNodeStatus failed: %v", err)
@@ -323,29 +294,22 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 		return v1.StartStopComponentsOutput{
 			TargetVersionMismatch: true,
 			TargetStatus:          &status,
-			Started:               []v1.ComponentCount{},
-			Stopped:               []v1.ComponentCount{},
-			Errors:                []v1.ComponentCountError{},
+			Started:               []v1.ComponentDelta{},
+			Stopped:               []v1.ComponentDelta{},
+			Errors:                []v1.ComponentDeltaError{},
 		}, nil
 	}
 
 	startedCount := map[string]int64{}
 	stoppedCount := map[string]int64{}
-	var errors []v1.ComponentCountError
-	var stopRequests []v1.ComponentCount
-	var startRequests []v1.ComponentCount
-	countsByComponent := map[string]int{}
-
-	for _, handler := range handlers {
-		count := countsByComponent[handler.ComponentName]
-		countsByComponent[handler.ComponentName] = count + 1
-	}
+	var errors []v1.ComponentDeltaError
+	var stopRequests []v1.ComponentDelta
+	var startRequests []v1.ComponentDelta
 
 	for _, target := range input.TargetCounts {
-		currentCount := int64(countsByComponent[target.ComponentName])
-		if target.Count > currentCount {
+		if target.Delta > 0 {
 			startRequests = append(startRequests, target)
-		} else if target.Count < currentCount {
+		} else if target.Delta < 0 {
 			stopRequests = append(stopRequests, target)
 		}
 	}
@@ -354,18 +318,18 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 	if len(stopRequests) > 0 {
 		stopWg := &sync.WaitGroup{}
 		stoppedComponentNamesCh := make(chan string, len(input.TargetCounts))
-		stopHandlerFx := func(target v1.ComponentCount) {
+		stopHandlerFx := func(target v1.ComponentDelta) {
 			comp, err := n.db.GetComponent(target.ComponentName)
 			if err != nil {
 				msg := "error loading component: " + target.ComponentName
 				log.Error("nodesvc: unable to get component", "component", target.ComponentName, "err", err)
-				errors = append(errors, v1.ComponentCountError{ComponentCount: target, Error: msg})
+				errors = append(errors, v1.ComponentDeltaError{ComponentDelta: target, Error: msg})
 			} else {
 				_, stopped, err := n.handlerFactory.ConvergeToTarget(target, comp, false)
 				if err != nil {
 					msg := "handlerFactory.ConvergeToTarget stop error"
 					log.Error("nodesvc: handlerFactory.ConvergeToTarget stop", "target", target, "err", err)
-					errors = append(errors, v1.ComponentCountError{ComponentCount: target, Error: msg})
+					errors = append(errors, v1.ComponentDeltaError{ComponentDelta: target, Error: msg})
 				}
 				if stopped > 0 {
 					stoppedComponentNamesCh <- target.ComponentName
@@ -374,7 +338,7 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 			stopWg.Done()
 		}
 		for _, target := range stopRequests {
-			if target.Count <= 0 {
+			if target.Delta < 0 {
 				stopWg.Add(1)
 				go stopHandlerFx(target)
 			}
@@ -393,13 +357,13 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 		if err != nil {
 			msg := "error loading component: " + target.ComponentName
 			log.Error("nodesvc: unable to get component", "component", target.ComponentName, "err", err)
-			errors = append(errors, v1.ComponentCountError{ComponentCount: target, Error: msg})
+			errors = append(errors, v1.ComponentDeltaError{ComponentDelta: target, Error: msg})
 		} else {
 			started, _, err := n.handlerFactory.ConvergeToTarget(target, comp, true)
 			if err != nil {
 				msg := "handlerFactory.ConvergeToTarget start error"
 				log.Error("nodesvc: handlerFactory.ConvergeToTarget start", "target", target, "err", err)
-				errors = append(errors, v1.ComponentCountError{ComponentCount: target, Error: msg})
+				errors = append(errors, v1.ComponentDeltaError{ComponentDelta: target, Error: msg})
 			} else {
 				count := startedCount[target.ComponentName]
 				startedCount[target.ComponentName] = count + int64(started)
@@ -407,13 +371,13 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 		}
 	}
 
-	started := make([]v1.ComponentCount, 0)
-	stopped := make([]v1.ComponentCount, 0)
+	started := make([]v1.ComponentDelta, 0)
+	stopped := make([]v1.ComponentDelta, 0)
 	for name, count := range startedCount {
-		started = append(started, v1.ComponentCount{ComponentName: name, Count: count})
+		started = append(started, v1.ComponentDelta{ComponentName: name, Delta: count})
 	}
 	for name, count := range stoppedCount {
-		stopped = append(stopped, v1.ComponentCount{ComponentName: name, Count: count})
+		stopped = append(stopped, v1.ComponentDelta{ComponentName: name, Delta: -1 * count})
 	}
 
 	status, err := n.loadNodeStatus(false, context.Background())
@@ -431,13 +395,12 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 
 func (n *NodeServiceImpl) RunAutoscaleLoop(interval time.Duration, ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
-	done := ctx.Done()
 	ticker := time.Tick(interval)
 	for {
 		select {
 		case <-ticker:
 			n.autoscale()
-		case <-done:
+		case <-ctx.Done():
 			log.Info("nodesvc: autoscale loop shutdown gracefully")
 			return
 		}
@@ -446,14 +409,13 @@ func (n *NodeServiceImpl) RunAutoscaleLoop(interval time.Duration, ctx context.C
 
 func (n *NodeServiceImpl) RunNodeStatusLoop(interval time.Duration, ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
-	done := ctx.Done()
 	logTicker := time.Tick(interval)
 	n.logStatusAndRefreshClusterNodeList(ctx)
 	for {
 		select {
 		case <-logTicker:
 			n.logStatusAndRefreshClusterNodeList(ctx)
-		case <-done:
+		case <-ctx.Done():
 			if n.nodeId != "" {
 				_, err := n.db.RemoveNodeStatus(n.nodeId)
 				if err != nil {
@@ -537,27 +499,4 @@ func (n *NodeServiceImpl) loadNodeStatus(mutateLocalStats bool, ctx context.Cont
 	nodeStatus.LoadAvg15m = loadavg.Last15Min
 
 	return nodeStatus, nil
-}
-
-/////////////////////////////////////////////////
-
-type containerStats struct {
-	containerCPU uint64
-	systemCPU    uint64
-	memoryPeakMB int64
-}
-
-func calculateCPUPercent(previousCPU, previousSystem uint64, v *types.StatsJSON) float64 {
-	var (
-		cpuPercent = 0.0
-		// calculate the change for the cpu usage of the container in between readings
-		cpuDelta = float64(v.CPUStats.CPUUsage.TotalUsage) - float64(previousCPU)
-		// calculate the change for the entire system between readings
-		systemDelta = float64(v.CPUStats.SystemUsage) - float64(previousSystem)
-	)
-
-	if systemDelta > 0.0 && cpuDelta > 0.0 {
-		cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
-	}
-	return cpuPercent
 }

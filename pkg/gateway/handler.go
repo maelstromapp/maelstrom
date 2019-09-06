@@ -115,6 +115,14 @@ func (f *DockerHandlerFactory) Version() int64 {
 	return ver
 }
 
+func (f *DockerHandlerFactory) IncrementVersion() int64 {
+	f.lock.Lock()
+	oldVer := f.version
+	f.version++
+	f.lock.Unlock()
+	return oldVer
+}
+
 func (f *DockerHandlerFactory) HandlerComponentInfo() ([]v1.ComponentInfo, int64) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
@@ -127,29 +135,25 @@ func (f *DockerHandlerFactory) HandlerComponentInfo() ([]v1.ComponentInfo, int64
 	return names, f.version
 }
 
-func (f *DockerHandlerFactory) ConvergeToTarget(target v1.ComponentCount,
+func (f *DockerHandlerFactory) ConvergeToTarget(target v1.ComponentDelta,
 	component v1.Component, async bool) (started int, stopped int, err error) {
 
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
-	targetCount := int(target.Count)
+	delta := int(target.Delta)
 	containers := f.byComponentName[target.ComponentName]
 
 	// Count non-stopped handlers
 	currentCount := len(containers)
-
-	// No-op if counts already match
-	if currentCount == targetCount {
-		return
-	}
+	targetCount := currentCount + delta
 
 	// Bump internal version
 	f.version++
 
-	if currentCount > targetCount {
+	if delta < 0 {
 		// scale down
-		stopCount := currentCount - targetCount
+		stopCount := delta * -1
 		for i := 0; i < stopCount; i++ {
 			idx := currentCount - i - 1
 			if async {
@@ -159,10 +163,9 @@ func (f *DockerHandlerFactory) ConvergeToTarget(target v1.ComponentCount,
 			}
 		}
 		f.byComponentName[target.ComponentName] = containers[:targetCount]
-	} else if currentCount < targetCount {
+	} else if delta > 0 {
 		// scale up
-		startCount := targetCount - currentCount
-		for i := 0; i < startCount; i++ {
+		for i := 0; i < delta; i++ {
 			cont, err := f.startContainer(component)
 			if err == nil {
 				containers = append(containers, cont)

@@ -28,7 +28,7 @@ require (
 	github.com/mholt/certmagic v0.5.1
 	github.com/namedotcom/go v0.0.0-20180403034216-08470befbe04 // indirect
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
-	github.com/pkg/errors v0.8.0 // indirect
+	github.com/pkg/errors v0.8.0
 	github.com/robfig/cron v0.0.0-20180505203441-b41be1df6967
 	github.com/stretchr/testify v1.3.0
 	golang.org/x/crypto v0.0.0-20190123085648-057139ce5d2b

@@ -65,6 +65,8 @@ func TestComponentCRUD(t *testing.T) {
 				Environment:        input.Component.Environment,
 				MaxConcurrency:     input.Component.MaxConcurrency,
 				MaxDurationSeconds: input.Component.MaxDurationSeconds,
+				MinInstances:       input.Component.MinInstances,
+				MaxInstances:       input.Component.MaxInstances,
 			},
 		}
 

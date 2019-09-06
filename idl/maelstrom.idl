@@ -162,6 +162,12 @@ struct Component {
     // project level (if applicable)
     environment  []NameValue
 
+    // Minimum instances of this component to run (default=0)
+    minInstances int      [optional]
+
+    // Maximum instances of this component to run (default=0, no upper limit)
+    maxInstances int      [optional]
+
     // Maximum concurrent requests to proxy to a single instance of this component
     maxConcurrency      int
 
@@ -560,9 +566,8 @@ struct StartStopComponentsInput {
     targetVersion       int
 
     // Number of instances of each component the client would like the target
-    // node to scale to.  The receiver should compare this to the number of
-    // containers currently running start/stop containers to match the targetCount.
-    targetCounts        []ComponentCount
+    // node to add (delta > 0) or remove (delta < 0).
+    targetCounts        []ComponentDelta
 
     // If true, targetStatus will be populated after performing changes
     // Optional. default=false
@@ -579,22 +584,23 @@ struct StartStopComponentsOutput {
     targetStatus             NodeStatus  [optional]
 
     // components started, or empty list if no containers started
-    started          []ComponentCount
+    started          []ComponentDelta
 
     // components stopped, or empty list if no containers stopped
-    stopped          []ComponentCount
+    stopped          []ComponentDelta
 
     // ComponentCount messages that resulted in errors are included here, or empty list if no errors
-    errors           []ComponentCountError
+    errors           []ComponentDeltaError
 }
 
-struct ComponentCount {
+struct ComponentDelta {
     componentName     string
-    count             int
+    delta             int
+    requiredMemoryMiB int
 }
 
-struct ComponentCountError {
-    componentCount    ComponentCount
+struct ComponentDeltaError {
+    componentDelta    ComponentDelta
     error             string
 }
 
