@@ -11,9 +11,9 @@ type ClusterObserver interface {
 	OnClusterUpdated(nodes map[string]v1.NodeStatus)
 }
 
-func NewCluster(nodeId string, localNodeService v1.NodeService) *Cluster {
+func NewCluster(myNodeId string, localNodeService v1.NodeService) *Cluster {
 	return &Cluster{
-		nodeId:           nodeId,
+		myNodeId:         myNodeId,
 		localNodeService: localNodeService,
 		observers:        []ClusterObserver{},
 		nodesById:        map[string]v1.NodeStatus{},
@@ -22,7 +22,7 @@ func NewCluster(nodeId string, localNodeService v1.NodeService) *Cluster {
 }
 
 type Cluster struct {
-	nodeId           string
+	myNodeId         string
 	localNodeService v1.NodeService
 	observers        []ClusterObserver
 	nodesById        map[string]v1.NodeStatus
@@ -45,7 +45,7 @@ func (c *Cluster) SetNode(node v1.NodeStatus) bool {
 	}
 	c.lock.Unlock()
 	if !ok {
-		log.Info("cluster: added node", "nodeId", c.nodeId, "remoteNode", node.NodeId)
+		log.Info("cluster: added node", "nodeId", c.myNodeId, "remoteNode", node.NodeId)
 	}
 	if modified {
 		c.notifyAll()
@@ -63,7 +63,7 @@ func (c *Cluster) RemoveNode(nodeId string) bool {
 	}
 	c.lock.Unlock()
 	if modified {
-		log.Info("cluster: removed node", "nodeId", c.nodeId, "remoteNode", nodeId)
+		log.Info("cluster: removed node", "nodeId", c.myNodeId, "remoteNode", nodeId)
 		c.notifyAll()
 	}
 	return modified
@@ -102,7 +102,7 @@ func (c *Cluster) GetNodeServiceById(nodeId string) v1.NodeService {
 }
 
 func (c *Cluster) GetNodeService(node v1.NodeStatus) v1.NodeService {
-	if node.NodeId == c.nodeId {
+	if node.NodeId == c.myNodeId {
 		return c.localNodeService
 	}
 	client := barrister.NewRemoteClient(&barrister.HttpTransport{Url: node.PeerUrl}, false)

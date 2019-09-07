@@ -33,6 +33,10 @@ func NewNodeServiceImpl(handlerFactory *DockerHandlerFactory, db v1.Db, dockerCl
 	if err != nil {
 		return nil, fmt.Errorf("nodesvc: unable to load node status: %v", err)
 	}
+	err = db.PutNodeStatus(status)
+	if err != nil {
+		return nil, fmt.Errorf("nodesvc: unable to save node status: %v", err)
+	}
 	cluster := NewCluster(nodeId, nodeSvc)
 	cluster.SetNode(status)
 	nodeSvc.cluster = cluster
@@ -385,6 +389,8 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 		return v1.StartStopComponentsOutput{}, fmt.Errorf("nodesvc: StartStopComponents:loadNodeStatus failed: %v", err)
 	}
 
+	n.cluster.SetNode(status)
+
 	return v1.StartStopComponentsOutput{
 		TargetStatus: &status,
 		Started:      started,
@@ -457,6 +463,7 @@ func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context
 			removeNodeIds = map[string]bool{}
 		}
 	}
+	// TODO: make single call to cluster to remove slice of node ids so that we only broadcast one change
 	for nodeId, _ := range removeNodeIds {
 		n.cluster.RemoveNode(nodeId)
 	}

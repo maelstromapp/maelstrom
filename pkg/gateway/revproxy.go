@@ -41,20 +41,10 @@ func revProxyLoop(reqCh <-chan *MaelRequest, statCh chan<- time.Duration,
 				// so that receiving node can set the request deadline appropriately to account for time already spent
 			}
 
-			success := make(chan bool, 1)
-			go func() {
-				proxy.ServeHTTP(mr.rw, mr.req)
-				if statCh != nil {
-					statCh <- time.Now().Sub(mr.startTime)
-				}
-				success <- true
-			}()
-
-			// wait until round trip completes or deadline reached
-			select {
-			case <-success:
-				mr.ready <- true
-			case <-mr.ctx.Done():
+			proxy.ServeHTTP(mr.rw, mr.req)
+			mr.complete <- true
+			if statCh != nil {
+				statCh <- time.Now().Sub(mr.startTime)
 			}
 
 		case <-ctx.Done():

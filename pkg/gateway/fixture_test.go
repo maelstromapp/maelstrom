@@ -121,16 +121,14 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fix
 	ctx := context.Background()
 	resolver := NewDbResolver(sqlDb, nil, 0)
 
-	router := NewRouter(nil, "", ctx)
-	daemonWG.Add(1)
-	go router.Run(daemonWG)
-
-	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, sqlDb, router, ctx, testGatewayPort)
+	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, sqlDb, ctx, testGatewayPort)
 	assert.Nil(t, err, "NewDockerHandlerFactory err != nil: %v", err)
 
 	nodeSvcImpl, err := NewNodeServiceImplFromDocker(hFactory, sqlDb, dockerClient, "")
 	assert.Nil(t, err, "NewNodeServiceImplFromDocker err != nil: %v", err)
-	router.SetNodeService(nodeSvcImpl, nodeSvcImpl.nodeId)
+
+	router := NewRouter(nodeSvcImpl, hFactory, nodeSvcImpl.nodeId, ctx)
+	nodeSvcImpl.Cluster().AddObserver(router)
 
 	gateway := NewGateway(resolver, router, false)
 	cancelCtx, cancelFx := context.WithCancel(context.Background())

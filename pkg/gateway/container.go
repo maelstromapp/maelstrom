@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-func StartContainer(channels *componentChannels, dockerClient *docker.Client, component v1.Component,
+func StartContainer(reqCh chan *MaelRequest, dockerClient *docker.Client, component v1.Component,
 	containerId string, parentCtx context.Context) (*Container, error) {
 
 	proxy, healthCheckUrl, err := initReverseProxy(dockerClient, component, containerId)
@@ -33,17 +33,15 @@ func StartContainer(channels *componentChannels, dockerClient *docker.Client, co
 		maxConcur = 5
 	}
 
-	internalCh := make(chan *MaelRequest)
 	statCh := make(chan time.Duration, maxConcur)
 
 	for i := 0; i < maxConcur; i++ {
 		wg.Add(1)
-		go localRevProxy(internalCh, statCh, proxy, ctx, wg)
+		go localRevProxy(reqCh, statCh, proxy, ctx, wg)
 	}
 
 	c := &Container{
-		channels:       channels,
-		internalCh:     internalCh,
+		reqCh:          reqCh,
 		statCh:         statCh,
 		containerId:    containerId,
 		component:      component,
@@ -63,8 +61,7 @@ func StartContainer(channels *componentChannels, dockerClient *docker.Client, co
 }
 
 type Container struct {
-	channels       *componentChannels
-	internalCh     chan *MaelRequest
+	reqCh          chan *MaelRequest
 	statCh         chan time.Duration
 	containerId    string
 	component      v1.Component
@@ -137,7 +134,6 @@ func (c *Container) Run() {
 		healthCheckSecs = 10
 	}
 
-	heartbeatTicker := time.Tick(5 * time.Second)
 	healthCheckTicker := time.Tick(time.Duration(healthCheckSecs) * time.Second)
 	concurrencyTicker := time.Tick(time.Minute)
 
@@ -147,20 +143,12 @@ func (c *Container) Run() {
 
 	for {
 		select {
-		case mr := <-c.channels.localCh:
-			c.bumpReqStats()
-			c.internalCh <- mr
-		case mr := <-c.channels.allCh:
-			c.bumpReqStats()
-			c.internalCh <- mr
 		case dur := <-c.statCh:
 			durationSinceRollover += dur
 		case <-concurrencyTicker:
 			previousTotalRequests = c.appendActivity(previousTotalRequests, rolloverStartTime, durationSinceRollover)
 			rolloverStartTime = time.Now()
 			durationSinceRollover = 0
-		case <-heartbeatTicker:
-			c.channels.consumerHeartbeat()
 		case <-healthCheckTicker:
 			if !getUrlOK(c.healthCheckUrl) {
 				log.Error("container: health check failed. stopping container", "containerId", c.containerId[0:8],

@@ -31,7 +31,7 @@ var hostBindPort = int64(33000)
 // DockerHandlerFactory //
 //////////////////////////
 
-func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentResolver, db v1.Db, router *Router,
+func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentResolver, db v1.Db,
 	ctx context.Context, privatePort int) (*DockerHandlerFactory, error) {
 	containers, err := listContainers(dockerClient)
 	if err != nil {
@@ -46,6 +46,7 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 	log.Info("handler: creating DockerHandlerFactory", "maelstromUrl", maelstromUrl)
 
 	byComponentName := map[string][]*Container{}
+	reqChanByComponent := map[string]chan *MaelRequest{}
 	for _, c := range containers {
 		name := c.Labels["maelstrom_component"]
 		verStr := c.Labels["maelstrom_version"]
@@ -68,8 +69,12 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 					stopContainerLogErr(dockerClient, c.ID, name, verStr, "component version changed")
 				} else {
 					// happy path - running container matches docker image ID and component version
-					reqChans := router.getComponentChannels(name)
-					containerWrap, err := StartContainer(reqChans, dockerClient, comp, c.ID, ctx)
+					reqCh := reqChanByComponent[name]
+					if reqCh == nil {
+						reqCh = make(chan *MaelRequest)
+						reqChanByComponent[name] = reqCh
+					}
+					containerWrap, err := StartContainer(reqCh, dockerClient, comp, c.ID, ctx)
 					if err == nil {
 						list := byComponentName[name]
 						byComponentName[name] = append(list, containerWrap)
@@ -86,26 +91,27 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 	}
 
 	return &DockerHandlerFactory{
-		dockerClient:    dockerClient,
-		router:          router,
-		db:              db,
-		byComponentName: byComponentName,
-		maelstromUrl:    maelstromUrl,
-		ctx:             ctx,
-		version:         common.NowMillis(),
-		lock:            &sync.Mutex{},
+		dockerClient:       dockerClient,
+		db:                 db,
+		byComponentName:    byComponentName,
+		reqChanByComponent: reqChanByComponent,
+		maelstromUrl:       maelstromUrl,
+		ctx:                ctx,
+		version:            common.NowMillis(),
+		lock:               &sync.Mutex{},
 	}, nil
 }
 
 type DockerHandlerFactory struct {
-	dockerClient    *docker.Client
-	router          *Router
-	db              v1.Db
-	byComponentName map[string][]*Container
-	maelstromUrl    string
-	ctx             context.Context
-	version         int64
-	lock            *sync.Mutex
+	dockerClient *docker.Client
+	//router          *Router
+	db                 v1.Db
+	byComponentName    map[string][]*Container
+	reqChanByComponent map[string]chan *MaelRequest
+	maelstromUrl       string
+	ctx                context.Context
+	version            int64
+	lock               *sync.Mutex
 }
 
 func (f *DockerHandlerFactory) Version() int64 {
@@ -123,6 +129,22 @@ func (f *DockerHandlerFactory) IncrementVersion() int64 {
 	return oldVer
 }
 
+func (f *DockerHandlerFactory) ReqChanByComponent(componentName string) chan *MaelRequest {
+	f.lock.Lock()
+	reqCh := f.reqChanByComponentLocked(componentName)
+	f.lock.Unlock()
+	return reqCh
+}
+
+func (f *DockerHandlerFactory) reqChanByComponentLocked(componentName string) chan *MaelRequest {
+	reqCh := f.reqChanByComponent[componentName]
+	if reqCh == nil {
+		reqCh = make(chan *MaelRequest)
+		f.reqChanByComponent[componentName] = reqCh
+	}
+	return reqCh
+}
+
 func (f *DockerHandlerFactory) HandlerComponentInfo() ([]v1.ComponentInfo, int64) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
@@ -137,6 +159,8 @@ func (f *DockerHandlerFactory) HandlerComponentInfo() ([]v1.ComponentInfo, int64
 
 func (f *DockerHandlerFactory) ConvergeToTarget(target v1.ComponentDelta,
 	component v1.Component, async bool) (started int, stopped int, err error) {
+
+	reqCh := f.ReqChanByComponent(component.Name)
 
 	f.lock.Lock()
 	defer f.lock.Unlock()
@@ -166,7 +190,7 @@ func (f *DockerHandlerFactory) ConvergeToTarget(target v1.ComponentDelta,
 	} else if delta > 0 {
 		// scale up
 		for i := 0; i < delta; i++ {
-			cont, err := f.startContainer(component)
+			cont, err := f.startContainer(component, reqCh)
 			if err == nil {
 				containers = append(containers, cont)
 			} else {
@@ -179,7 +203,7 @@ func (f *DockerHandlerFactory) ConvergeToTarget(target v1.ComponentDelta,
 	return
 }
 
-func (f *DockerHandlerFactory) startContainer(component v1.Component) (*Container, error) {
+func (f *DockerHandlerFactory) startContainer(component v1.Component, reqCh chan *MaelRequest) (*Container, error) {
 	err := pullImage(f.dockerClient, component)
 	if err != nil {
 		log.Warn("handler: unable to pull image", "err", err.Error(), "component", component.Name)
@@ -190,8 +214,7 @@ func (f *DockerHandlerFactory) startContainer(component v1.Component) (*Containe
 		return nil, err
 	}
 
-	reqChans := f.router.getComponentChannels(component.Name)
-	c, err := StartContainer(reqChans, f.dockerClient, component, containerId, f.ctx)
+	c, err := StartContainer(reqCh, f.dockerClient, component, containerId, f.ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +263,7 @@ func (f *DockerHandlerFactory) OnContainerExited(msg common.ContainerExitedMessa
 			for i, cont := range containers {
 				if i == removeIdx {
 					log.Info("handler: OnContainerExited - restarting component", "component", cont.component.Name)
-					newContainer, err := f.restartComponent(cont, true)
+					newContainer, err := f.restartComponent(cont, true, f.reqChanByComponentLocked(cont.component.Name))
 					if err == nil {
 						keep = append(keep, newContainer)
 					} else {
@@ -267,7 +290,7 @@ func (f *DockerHandlerFactory) OnImageUpdated(msg common.ImageUpdatedMessage) {
 			if normalizeImageName(cont.component.Docker.Image) == msg.ImageName {
 				log.Info("handler: OnImageUpdated - stopping image for component", "component", componentName,
 					"imageName", msg.ImageName, "newImageId", msg.ImageId)
-				newContainer, err := f.restartComponent(cont, false)
+				newContainer, err := f.restartComponent(cont, false, f.reqChanByComponentLocked(componentName))
 				if err == nil {
 					keep = append(keep, newContainer)
 				} else {
@@ -292,7 +315,7 @@ func (f *DockerHandlerFactory) OnComponentNotification(cn v1.ComponentNotificati
 			var keep []*Container
 			for _, cont := range containers {
 				if cont.component.Version < cn.PutComponent.Version {
-					newContainer, err := f.restartComponent(cont, false)
+					newContainer, err := f.restartComponent(cont, false, f.reqChanByComponentLocked(cn.PutComponent.Name))
 					if err == nil {
 						keep = append(keep, newContainer)
 					} else {
@@ -320,7 +343,8 @@ func (f *DockerHandlerFactory) stopContainersByComponent(componentName string, r
 	}
 }
 
-func (f *DockerHandlerFactory) restartComponent(oldContainer *Container, stopAsync bool) (*Container, error) {
+func (f *DockerHandlerFactory) restartComponent(oldContainer *Container, stopAsync bool,
+	reqCh chan *MaelRequest) (*Container, error) {
 	component, err := f.db.GetComponent(oldContainer.component.Name)
 	if err != nil {
 		return nil, fmt.Errorf("restartComponent: error loading component: %s - %v", oldContainer.component.Name, err)
@@ -331,7 +355,7 @@ func (f *DockerHandlerFactory) restartComponent(oldContainer *Container, stopAsy
 	} else {
 		oldContainer.Stop("restarting component")
 	}
-	return f.startContainer(component)
+	return f.startContainer(component, reqCh)
 }
 
 func listContainers(dockerClient *docker.Client) ([]types.Container, error) {

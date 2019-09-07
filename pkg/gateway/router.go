@@ -5,42 +5,65 @@ import (
 	log "github.com/mgutz/logxi/v1"
 	v1 "gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"sync"
 	"time"
 )
 
 type MaelRequest struct {
-	ready     chan bool
+	complete  chan bool
 	startTime time.Time
 	rw        http.ResponseWriter
 	req       *http.Request
-	comp      *v1.Component
-	ctx       context.Context
 }
 
-type resolveChannels struct {
-	componentName string
-	reply         chan *componentChannels
+type componentRing struct {
+	idx      int
+	handlers []http.Handler
+	lock     *sync.Mutex
 }
 
-func NewRouter(nodeService v1.NodeService, myNodeId string, ctx context.Context) *Router {
+func (c *componentRing) next() (handler http.Handler) {
+	if len(c.handlers) == 0 {
+		return nil
+	}
+	return c.handlers[c.nextIdx()]
+}
+
+func (c *componentRing) nextIdx() int {
+	c.lock.Lock()
+	if c.idx >= len(c.handlers) {
+		c.idx = 0
+	}
+	i := c.idx
+	c.idx++
+	c.lock.Unlock()
+	return i
+}
+
+func NewRouter(nodeService v1.NodeService, handlerFactory *DockerHandlerFactory, myNodeId string, ctx context.Context) *Router {
 	return &Router{
-		nodeService:         nodeService,
-		myNodeId:            myNodeId,
-		componentToReqChans: make(map[string]*componentChannels),
-		requestCh:           make(chan resolveChannels),
-		wg:                  &sync.WaitGroup{},
-		ctx:                 ctx,
+		nodeService:        nodeService,
+		handlerFactory:     handlerFactory,
+		myNodeId:           myNodeId,
+		ringByComponent:    make(map[string]*componentRing),
+		waitersByComponent: make(map[string][]chan http.Handler),
+		wg:                 &sync.WaitGroup{},
+		ctx:                ctx,
+		lock:               &sync.Mutex{},
 	}
 }
 
 type Router struct {
-	nodeService         v1.NodeService
-	myNodeId            string
-	componentToReqChans map[string]*componentChannels
-	requestCh           chan resolveChannels
-	wg                  *sync.WaitGroup
-	ctx                 context.Context
+	nodeService        v1.NodeService
+	handlerFactory     *DockerHandlerFactory
+	myNodeId           string
+	ringByComponent    map[string]*componentRing
+	waitersByComponent map[string][]chan http.Handler
+	wg                 *sync.WaitGroup
+	ctx                context.Context
+	lock               *sync.Mutex
 }
 
 func (r *Router) SetNodeService(svc v1.NodeService, myNodeId string) {
@@ -52,128 +75,115 @@ func (r *Router) GetNodeService() v1.NodeService {
 	return r.nodeService
 }
 
-func (r *Router) Route(rw http.ResponseWriter, req *http.Request, c v1.Component) {
-	maxDur := c.MaxDurationSeconds
-	if maxDur <= 0 {
-		maxDur = 300
-	}
-	ctx, _ := context.WithDeadline(r.ctx, time.Now().Add(time.Duration(maxDur)*time.Second))
-
-	mr := &MaelRequest{
-		ready:     make(chan bool, 1),
-		startTime: time.Now(),
-		rw:        rw,
-		req:       req,
-		comp:      &c,
-		ctx:       ctx,
-	}
-
-	go r.getComponentChannels(c.Name).send(mr)
-
-	select {
-	case <-ctx.Done():
-		respondText(rw, http.StatusGatewayTimeout, "Timeout handling component: "+c.Name)
-		return
-	case <-mr.ready:
-		return
-	}
-}
-
-func (r *Router) Run(daemonWG *sync.WaitGroup) {
-	defer daemonWG.Done()
-	cleanupTicker := time.Tick(time.Minute * 5)
-	for {
-		select {
-		case chanReq := <-r.requestCh:
-			chanReq.reply <- r.componentRequestChannels(chanReq.componentName)
-		case <-cleanupTicker:
-			r.removeStaleComponents()
-		case <-r.ctx.Done():
-			log.Info("router: shutdown gracefully")
-			return
+func (r *Router) OnClusterUpdated(nodes map[string]v1.NodeStatus) {
+	newRing := map[string]*componentRing{}
+	for _, node := range nodes {
+		for _, rc := range node.RunningComponents {
+			var h http.Handler
+			if node.NodeId == r.myNodeId {
+				reqCh := r.handlerFactory.ReqChanByComponent(rc.ComponentName)
+				h = http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+					mr := &MaelRequest{
+						complete:  make(chan bool, 1),
+						startTime: time.Now(),
+						rw:        rw,
+						req:       req,
+					}
+					reqCh <- mr
+					<-mr.complete
+				})
+			} else {
+				target, err := url.Parse(node.PeerUrl)
+				if err == nil {
+					proxy := httputil.NewSingleHostReverseProxy(target)
+					compName := rc.ComponentName
+					h = http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+						relayPath := req.Header.Get("MAELSTROM-RELAY-PATH")
+						if relayPath == "" {
+							relayPath = r.myNodeId
+						} else {
+							relayPath = relayPath + "|" + r.myNodeId
+						}
+						req.Header.Set("MAELSTROM-COMPONENT", compName)
+						req.Header.Set("MAELSTROM-RELAY-PATH", relayPath)
+						proxy.ServeHTTP(rw, req)
+					})
+				} else {
+					log.Error("router: cannot create peer url", "err", err, "url", node.PeerUrl,
+						"peerNodeId", node.NodeId)
+				}
+			}
+			if h != nil {
+				ring := newRing[rc.ComponentName]
+				if ring == nil {
+					newRing[rc.ComponentName] = &componentRing{
+						idx:      0,
+						handlers: []http.Handler{h},
+						lock:     &sync.Mutex{},
+					}
+				} else {
+					ring.handlers = append(ring.handlers, h)
+				}
+			}
 		}
 	}
-}
 
-func (r *Router) getComponentChannels(componentName string) *componentChannels {
-	chanReq := resolveChannels{componentName: componentName, reply: make(chan *componentChannels, 1)}
-	r.requestCh <- chanReq
-	return <-chanReq.reply
-}
-
-func (r *Router) componentRequestChannels(componentName string) *componentChannels {
-	reqCh, ok := r.componentToReqChans[componentName]
-	if !ok {
-		reqCh = newComponentChannels(r.GetNodeService)
-		log.Info("router: newComponentChannels", "component", componentName)
-		r.componentToReqChans[componentName] = reqCh
+	r.lock.Lock()
+	r.ringByComponent = newRing
+	for compName, ring := range newRing {
+		waiters := r.waitersByComponent[compName]
+		if waiters != nil {
+			for _, w := range waiters {
+				w <- ring.next()
+			}
+			delete(r.waitersByComponent, compName)
+		}
 	}
-	return reqCh
+	r.lock.Unlock()
 }
 
-func (r *Router) removeStaleComponents() {
-	keep := map[string]*componentChannels{}
-	minTime := time.Now().Add(time.Minute)
-	for componentName, reqChans := range r.componentToReqChans {
-		if reqChans.getLastConsumerHeartbeat().Before(minTime) {
-			log.Info("router: destroying idle componentChannels", "component", componentName)
-			reqChans.destroy()
+func (r *Router) getHandlerOrActivate(comp *v1.Component) (http.Handler, chan http.Handler) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	// TODO: need to route local requests to local handler
+
+	ring := r.ringByComponent[comp.Name]
+	if ring == nil {
+		waitCh := make(chan http.Handler, 1)
+		waiters := r.waitersByComponent[comp.Name]
+		if waiters == nil {
+			r.waitersByComponent[comp.Name] = []chan http.Handler{waitCh}
+			_, err := r.nodeService.PlaceComponent(v1.PlaceComponentInput{ComponentName: comp.Name})
+			if err != nil {
+				log.Error("router: PlaceComponent error", "err", err, "component", comp.Name)
+			}
 		} else {
-			keep[componentName] = reqChans
+			r.waitersByComponent[comp.Name] = append(waiters, waitCh)
 		}
+		return nil, waitCh
+	} else {
+		return ring.next(), nil
 	}
-	r.componentToReqChans = keep
 }
 
-//func (r *Router) updateRoutes(node v1.NodeStatus) {
-//	peerUrl, err := url.Parse(node.PeerUrl)
-//	if err != nil {
-//		log.Error("router: updateRoutes parse url failed", "peerNodeId", node.NodeId, "peerUrl", node.PeerUrl,
-//			"err", err)
-//		return
-//	}
-//	proxy := httputil.NewSingleHostReverseProxy(peerUrl)
-//
-//	targetProxiesByComponent := map[string]int{}
-//	for _, c := range node.RunningComponents {
-//		target := targetProxiesByComponent[c.ComponentName]
-//		targetProxiesByComponent[c.ComponentName] = target + int(c.MaxConcurrency)
-//	}
-//
-//	for component, target := range targetProxiesByComponent {
-//		reqChans := r.getReqChannels(component)
-//		proxies := reqChans.nodeIdToProxyChancelFuncs[node.NodeId]
-//		if proxies == nil {
-//			proxies = make([]context.CancelFunc, 0)
-//		}
-//
-//		delta := target - len(proxies)
-//		if delta > 0 {
-//			for i := 0; i < delta; i++ {
-//				ctx, cancelFx := context.WithCancel(r.ctx)
-//				go revProxyLoop(reqChans.allCh, proxy, ctx, r.wg, r.myNodeId, component)
-//				proxies = append(proxies, cancelFx)
-//			}
-//		} else if delta < 0 {
-//			delta = delta * -1
-//			for i := 0; i < delta; i++ {
-//				proxies[i]()
-//			}
-//			proxies = proxies[delta:]
-//		}
-//		reqChans.nodeIdToProxyChancelFuncs[node.NodeId] = proxies
-//	}
-//
-//	for componentName, reqChan := range r.componentToReqChans {
-//		_, ok := targetProxiesByComponent[componentName]
-//		if !ok {
-//			cancelFuncs := reqChan.nodeIdToProxyChancelFuncs[node.NodeId]
-//			if len(cancelFuncs) > 0 {
-//				for _, cancelFx := range cancelFuncs {
-//					cancelFx()
-//				}
-//				reqChan.nodeIdToProxyChancelFuncs[node.NodeId] = []context.CancelFunc{}
-//			}
-//		}
-//	}
-//}
+func (r *Router) Route(rw http.ResponseWriter, req *http.Request, c v1.Component) {
+	//maxDur := c.MaxDurationSeconds
+	//if maxDur <= 0 {
+	//	maxDur = 300
+	//}
+	//startTime := time.Now()
+	//deadline := startTime.Add(time.Duration(maxDur) * time.Second)
+	//ctx, _ := context.WithDeadline(r.ctx, deadline)
+
+	handler, waitCh := r.getHandlerOrActivate(&c)
+	if waitCh != nil {
+		// TODO: add select w/deadline timer - blow up if we don't get a handler back in time
+		handler = <-waitCh
+	}
+	if handler != nil {
+		// TODO: set timeout context
+		// see: https://stackoverflow.com/questions/16895294/how-to-set-timeout-for-http-get-requests-in-golang
+		handler.ServeHTTP(rw, req)
+	}
+}

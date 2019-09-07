@@ -98,7 +98,11 @@ func toComponentConcurrency(nodes []v1.NodeStatus, componentsByName map[string]v
 		pctMaxConcur := calcPctMaxConcurrency(infos, comp.MaxConcurrency)
 		secsSinceLastReq := (common.NowMillis() - lastReqTimeByComponent[compName]) / 1000
 		minInstances := comp.MinInstances
-		if minInstances < 1 && secsSinceLastReq < comp.Docker.IdleTimeoutSeconds {
+		idleTimeoutSec := comp.Docker.IdleTimeoutSeconds
+		if idleTimeoutSec <= 0 {
+			idleTimeoutSec = 300
+		}
+		if minInstances < 1 && secsSinceLastReq <= idleTimeoutSec {
 			minInstances = 1
 		}
 		concur = append(concur, componentConcurrency{

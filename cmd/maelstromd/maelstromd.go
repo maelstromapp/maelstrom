@@ -130,12 +130,8 @@ func main() {
 	cancelCtx, cancelFx := context.WithCancel(context.Background())
 	daemonWG := &sync.WaitGroup{}
 
-	router := gateway.NewRouter(nil, "", cancelCtx)
-	daemonWG.Add(1)
-	go router.Run(daemonWG)
-
 	resolver := gateway.NewDbResolver(db, certWrapper, time.Second)
-	handlerFactory, err := gateway.NewDockerHandlerFactory(dockerClient, resolver, db, router, cancelCtx, *privatePort)
+	handlerFactory, err := gateway.NewDockerHandlerFactory(dockerClient, resolver, db, cancelCtx, *privatePort)
 	if err != nil {
 		log.Error("maelstromd: cannot create handler factory", "err", err)
 		os.Exit(2)
@@ -149,7 +145,8 @@ func main() {
 		log.Error("maelstromd: cannot create NodeService", "err", err)
 		os.Exit(2)
 	}
-	router.SetNodeService(nodeSvcImpl, nodeSvcImpl.NodeId())
+	router := gateway.NewRouter(nodeSvcImpl, handlerFactory, nodeSvcImpl.NodeId(), cancelCtx)
+	nodeSvcImpl.Cluster().AddObserver(router)
 	daemonWG.Add(2)
 	go nodeSvcImpl.RunNodeStatusLoop(time.Minute, cancelCtx, daemonWG)
 	go nodeSvcImpl.RunAutoscaleLoop(time.Minute, cancelCtx, daemonWG)
