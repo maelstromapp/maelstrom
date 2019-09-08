@@ -128,6 +128,8 @@ interface NodeService {
 
     GetStatus(input GetNodeStatusInput) GetNodeStatusOutput
 
+    StatusChanged(input StatusChangedInput) StatusChangedOutput
+
     // Error Codes:
     //
     // * 1003 - input.componentName does not reference a component defined in the system
@@ -543,6 +545,16 @@ struct GetNodeStatusInput {
 struct GetNodeStatusOutput {
     // status of the responding node
     status           NodeStatus
+}
+
+struct StatusChangedInput {
+    nodeId      string
+    exiting     bool
+    status      NodeStatus   [optional]
+}
+
+struct StatusChangedOutput {
+    nodeId      string
 }
 
 struct PlaceComponentInput {

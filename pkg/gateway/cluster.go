@@ -53,6 +53,38 @@ func (c *Cluster) SetNode(node v1.NodeStatus) bool {
 	return modified
 }
 
+func (c *Cluster) SetAndBroadcastStatus(node v1.NodeStatus) error {
+	c.SetNode(node)
+	input := v1.StatusChangedInput{
+		NodeId:  c.myNodeId,
+		Exiting: false,
+		Status:  &node,
+	}
+	var lastErr error
+	for _, svc := range c.GetRemoteNodeServices() {
+		_, err := svc.StatusChanged(input)
+		if err != nil {
+			log.Error("cluster: SetAndBroadcastStatus error calling StatusChanged", "err", err)
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
+func (c *Cluster) RemoveAndBroadcast() {
+	c.RemoveNode(c.myNodeId)
+	input := v1.StatusChangedInput{
+		NodeId:  c.myNodeId,
+		Exiting: true,
+	}
+	for _, svc := range c.GetRemoteNodeServices() {
+		_, err := svc.StatusChanged(input)
+		if err != nil {
+			log.Error("cluster: RemoveAndBroadcast error calling StatusChanged", "err", err)
+		}
+	}
+}
+
 func (c *Cluster) RemoveNode(nodeId string) bool {
 	modified := false
 	c.lock.Lock()
@@ -107,6 +139,18 @@ func (c *Cluster) GetNodeService(node v1.NodeStatus) v1.NodeService {
 	}
 	client := barrister.NewRemoteClient(&barrister.HttpTransport{Url: node.PeerUrl}, false)
 	return v1.NewNodeServiceProxy(client)
+}
+
+func (c *Cluster) GetRemoteNodeServices() []v1.NodeService {
+	svcs := make([]v1.NodeService, 0)
+	c.lock.Lock()
+	for nodeId, nodeStatus := range c.nodesById {
+		if nodeId != c.myNodeId {
+			svcs = append(svcs, c.GetNodeService(nodeStatus))
+		}
+	}
+	c.lock.Unlock()
+	return svcs
 }
 
 func (c *Cluster) notifyAll() {

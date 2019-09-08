@@ -29,17 +29,13 @@ func NewNodeServiceImpl(handlerFactory *DockerHandlerFactory, db v1.Db, dockerCl
 		numCPUs:         numCPUs,
 		loadStatusLock:  &sync.Mutex{},
 	}
-	status, err := nodeSvc.loadNodeStatus(false, context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("nodesvc: unable to load node status: %v", err)
-	}
-	err = db.PutNodeStatus(status)
-	if err != nil {
-		return nil, fmt.Errorf("nodesvc: unable to save node status: %v", err)
-	}
+
 	cluster := NewCluster(nodeId, nodeSvc)
-	cluster.SetNode(status)
 	nodeSvc.cluster = cluster
+	_, err := nodeSvc.resolveAndBroadcastNodeStatus(context.Background())
+	if err != nil {
+		return nil, err
+	}
 	return nodeSvc, nil
 }
 
@@ -79,7 +75,7 @@ func (n *NodeServiceImpl) LogPairs() []interface{} {
 }
 
 func (n *NodeServiceImpl) GetStatus(input v1.GetNodeStatusInput) (v1.GetNodeStatusOutput, error) {
-	status, err := n.loadNodeStatus(false, context.Background())
+	status, err := n.resolveNodeStatus(context.Background())
 	if err != nil {
 		code := v1.MiscError
 		msg := "nodesvc: GetStatus - error loading node status"
@@ -87,6 +83,15 @@ func (n *NodeServiceImpl) GetStatus(input v1.GetNodeStatusInput) (v1.GetNodeStat
 		return v1.GetNodeStatusOutput{}, &barrister.JsonRpcError{Code: int(code), Message: msg}
 	}
 	return v1.GetNodeStatusOutput{Status: status}, nil
+}
+
+func (n *NodeServiceImpl) StatusChanged(input v1.StatusChangedInput) (v1.StatusChangedOutput, error) {
+	if input.Exiting {
+		n.cluster.RemoveNode(input.NodeId)
+	} else {
+		n.cluster.SetNode(*input.Status)
+	}
+	return v1.StatusChangedOutput{NodeId: input.NodeId}, nil
 }
 
 func (n *NodeServiceImpl) PlaceComponent(input v1.PlaceComponentInput) (v1.PlaceComponentOutput, error) {
@@ -291,9 +296,9 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 	prevVersion := n.handlerFactory.IncrementVersion()
 
 	if prevVersion != input.TargetVersion {
-		status, err := n.loadNodeStatus(false, context.Background())
+		status, err := n.resolveNodeStatus(context.Background())
 		if err != nil {
-			return v1.StartStopComponentsOutput{}, fmt.Errorf("nodesvc: StartStopComponents:loadNodeStatus failed: %v", err)
+			return v1.StartStopComponentsOutput{}, fmt.Errorf("nodesvc: StartStopComponents:resolveNodeStatus failed: %v", err)
 		}
 		return v1.StartStopComponentsOutput{
 			TargetVersionMismatch: true,
@@ -384,9 +389,9 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 		stopped = append(stopped, v1.ComponentDelta{ComponentName: name, Delta: -1 * count})
 	}
 
-	status, err := n.loadNodeStatus(false, context.Background())
+	status, err := n.resolveNodeStatus(context.Background())
 	if err != nil {
-		return v1.StartStopComponentsOutput{}, fmt.Errorf("nodesvc: StartStopComponents:loadNodeStatus failed: %v", err)
+		return v1.StartStopComponentsOutput{}, fmt.Errorf("nodesvc: StartStopComponents:resolveNodeStatus failed: %v", err)
 	}
 
 	n.cluster.SetNode(status)
@@ -427,6 +432,7 @@ func (n *NodeServiceImpl) RunNodeStatusLoop(interval time.Duration, ctx context.
 				if err != nil {
 					log.Error("nodesvc: error removing status", "err", err, "nodeId", n.nodeId)
 				}
+				n.cluster.RemoveAndBroadcast()
 			}
 			log.Info("nodesvc: status loop shutdown gracefully")
 			return
@@ -470,14 +476,29 @@ func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context
 }
 
 func (n *NodeServiceImpl) logStatus(ctx context.Context) error {
-	status, err := n.loadNodeStatus(true, ctx)
+	status, err := n.resolveNodeStatus(ctx)
 	if err != nil {
 		return err
 	}
 	return n.db.PutNodeStatus(status)
 }
 
-func (n *NodeServiceImpl) loadNodeStatus(mutateLocalStats bool, ctx context.Context) (v1.NodeStatus, error) {
+func (n *NodeServiceImpl) resolveAndBroadcastNodeStatus(ctx context.Context) (v1.NodeStatus, error) {
+	status, err := n.resolveNodeStatus(ctx)
+	if err != nil {
+		return status, err
+	}
+
+	err = n.db.PutNodeStatus(status)
+	if err != nil {
+		return status, err
+	}
+
+	err = n.cluster.SetAndBroadcastStatus(status)
+	return status, err
+}
+
+func (n *NodeServiceImpl) resolveNodeStatus(ctx context.Context) (v1.NodeStatus, error) {
 
 	components, version := n.handlerFactory.HandlerComponentInfo()
 	nodeStatus := v1.NodeStatus{
