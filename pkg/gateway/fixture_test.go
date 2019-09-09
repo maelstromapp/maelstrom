@@ -7,6 +7,7 @@ import (
 	docker "github.com/docker/docker/client"
 	"github.com/mgutz/logxi/v1"
 	"github.com/stretchr/testify/assert"
+	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"net/http"
 	"net/http/httptest"
@@ -121,13 +122,19 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *v1.SqlDb) *Fix
 	ctx := context.Background()
 	resolver := NewDbResolver(sqlDb, nil, 0)
 
+	outboundIp, err := common.GetOutboundIP()
+	if err != nil {
+		log.Error("maelstromd: cannot resolve outbound IP address", "err", err)
+		os.Exit(2)
+	}
+
 	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, sqlDb, ctx, testGatewayPort)
 	assert.Nil(t, err, "NewDockerHandlerFactory err != nil: %v", err)
 
 	nodeSvcImpl, err := NewNodeServiceImplFromDocker(hFactory, sqlDb, dockerClient, "")
 	assert.Nil(t, err, "NewNodeServiceImplFromDocker err != nil: %v", err)
 
-	router := NewRouter(nodeSvcImpl, hFactory, nodeSvcImpl.nodeId, ctx)
+	router := NewRouter(nodeSvcImpl, hFactory, nodeSvcImpl.nodeId, outboundIp.String(), ctx)
 	nodeSvcImpl.Cluster().AddObserver(router)
 
 	gateway := NewGateway(resolver, router, false)

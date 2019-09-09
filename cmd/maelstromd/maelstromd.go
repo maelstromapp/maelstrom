@@ -145,7 +145,7 @@ func main() {
 		log.Error("maelstromd: cannot create NodeService", "err", err)
 		os.Exit(2)
 	}
-	router := gateway.NewRouter(nodeSvcImpl, handlerFactory, nodeSvcImpl.NodeId(), cancelCtx)
+	router := gateway.NewRouter(nodeSvcImpl, handlerFactory, nodeSvcImpl.NodeId(), outboundIp.String(), cancelCtx)
 	nodeSvcImpl.Cluster().AddObserver(router)
 	daemonWG.Add(2)
 	go nodeSvcImpl.RunNodeStatusLoop(time.Minute, cancelCtx, daemonWG)
