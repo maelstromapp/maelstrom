@@ -3,6 +3,8 @@ github.com/GuiaBolso/darwin v0.0.0-20170210191649-86919dfcf808 h1:rxDa2t7Ep7E26W
 github.com/GuiaBolso/darwin v0.0.0-20170210191649-86919dfcf808/go.mod h1:3sqgkckuISJ5rs1EpOp6vCvwOUKe/z9vPmyuIlq8Q/A=
 github.com/Masterminds/squirrel v0.0.0-20181211162353-a8c1880ebb4d h1:DGMrFC3hK4QXyWbdAlOLdJB8yhfIC8WLGiS/acYniwQ=
 github.com/Masterminds/squirrel v0.0.0-20181211162353-a8c1880ebb4d/go.mod h1:xnKTFzjGUiZtiOagBsfnvomW+nJg2usB1ZpordQWqNM=
+github.com/aws/aws-sdk-go v1.23.18 h1:ADU/y1EO8yPzUJJYjcvJ0V9/suezxPh0u6hb5bSYIGQ=
+github.com/aws/aws-sdk-go v1.23.18/go.mod h1:KmX6BPdI08NWTb3/sm4ZGu5ShLoqVDhKgpiN924inxo=
 github.com/c9s/goprocinfo v0.0.0-20190309065803-0b2ad9ac246b h1:4yfM1Zm+7U+m0inJ0g6JvdqGePXD8eG4nXUTbcLT6gk=
 github.com/c9s/goprocinfo v0.0.0-20190309065803-0b2ad9ac246b/go.mod h1:uEyr4WpAH4hio6LFriaPkL938XnrvLpNPmQHBdrmbIE=
 github.com/cenkalti/backoff v2.1.1+incompatible h1:tKJnvO2kl0zmb/jA5UKAt4VoEVw1qxKWjE/Bpp46npY=
@@ -36,6 +38,8 @@ github.com/google/go-querystring v1.0.0 h1:Xkwi/a1rcvNg1PPYe5vI8GbeBY/jrVuDX5ASu
 github.com/google/go-querystring v1.0.0/go.mod h1:odCYkC5MyYFN7vkCjXpyrEuKhc/BUO6wN/zVPAxq5ck=
 github.com/google/gofuzz v0.0.0-20170612174753-24818f796faf h1:+RRA9JqSOZFfKrOeqr2z77+8R2RKyh8PG66dcu1V0ck=
 github.com/google/gofuzz v0.0.0-20170612174753-24818f796faf/go.mod h1:HP5RmnzzSNb993RKQDq4+1A4ia9nllfqcQFTQJedwGI=
+github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af h1:pmfjZENx5imkbgOkpRUYLnmbU7UEFbjtDA2hxJ1ichM=
+github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af/go.mod h1:Nht3zPeWKUH0NzdCt2Blrr5ys8VGpn0CEB0cQHVjt7k=
 github.com/kelseyhightower/envconfig v1.4.0 h1:Im6hONhd3pLkfDFsbRgu68RDNkGF1r3dvMUtDTo2cv8=
 github.com/kelseyhightower/envconfig v1.4.0/go.mod h1:cccZRl6mQpaq41TPp5QxidR+Sa3axMbJDNb//FQX6Gg=
 github.com/klauspost/cpuid v1.2.0 h1:NMpwD2G9JSFOE1/TJjGSo5zG7Yb2bTe7eq1jH+irmeE=

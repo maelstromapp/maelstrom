@@ -3,6 +3,7 @@ module gitlab.com/coopernurse/maelstrom
 require (
 	github.com/GuiaBolso/darwin v0.0.0-20170210191649-86919dfcf808
 	github.com/Masterminds/squirrel v0.0.0-20181211162353-a8c1880ebb4d
+	github.com/aws/aws-sdk-go v1.23.18
 	github.com/c9s/goprocinfo v0.0.0-20190309065803-0b2ad9ac246b
 	github.com/coopernurse/barrister-go v0.0.0-20180602004421-efbfefb2c4a3
 	github.com/digitalocean/godo v1.14.0

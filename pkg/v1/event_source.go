@@ -5,6 +5,8 @@ func getEventSourceType(e EventSource) EventSourceType {
 		return EventSourceTypeHttp
 	} else if e.Cron != nil {
 		return EventSourceTypeCron
+	} else if e.Sqs != nil {
+		return EventSourceTypeSqs
 	} else {
 		panic("Unknown eventType for EventSource")
 	}

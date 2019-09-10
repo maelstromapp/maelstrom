@@ -48,8 +48,8 @@ func DiffProject(oldProject Project, newProject Project) ProjectDiff {
 
 		oldComp, ok := oldCompByName[c.Component.Name]
 		if ok {
-			oldComp.Version = c.Component.Version
-			oldComp.ModifiedAt = c.Component.ModifiedAt
+			c.Component.Version = oldComp.Version
+			c.Component.ModifiedAt = oldComp.ModifiedAt
 
 			// put component if modified
 			if !reflect.DeepEqual(oldComp, c.Component) {
@@ -58,8 +58,8 @@ func DiffProject(oldProject Project, newProject Project) ProjectDiff {
 
 			for _, newES := range c.EventSources {
 				oldES, ok := oldESByName[newES.Name]
-				oldES.Version = newES.Version
-				oldES.ModifiedAt = newES.ModifiedAt
+				newES.Version = oldES.Version
+				newES.ModifiedAt = oldES.ModifiedAt
 				// put any event source not in old, or which is modified
 				if !ok || !reflect.DeepEqual(oldES, newES) {
 					esPut = append(esPut, newES)

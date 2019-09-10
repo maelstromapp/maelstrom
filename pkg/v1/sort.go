@@ -55,3 +55,9 @@ type ComponentDeltaByCompName []ComponentDelta
 func (s ComponentDeltaByCompName) Len() int           { return len(s) }
 func (s ComponentDeltaByCompName) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 func (s ComponentDeltaByCompName) Less(i, j int) bool { return s[i].ComponentName < s[j].ComponentName }
+
+type StringPtr []*string
+
+func (s StringPtr) Len() int           { return len(s) }
+func (s StringPtr) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s StringPtr) Less(i, j int) bool { return *s[i] < *s[j] }

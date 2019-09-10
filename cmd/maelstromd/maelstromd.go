@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/coopernurse/barrister-go"
 	docker "github.com/docker/docker/client"
 	"github.com/mgutz/logxi/v1"
@@ -195,12 +196,21 @@ func main() {
 	go mustStart(privateSvr)
 	servers = append(servers, privateSvr)
 
+	awsSession, err := session.NewSession()
+	if awsSession != nil {
+		log.Info("maelstromd: aws session initialized")
+	}
+
 	log.Info("maelstromd: starting HTTP servers", "publicPort", publicPort, "privatePort", privatePort)
 
 	cronSvc := gateway.NewCronService(db, privateGateway, cancelCtx, nodeSvcImpl.NodeId(),
 		time.Second*time.Duration(*cronRefreshSec))
 	daemonWG.Add(1)
 	go cronSvc.Run(daemonWG)
+
+	evPoller := gateway.NewEvPoller(nodeSvcImpl.NodeId(), cancelCtx, db, router, awsSession)
+	daemonWG.Add(1)
+	go evPoller.Run()
 
 	daemonWG.Add(1)
 	go HandleShutdownSignal(servers, cancelFx, daemonWG)

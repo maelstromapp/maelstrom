@@ -312,10 +312,39 @@ struct CronHttpRequest {
 }
 
 struct SqsEventSource {
-    queueName           string
-    visibilityTimeout   int
-    maxConcurrency      int
-    targetUrl           string
+    // Name prefix of queues related to this event source
+    // If more than one queue is found, the names will be sorted
+    // and drained in ascending order. This allows priority queueing
+    // to be done.  For example, create queues named:
+    //     myQueue-0, myQueue-1, myQueue-2
+    // In this example myQueue-0 would have highest priority and
+    // would be drained before processing messages from myQueue-1
+    queueNamePrefix       string
+
+    // Request path, optionally including a query string
+    // If a query string is included, make sure the parameters are
+    // properly URL encoded as it will be used verbatim
+    path                  string
+
+    // Total max concurrent messages to process for this component (default=10)
+    maxConcurrency        int     [optional]
+
+    // Messages to receive per polling attempt (default=1)
+    // Valid values: 1..10
+    messagesPerPoll       int     [optional]
+
+    // Concurrent messages to process per polling process
+    // If you want strict FIFO processing, set this value to 1 and make sure
+    // all SQS queues are created as FIFO queues and that producers are setting
+    // MessageGroupId appropriately. This defaults to the messagesPerPoll value.
+    concurrencyPerPoller  int     [optional]
+
+    // Max seconds to mark message invisible before it is eligible
+    // to dequeue again.  (default=300)
+    // Messages successfully processed before this time elapses will
+    // be deleted from the queue automatically.
+    visibilityTimeout     int     [optional]
+
 }
 
 enum EventSourceType {
