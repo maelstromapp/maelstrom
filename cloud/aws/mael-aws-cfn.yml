@@ -1,0 +1,495 @@
+Description: Creates VPC with 3 private subnets, bastion host, RDS, and maelstrom cluster
+
+Parameters:
+  # Amazon provides NAT AMIs to use - search for: amzn-ami-vpc-nat-hvm-2018
+  # See: https://docs.aws.amazon.com/vpc/latest/userguide/VPC_NAT_Instance.html#basics
+  BastionAMI:
+    Description: AMI ID to use for bastion (assumes Amazon Linux 2)
+    Type: String
+    Default: ami-40d1f038
+  BastionInstanceType:
+    Description: Instance type to use for bastion
+    Type: String
+    Default: t3.nano
+  MaelAMI:
+    Description: AMI ID to use for maelstrom nodes
+    Type: String
+    Default: ami-04b762b4289fba92b
+  MaelInstanceType:
+    Description: Instance type to use for maelstrom nodes
+    Type: String
+    Default: t3.medium
+  DBInstanceType:
+    Description: Instance type to use for db instances
+    Type: String
+    Default: db.t3.small
+  DBUsername:
+    Description: DB root user
+    Type: String
+    Default: mael
+  DBPassword:
+    Description: DB root password
+    Type: String
+  DBName:
+    Description: DB name to create
+    Type: String
+    Default: mael
+  SSHKeyName:
+    Description: SSH key name to use with EC2 hosts
+    Type: String
+  SSHAllowCIDR:
+    Description: CIDR block to grant access to the bastion host
+    Type: String
+    Default: "0.0.0.0/0"
+  VolumeSize:
+    Description: Volume size (GB)
+    Type: String
+    Default: 20
+  CPUTargetValue:
+    Description: CPU utilization target for autoscale group
+    Type: String
+    Default: 50
+
+Outputs:
+  VPC:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "${AWS::StackName}-VPC"
+  PublicSubnet:
+    Description: PublicSubnet ID
+    Value: !Ref PublicSubnet
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnet"
+  PrivateSubnetA:
+    Description: PrivateSubnetA ID
+    Value: !Ref PrivateSubnetA
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetA"
+  PrivateSubnetB:
+    Description: PrivateSubnetB ID
+    Value: !Ref PrivateSubnetB
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetB"
+  PrivateSubnetC:
+    Description: PrivateSubnetC ID
+    Value: !Ref PrivateSubnetC
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetC"
+  BastionSecurityGroup:
+    Description: BastionSecurityGroup ID
+    Value: !Ref BastionSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-BastionSecurityGroup"
+      
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 172.20.0.0/16
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc"
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-igw"      
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-public-route-table"      
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 172.20.1.0/24
+      AvailabilityZone: !Sub "${AWS::Region}b"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-public"
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 172.20.2.0/24
+      AvailabilityZone: !Sub "${AWS::Region}c"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-public"           
+  PublicInternetGatewayRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachInternetGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicRouteTableAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+  PublicRouteTableAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+# 
+# For posterity - this is how to use the stock Amazon NatGateway
+# which is about 9x the price of a t3.nano but probably worth it
+# on production systems since it's fully managed and supports > 5Gbps
+#
+#  NATGatewayEIP:
+#    Type: AWS::EC2::EIP
+#    Properties:
+#      Domain: vpc
+#  NATGateway:
+#    Type: AWS::EC2::NatGateway
+#    DependsOn: AttachInternetGateway
+#    Properties:
+#      AllocationId: !GetAtt [NATGatewayEIP, AllocationId]
+#      SubnetId: !Ref PublicSubnet
+#      Tags:
+#        - Key: Name
+#          Value: !Sub "${AWS::StackName}-nat"
+      
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-private-route-table"      
+  PrivateNATGatewayRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachInternetGateway
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref BastionInstance
+      # use this if you uncomment the NATGateway bits
+      #NatGatewayId: !Ref NATGateway
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 172.20.16.0/20
+      AvailabilityZone: !Sub "${AWS::Region}a"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-private-a"      
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 172.20.32.0/20
+      AvailabilityZone: !Sub "${AWS::Region}b"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-private-b"
+  PrivateSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 172.20.48.0/20
+      AvailabilityZone: !Sub "${AWS::Region}c"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-private-c"      
+  PrivateSubnetARouteTableAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+  PrivateSubnetBRouteTableAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+  PrivateSubnetCRouteTableAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetC
+      RouteTableId: !Ref PrivateRouteTable
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets for RDS DB instances
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+        - !Ref PrivateSubnetC
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS DB instances
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: 172.20.0.0/16
+          FromPort: 3306
+          ToPort: 3306
+          IpProtocol: tcp
+        - SourceSecurityGroupId: !Ref BastionSecurityGroup
+          FromPort: 3306
+          ToPort: 3306
+          IpProtocol: tcp
+  DBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: "CloudFormation Sample Aurora Parameter Group"
+      Family: aurora-mysql5.7
+      Parameters:
+        explicit_defaults_for_timestamp: 0
+  RDSDBClusterParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Description: "CloudFormation Sample Aurora Cluster Parameter Group"
+      Family: aurora-mysql5.7
+      Parameters:
+        explicit_defaults_for_timestamp: 0
+        innodb_flush_log_at_trx_commit: 2
+        character_set_server: utf8mb4
+        collation_server: utf8mb4_general_ci
+  RDSCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      DBClusterParameterGroupName: !Ref RDSDBClusterParameterGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DatabaseName: !Ref DBName
+      Engine: aurora-mysql
+      MasterUserPassword: !Ref DBPassword
+      MasterUsername: !Ref DBUsername
+      VpcSecurityGroupIds:
+        - !Ref DBSecurityGroup
+  RDSDBInstance1:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref RDSCluster
+      DBInstanceClass: !Ref DBInstanceType
+      DBParameterGroupName: !Ref DBParameterGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Subnets:
+      - !Ref PublicSubnet
+      - !Ref PublicSubnet2
+      SecurityGroups:
+      - !Ref ALBSG
+      Scheme: "internet-facing"
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref WebappTargetGroup
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+  ALBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allows all inbound 443 traffic
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        CidrIp: 0.0.0.0/0
+        FromPort: '443'
+        ToPort: '443'
+      - IpProtocol: tcp
+        CidrIp: 0.0.0.0/0
+        FromPort: '80'
+        ToPort: '80'
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        CidrIp: 0.0.0.0/0
+        FromPort: '0'
+        ToPort: '65535'
+  WebappTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: "/_mael_health_check"
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      Port: 80
+      Protocol: HTTP
+      TargetGroupAttributes:
+      - Key: deregistration_delay.timeout_seconds
+        Value: 10
+      - Key: stickiness.enabled
+        Value: false
+      TargetType: instance
+      UnhealthyThresholdCount: 3
+      VpcId: !Ref VPC
+  WebappListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+      - Type: forward
+        TargetGroupArn:
+          Ref: WebappTargetGroup
+      Conditions:
+      - Field: path-pattern
+        Values:
+        - "*"
+      ListenerArn: !Ref ALBListener
+      Priority: 80
+
+  MaelASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub "${AWS::StackName}-ASG2"
+      AvailabilityZones:
+        - !Sub "${AWS::Region}a"
+        - !Sub "${AWS::Region}b"
+        - !Sub "${AWS::Region}c"
+      VPCZoneIdentifier:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+        - !Ref PrivateSubnetC
+      LaunchConfigurationName: !Ref MaelASGLaunchConfig
+      MinSize: "1"
+      MaxSize: "10"
+      TargetGroupARNs:
+        - !Ref WebappTargetGroup
+      MetricsCollection:
+        - Granularity: "1Minute"
+          Metrics:
+            - "GroupMinSize"
+            - "GroupMaxSize"
+  MaelCPUPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref MaelASG
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: !Ref CPUTargetValue
+  MaelASGSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SG for bastion host
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 172.20.0.0/16
+        - IpProtocol: tcp
+          FromPort: 8374
+          ToPort: 8374
+          CidrIp: 172.20.0.0/16
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 172.20.0.0/16
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-bastion-sg"
+  MaelASGLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref MaelAMI
+      InstanceType: !Ref MaelInstanceType
+      KeyName: !Ref SSHKeyName
+      SecurityGroups:
+        - !Ref MaelASGSecurityGroup
+      UserData:
+        "Fn::Base64": !Sub |
+          #!/bin/bash -xe
+          yum install -y curl ca-certificates docker
+          # download maelstrom
+          cd /usr/bin
+          curl -LO https://bitmech-west2.s3.amazonaws.com/maelstrom/latest/maelstromd
+          curl -LO https://bitmech-west2.s3.amazonaws.com/maelstrom/latest/maelctl
+          chmod 755 maelstromd maelctl
+          # run init script
+          export dbDriver="mysql"
+          export dbDSN="${DBUsername}:${DBPassword}@(${RDSCluster.Endpoint.Address}:3306)/${DBName}"
+          curl -L https://bitmech-west2.s3.amazonaws.com/maelstrom/latest/mael-init-node.sh | bash -xe
+          # notify success
+          /opt/aws/bin/cfn-signal -e $? -r 'Setup complete' --region ${AWS::Region} \
+               --stack ${AWS::StackName} --resource ${AWS::StackName}-ASG
+
+  BastionEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  BastionEIPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      EIP: !Ref BastionEIP
+      InstanceId: !Ref BastionInstance
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SG for bastion host
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHAllowCIDR
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 172.20.0.0/16
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-bastion-sg"
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref BastionAMI
+      KeyName: !Ref SSHKeyName
+      InstanceType: !Ref BastionInstanceType
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref BastionSecurityGroup
+      Monitoring: true
+      SourceDestCheck: false
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp2
+            VolumeSize: !Ref VolumeSize
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-bastion-nat"
+      UserData:
+        "Fn::Base64": !Sub |
+          #!/bin/bash -xe
+          yum update -y
+          # set hostname
+          hostname="${AWS::StackName}-bastion"
+          hostname $hostname
+          echo $hostname > /etc/hostname
