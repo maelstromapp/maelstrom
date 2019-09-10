@@ -4,6 +4,7 @@ import (
 	"context"
 	log "github.com/mgutz/logxi/v1"
 	v1 "gitlab.com/coopernurse/maelstrom/pkg/v1"
+	"math/rand"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -85,6 +86,8 @@ func (r *Router) GetNodeService() v1.NodeService {
 
 func (r *Router) OnClusterUpdated(nodes map[string]v1.NodeStatus) {
 	newRing := map[string]*componentRing{}
+	componentNames := make([]string, 0)
+	containerCount := 0
 	for _, node := range nodes {
 		for _, rc := range node.RunningComponents {
 			var h http.Handler
@@ -124,6 +127,7 @@ func (r *Router) OnClusterUpdated(nodes map[string]v1.NodeStatus) {
 				}
 			}
 			if h != nil {
+				containerCount++
 				ring := newRing[rc.ComponentName]
 				if ring == nil {
 					newRing[rc.ComponentName] = &componentRing{
@@ -132,6 +136,7 @@ func (r *Router) OnClusterUpdated(nodes map[string]v1.NodeStatus) {
 						handlers:     []http.Handler{h},
 						lock:         &sync.Mutex{},
 					}
+					componentNames = append(componentNames, rc.ComponentName)
 				} else {
 					ring.handlers = append(ring.handlers, h)
 					if localHandler != nil {
@@ -139,6 +144,17 @@ func (r *Router) OnClusterUpdated(nodes map[string]v1.NodeStatus) {
 					}
 				}
 			}
+		}
+	}
+
+	log.Info("router: updated routes", "containers", containerCount, "components", componentNames, "node", r.myNodeId)
+
+	// shuffle ring handlers so that requests are distributed differently by each node
+	for _, ring := range newRing {
+		if len(ring.handlers) > 1 {
+			rand.Shuffle(len(ring.handlers), func(i, j int) {
+				ring.handlers[i], ring.handlers[j] = ring.handlers[j], ring.handlers[i]
+			})
 		}
 	}
 

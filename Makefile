@@ -19,7 +19,7 @@ cover:
 	go tool cover -html=tmp/cover.out
 
 maelctl:
-	go build -o dist/maelctl cmd/maelctl/*.go
+	go build -o dist/maelctl --tags "libsqlite3 linux" cmd/maelctl/*.go
 
 maelstromd:
 	go build -o dist/maelstromd --tags "libsqlite3 linux" cmd/maelstromd/*.go
@@ -41,3 +41,6 @@ profile-maelstromd:
 copy-to-s3:
 	aws s3 cp --acl public-read ./dist/maelstromd s3://bitmech-west2/maelstrom/latest/maelstromd
 	aws s3 cp --acl public-read ./dist/maelctl s3://bitmech-west2/maelstrom/latest/maelctl
+
+copy-aws-scripts-to-s3:
+	aws s3 cp --acl public-read ./cloud/aws/mael-init-node.sh s3://bitmech-west2/maelstrom/latest/mael-init-node.sh

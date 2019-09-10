@@ -48,9 +48,24 @@ func (c *Cluster) SetNode(node v1.NodeStatus) bool {
 		log.Info("cluster: added node", "nodeId", c.myNodeId, "remoteNode", node.NodeId)
 	}
 	if modified {
+		if log.IsDebug() {
+			log.Debug("cluster: SetNode modified", "myNode", c.myNodeId, "peerNode", node.NodeId,
+				"version", node.Version)
+		}
 		c.notifyAll()
 	}
 	return modified
+}
+
+func (c *Cluster) SetAllNodes(nodes []v1.NodeStatus) {
+	newNodesById := map[string]v1.NodeStatus{}
+	for _, node := range nodes {
+		newNodesById[node.NodeId] = node
+	}
+	c.lock.Lock()
+	c.nodesById = newNodesById
+	c.lock.Unlock()
+	c.notifyAll()
 }
 
 func (c *Cluster) SetAndBroadcastStatus(node v1.NodeStatus) error {

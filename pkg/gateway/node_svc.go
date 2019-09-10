@@ -449,30 +449,24 @@ func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context
 		Limit:     1000,
 		NextToken: "",
 	}
-	removeNodeIds := map[string]bool{}
-	for _, node := range n.cluster.GetNodes() {
-		removeNodeIds[node.NodeId] = true
-	}
+
 	running := true
+	allNodes := make([]v1.NodeStatus, 0)
 	for running {
 		output, err := n.db.ListNodeStatus(input)
 		if err == nil {
 			for _, node := range output.Nodes {
-				n.cluster.SetNode(node)
-				delete(removeNodeIds, node.NodeId)
+				allNodes = append(allNodes, node)
 			}
 			input.NextToken = output.NextToken
 			running = input.NextToken != ""
 		} else {
+			// don't update cluster
 			log.Error("nodesvc: error listing nodes", "err", err)
-			running = false
-			removeNodeIds = map[string]bool{}
+			return
 		}
 	}
-	// TODO: make single call to cluster to remove slice of node ids so that we only broadcast one change
-	for nodeId, _ := range removeNodeIds {
-		n.cluster.RemoveNode(nodeId)
-	}
+	n.cluster.SetAllNodes(allNodes)
 }
 
 func (n *NodeServiceImpl) logStatus(ctx context.Context) error {
