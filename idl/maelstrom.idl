@@ -173,6 +173,16 @@ struct Component {
     // Maximum concurrent requests to proxy to a single instance of this component
     maxConcurrency      int
 
+    // If the % of maxConcurrency of all instances of this component exceeds this value,
+    // more instances of the component will be started (respecting maxInstances if > 0).
+    // Value should be 0..1 (e.g. .5 = 50%). (default=0.75)
+    scaleUpConcurrencyPct      float   [optional]
+
+    // If the % of maxConcurrency of all instances of this component is lower than this value,
+    // instances of the component will be stopped (respecting minInstances if > 0).
+    // Value should be 0..1 (e.g. .5 = 50%). (default=0.25)
+    scaleDownConcurrencyPct    float   [optional]
+
     // Maximum request duration (in seconds)
     // Default = 60
     maxDurationSeconds  int   [optional]
@@ -190,7 +200,7 @@ struct Component {
 
 struct DockerComponent {
     image                   string
-    command                 string       [optional]
+    command                 []string     [optional]
     httpPort                int
     httpHealthCheckPath     string
 
@@ -205,12 +215,6 @@ struct DockerComponent {
     // If component is not invoked within this duration then
     // the docker container is stopped and removed.  (default=300)
     idleTimeoutSeconds           int     [optional]
-
-    // List of environment variables to set when starting container
-    // Format:  NAME=VALUE
-    // NOTE: values starting with MAELSTROM_ will be ignored, as this
-    // prefix is reserved for maelstrom defined variables
-    env                      []string       [optional]
 
     // List of filesystem mounts to bind to container
     // Use we care, as you must ensure these paths exist on any host in the maelstrom cluster

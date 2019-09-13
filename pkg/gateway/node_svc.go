@@ -274,7 +274,7 @@ func (n *NodeServiceImpl) autoscale() {
 		return
 	}
 
-	inputs := CalcAutoscalePlacement(nodes, componentsByName, 0.25, 0.5)
+	inputs := CalcAutoscalePlacement(nodes, componentsByName)
 
 	for _, input := range inputs {
 		output, err := n.cluster.GetNodeService(input.TargetNode).StartStopComponents(input.Input)

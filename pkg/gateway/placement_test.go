@@ -36,16 +36,19 @@ func randActivityList(rand *rand.Rand) []v1.ComponentActivity {
 
 func randComponent(componentName string, maxReserveRam int64, rand *rand.Rand) v1.Component {
 	minInst := rand.Int63n(5)
+	scaleDownPct := rand.Float64() / 3
 	return v1.Component{
-		Name:               componentName,
-		ProjectName:        "",
-		Environment:        nil,
-		MinInstances:       minInst,
-		MaxInstances:       minInst + rand.Int63n(50),
-		MaxConcurrency:     rand.Int63n(5) + 1,
-		MaxDurationSeconds: rand.Int63n(300) + 1,
-		Version:            rand.Int63n(500),
-		ModifiedAt:         common.TimeToMillis(time.Now()) - rand.Int63n(9999999),
+		Name:                    componentName,
+		ProjectName:             "",
+		Environment:             nil,
+		MinInstances:            minInst,
+		MaxInstances:            minInst + rand.Int63n(50),
+		MaxConcurrency:          rand.Int63n(5) + 1,
+		ScaleDownConcurrencyPct: scaleDownPct,
+		ScaleUpConcurrencyPct:   scaleDownPct + rand.Float64(),
+		MaxDurationSeconds:      rand.Int63n(300) + 1,
+		Version:                 rand.Int63n(500),
+		ModifiedAt:              common.TimeToMillis(time.Now()) - rand.Int63n(9999999),
 		Docker: &v1.DockerComponent{
 			ReserveMemoryMiB:   rand.Int63n(maxReserveRam) + 1,
 			IdleTimeoutSeconds: rand.Int63n(300) + 1,
@@ -198,14 +201,9 @@ func (n NodesAndComponents) Generate(rand *rand.Rand, size int) reflect.Value {
 		}
 	}
 
-	minConcurPct := rand.Float64() + .001
-	maxConcurPct := rand.Float64() * 2
-
 	return reflect.ValueOf(NodesAndComponents{Input: CalcAutoscaleInput{
 		Nodes:            nodes,
 		ComponentsByName: compByName,
-		MinConcur:        minConcurPct,
-		MaxConcur:        maxConcurPct,
 	}})
 }
 

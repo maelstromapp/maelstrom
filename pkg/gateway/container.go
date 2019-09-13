@@ -7,6 +7,7 @@ import (
 	log "github.com/mgutz/logxi/v1"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	v1 "gitlab.com/coopernurse/maelstrom/pkg/v1"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -26,7 +27,8 @@ func StartContainer(reqCh chan *MaelRequest, dockerClient *docker.Client, compon
 	}
 
 	ctx, cancelFx := context.WithCancel(parentCtx)
-	wg := &sync.WaitGroup{}
+	handlerWg := &sync.WaitGroup{}
+	runWg := &sync.WaitGroup{}
 
 	maxConcur := int(component.MaxConcurrency)
 	if maxConcur <= 0 {
@@ -36,8 +38,8 @@ func StartContainer(reqCh chan *MaelRequest, dockerClient *docker.Client, compon
 	statCh := make(chan time.Duration, maxConcur)
 
 	for i := 0; i < maxConcur; i++ {
-		wg.Add(1)
-		go localRevProxy(reqCh, statCh, proxy, ctx, wg)
+		handlerWg.Add(1)
+		go localRevProxy(reqCh, statCh, proxy, ctx, handlerWg)
 	}
 
 	c := &Container{
@@ -46,7 +48,8 @@ func StartContainer(reqCh chan *MaelRequest, dockerClient *docker.Client, compon
 		containerId:    containerId,
 		component:      component,
 		healthCheckUrl: healthCheckUrl,
-		wg:             wg,
+		handlerWg:      handlerWg,
+		runWg:          runWg,
 		ctx:            ctx,
 		cancel:         cancelFx,
 		lastReqTime:    time.Now(),
@@ -54,7 +57,7 @@ func StartContainer(reqCh chan *MaelRequest, dockerClient *docker.Client, compon
 		dockerClient:   dockerClient,
 		activity:       []v1.ComponentActivity{},
 	}
-	c.wg.Add(1)
+	c.runWg.Add(1)
 	go c.Run()
 
 	return c, nil
@@ -66,7 +69,8 @@ type Container struct {
 	containerId    string
 	component      v1.Component
 	healthCheckUrl *url.URL
-	wg             *sync.WaitGroup
+	runWg          *sync.WaitGroup
+	handlerWg      *sync.WaitGroup
 	ctx            context.Context
 	cancel         context.CancelFunc
 	lastReqTime    time.Time
@@ -78,7 +82,7 @@ type Container struct {
 
 func (c *Container) Stop(reason string) {
 	c.cancel()
-	c.wg.Wait()
+	c.runWg.Wait()
 	err := stopContainer(c.dockerClient, c.containerId, c.component.Name, strconv.Itoa(int(c.component.Version)), reason)
 	if err != nil && !docker.IsErrContainerNotFound(err) && !common.IsErrRemovalInProgress(err) {
 		log.Error("container: error stopping container", "err", err, "containerId", c.containerId[0:8],
@@ -120,8 +124,8 @@ func (c *Container) appendActivity(previousTotal int64, rolloverStartTime time.T
 		Concurrency: concurrency,
 	}
 	c.activity = append([]v1.ComponentActivity{activity}, c.activity...)
-	if len(c.activity) > 5 {
-		c.activity = c.activity[0:5]
+	if len(c.activity) > 10 {
+		c.activity = c.activity[0:10]
 	}
 	c.lock.Unlock()
 	return currentTotal
@@ -135,33 +139,42 @@ func (c *Container) Run() {
 	}
 
 	healthCheckTicker := time.Tick(time.Duration(healthCheckSecs) * time.Second)
-	concurrencyTicker := time.Tick(time.Minute)
+	concurrencyTicker := time.Tick(time.Second * 20)
 
 	var durationSinceRollover time.Duration
 	rolloverStartTime := time.Now()
-	previousTotalRequests := c.totalRequests
+	previousTotalRequests := int64(0)
 
-	for {
-		select {
-		case dur := <-c.statCh:
-			durationSinceRollover += dur
-		case <-concurrencyTicker:
-			previousTotalRequests = c.appendActivity(previousTotalRequests, rolloverStartTime, durationSinceRollover)
-			rolloverStartTime = time.Now()
-			durationSinceRollover = 0
-		case <-healthCheckTicker:
-			if !getUrlOK(c.healthCheckUrl) {
-				log.Error("container: health check failed. stopping container", "containerId", c.containerId[0:8],
-					"component", c.component.Name)
-				c.wg.Done()
-				c.Stop("health check failed")
+	done := make(chan bool, 1)
+	go func() {
+		for {
+			select {
+			case dur := <-c.statCh:
+				c.bumpReqStats()
+				durationSinceRollover += dur
+			case <-concurrencyTicker:
+				previousTotalRequests = c.appendActivity(previousTotalRequests, rolloverStartTime, durationSinceRollover)
+				rolloverStartTime = time.Now()
+				durationSinceRollover = 0
+			case <-healthCheckTicker:
+				if !getUrlOK(c.healthCheckUrl) {
+					log.Error("container: health check failed. stopping container", "containerId", c.containerId[0:8],
+						"component", c.component.Name)
+					go c.Stop("health check failed")
+				}
+			case <-done:
+				log.Info("container: run loop exiting", "containerId", c.containerId[0:8], "component", c.component.Name)
 				return
 			}
-		case <-c.ctx.Done():
-			c.wg.Done()
-			return
 		}
-	}
+	}()
+
+	<-c.ctx.Done()
+	log.Info("container: waiting for handlers to finish", "containerId", c.containerId[0:8],
+		"component", c.component.Name)
+	c.handlerWg.Wait()
+	done <- true
+	c.runWg.Done()
 }
 
 /////////////////////////////////////////////////////////////
@@ -229,6 +242,14 @@ func initReverseProxy(dockerClient *docker.Client, component v1.Component,
 	log.Info("container: active for component", "component", component.Name, "ver", component.Version,
 		"containerId", cont.ID[0:8], "url", target.String())
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		Dial: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).Dial,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
 	return proxy, healthCheckUrl, nil
 }
 

@@ -147,7 +147,10 @@ func (r *Router) OnClusterUpdated(nodes map[string]v1.NodeStatus) {
 		}
 	}
 
-	log.Info("router: updated routes", "containers", containerCount, "components", componentNames, "node", r.myNodeId)
+	if log.IsDebug() {
+		log.Debug("router: updated routes", "containers", containerCount, "components", componentNames,
+			"node", r.myNodeId)
+	}
 
 	// shuffle ring handlers so that requests are distributed differently by each node
 	for _, ring := range newRing {
@@ -198,12 +201,23 @@ func (r *Router) getHandlerOrActivate(comp *v1.Component, preferLocal bool) (htt
 }
 
 func (r *Router) Route(rw http.ResponseWriter, req *http.Request, c v1.Component) {
-	maxDur := c.MaxDurationSeconds
-	if maxDur <= 0 {
-		maxDur = 300
+	var deadline time.Time
+	var deadlineNano int64
+	deadlineStr := req.Header.Get("MAELSTROM-DEADLINE-NANO")
+	if deadlineStr != "" {
+		deadlineNano, _ = strconv.ParseInt(deadlineStr, 10, 64)
 	}
-	startTime := time.Now()
-	deadline := startTime.Add(time.Duration(maxDur) * time.Second)
+	if deadlineNano == 0 {
+		maxDur := c.MaxDurationSeconds
+		if maxDur <= 0 {
+			maxDur = 300
+		}
+		startTime := time.Now()
+		deadline = startTime.Add(time.Duration(maxDur) * time.Second)
+	} else {
+		deadline = time.Unix(0, deadlineNano)
+	}
+
 	ctx, _ := context.WithDeadline(r.ctx, deadline)
 
 	preferLocal := req.Header.Get("MAELSTROM-RELAY-PATH") != ""

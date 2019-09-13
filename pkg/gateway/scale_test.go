@@ -30,7 +30,7 @@ func TestPropertyNeverExceedsTotalMemory(t *testing.T) {
 			panic(err)
 		}
 
-		options := CalcAutoscalePlacement(input.Nodes, input.ComponentsByName, input.MinConcur, input.MaxConcur)
+		options := CalcAutoscalePlacement(input.Nodes, input.ComponentsByName)
 		for _, opt := range options {
 			optRam := OptionNetRam(opt, input.ComponentsByName)
 			ramUsed := beforeRamByNode[opt.TargetNode.NodeId] + optRam
@@ -51,21 +51,6 @@ func TestPropertyNeverExceedsTotalMemory(t *testing.T) {
 	}
 }
 
-func TestCalcTargetInstances(t *testing.T) {
-	// no change
-	assert.Equal(t, 1, calcTargetInstances(1, 0, 5, .5, .1, .5))
-	assert.Equal(t, 1, calcTargetInstances(1, 0, 5, .7, .5, 1))
-	assert.Equal(t, 1, calcTargetInstances(1, 0, 5, .2, .1, .5))
-
-	// up
-	assert.Equal(t, 2, calcTargetInstances(1, 0, 5, .51, .1, .5))
-	assert.Equal(t, 2, calcTargetInstances(1, 0, 5, .7, .4, .5))
-
-	// down
-	assert.Equal(t, 0, calcTargetInstances(1, 0, 5, 0, .1, .5))
-	assert.Equal(t, 1, calcTargetInstances(2, 0, 5, .2, .21, .5))
-}
-
 // two nodes, one running comp, one empty. Max concurrency exceeded, so we scale up. Empty comp gets new comp.
 func TestScaleUpPlacesOnEmptyNode(t *testing.T) {
 	for i := 0; i < 30; i++ {
@@ -78,9 +63,10 @@ func testScaleUpPlacesOnEmptyNode(t *testing.T) {
 	maxConcurPct := 1.0
 
 	comps := []v1.Component{
-		makeComponent("a", 100, 0, 10, 1),
-		makeComponent("b", 200, 0, 10, 1),
+		makeComponentWithConcur("a", 100, 0, 10, 1, minConcurPct, maxConcurPct),
+		makeComponentWithConcur("b", 200, 0, 10, 1, minConcurPct, maxConcurPct),
 	}
+
 	nodes := randNodes(2, defaultRand)
 	nodes[0].RunningComponents = []v1.ComponentInfo{
 		{
@@ -114,7 +100,7 @@ func testScaleUpPlacesOnEmptyNode(t *testing.T) {
 		},
 	}
 
-	actual := CalcAutoscalePlacement(nodes, componentsByName(comps), minConcurPct, maxConcurPct)
+	actual := CalcAutoscalePlacement(nodes, componentsByName(comps))
 	assert.Equal(t, expected, actual)
 }
 
@@ -124,9 +110,9 @@ func TestPlaceHighRAMComponent(t *testing.T) {
 
 	nodes := randNodes(3, defaultRand)
 	comps := []v1.Component{
-		makeComponent("a", 100, 0, 10, 1),
-		makeComponent("b", 200, 0, 10, 1),
-		makeComponent("big", 2000, 1, 10, 1),
+		makeComponentWithConcur("a", 100, 0, 10, 1, 0.1, 0.3),
+		makeComponentWithConcur("b", 200, 0, 10, 1, 0.1, 0.3),
+		makeComponentWithConcur("big", 2000, 1, 10, 1, 0.1, 0.3),
 	}
 	nodes[0].TotalMemoryMiB = 1000
 	nodes[0].RunningComponents = []v1.ComponentInfo{}
@@ -145,7 +131,7 @@ func TestPlaceHighRAMComponent(t *testing.T) {
 			makeTargetCount(comps[2], 1)),
 	}
 
-	actual := CalcAutoscalePlacement(nodes, componentsByName(comps), .1, .3)
+	actual := CalcAutoscalePlacement(nodes, componentsByName(comps))
 	assert.Equal(t, expected, sortPlacementOptions(actual))
 }
 
@@ -169,7 +155,7 @@ func TestPlacementAntiAffinity(t *testing.T) {
 
 		minMaxCountForComponent := map[string]minMaxNode{}
 		compCountByNodeId := map[string]map[string]int{}
-		options := CalcAutoscalePlacement(input.Nodes, input.ComponentsByName, input.MinConcur, input.MaxConcur)
+		options := CalcAutoscalePlacement(input.Nodes, input.ComponentsByName)
 		for _, opt := range options {
 			nodeId := opt.TargetNode.NodeId
 			runningComp := RunningComponents(opt.TargetNode, opt)
@@ -237,7 +223,7 @@ func TestOnlyScaleToZeroIfIdle(t *testing.T) {
 			}
 		}
 
-		options := CalcAutoscalePlacement(input.Nodes, input.ComponentsByName, input.MinConcur, input.MaxConcur)
+		options := CalcAutoscalePlacement(input.Nodes, input.ComponentsByName)
 		for _, opt := range options {
 			placementOptionByNode[opt.TargetNode.NodeId] = opt
 		}
@@ -270,7 +256,7 @@ func TestNoIdleNodes(t *testing.T) {
 	// property: never leaves node idle if # components >= # nodes
 	f := func(nodeComps NodesAndComponents) bool {
 		input := nodeComps.Input
-		options := CalcAutoscalePlacement(input.Nodes, input.ComponentsByName, input.MinConcur, input.MaxConcur)
+		options := CalcAutoscalePlacement(input.Nodes, input.ComponentsByName)
 		placementOptionByNode := map[string]*PlacementOption{}
 		smallestMoveableComponentRam := int64(9999999999999)
 		var emptyNodeWithMostRam v1.NodeStatus
@@ -348,25 +334,31 @@ func toComponentInfo(c v1.Component, activity ...v1.ComponentActivity) v1.Compon
 }
 
 func makeComponent(name string, requiredRamMiB int64, minInst int64, maxInst int64, maxConcur int64) v1.Component {
+	return makeComponentWithConcur(name, requiredRamMiB, minInst, maxInst, maxConcur, 0, 0)
+}
+
+func makeComponentWithConcur(name string, requiredRamMiB int64, minInst int64, maxInst int64, maxConcur int64,
+	scaleDownPct float64, scaleUpPct float64) v1.Component {
 	return v1.Component{
-		Name:               name,
-		ProjectName:        "",
-		Environment:        nil,
-		MinInstances:       minInst,
-		MaxInstances:       maxInst,
-		MaxConcurrency:     maxConcur,
-		MaxDurationSeconds: 10,
-		Version:            0,
-		ModifiedAt:         0,
+		Name:                    name,
+		ProjectName:             "",
+		Environment:             nil,
+		MinInstances:            minInst,
+		MaxInstances:            maxInst,
+		ScaleDownConcurrencyPct: scaleDownPct,
+		ScaleUpConcurrencyPct:   scaleUpPct,
+		MaxConcurrency:          maxConcur,
+		MaxDurationSeconds:      10,
+		Version:                 0,
+		ModifiedAt:              0,
 		Docker: &v1.DockerComponent{
 			Image:                       "foo",
-			Command:                     "/bin/false",
+			Command:                     []string{"/bin/false"},
 			HttpPort:                    8080,
 			HttpHealthCheckPath:         "/",
 			HttpStartHealthCheckSeconds: 0,
 			HttpHealthCheckSeconds:      0,
 			IdleTimeoutSeconds:          10,
-			Env:                         nil,
 			Volumes:                     nil,
 			NetworkName:                 "",
 			LogDriver:                   "",

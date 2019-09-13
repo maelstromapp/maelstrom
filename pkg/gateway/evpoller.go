@@ -38,7 +38,8 @@ type EvPoller struct {
 	pollerWg    *sync.WaitGroup
 }
 
-func (e *EvPoller) Run() {
+func (e *EvPoller) Run(daemonWG *sync.WaitGroup) {
+	defer daemonWG.Done()
 	e.reload()
 	ticker := time.Tick(time.Minute)
 	for {

@@ -149,7 +149,7 @@ func main() {
 	router := gateway.NewRouter(nodeSvcImpl, handlerFactory, nodeSvcImpl.NodeId(), outboundIp.String(), cancelCtx)
 	nodeSvcImpl.Cluster().AddObserver(router)
 	daemonWG.Add(2)
-	go nodeSvcImpl.RunNodeStatusLoop(time.Minute, cancelCtx, daemonWG)
+	go nodeSvcImpl.RunNodeStatusLoop(time.Second*30, cancelCtx, daemonWG)
 	go nodeSvcImpl.RunAutoscaleLoop(time.Minute, cancelCtx, daemonWG)
 	log.Info("maelstromd: created NodeService", nodeSvcImpl.LogPairs()...)
 
@@ -210,7 +210,7 @@ func main() {
 
 	evPoller := gateway.NewEvPoller(nodeSvcImpl.NodeId(), cancelCtx, db, router, awsSession)
 	daemonWG.Add(1)
-	go evPoller.Run()
+	go evPoller.Run(daemonWG)
 
 	daemonWG.Add(1)
 	go HandleShutdownSignal(servers, cancelFx, daemonWG)

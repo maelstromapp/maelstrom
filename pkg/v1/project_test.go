@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func newComponent(name string, image string, command string) Component {
+func newComponent(name string, image string, command ...string) Component {
 	return Component{
 		Name: name,
 		Docker: &DockerComponent{
@@ -100,12 +100,16 @@ environment:
 components:
   gizmo:
     image: coopernurse/gizmo
-    command: python gizmo.py
+    command: ["python", "gizmo.py"]
     environment:
       - B=gizmoB
+    mininstances: 1
+    maxinstances: 5
+    maxconcurrency: 3
+    maxdurationseconds: 30
   detector:
     image: coopernurse/object-detector:latest
-    command: python /app/detector.py
+    command: ["python", "/app/detector.py"]
     volumes:
       - source: ${HOME}/.aws
         target: /root/.aws
@@ -138,7 +142,7 @@ components:
 					},
 					Docker: &DockerComponent{
 						Image:   "coopernurse/object-detector:latest",
-						Command: "python /app/detector.py",
+						Command: []string{"python", "/app/detector.py"},
 						Volumes: []VolumeMount{
 							{Source: "${HOME}/.aws", Target: "/root/.aws"},
 						},
@@ -176,9 +180,13 @@ components:
 					},
 					Docker: &DockerComponent{
 						Image:            "coopernurse/gizmo",
-						Command:          "python gizmo.py",
+						Command:          []string{"python", "gizmo.py"},
 						LogDriverOptions: []NameValue{},
 					},
+					MinInstances:       1,
+					MaxInstances:       5,
+					MaxConcurrency:     3,
+					MaxDurationSeconds: 30,
 				},
 				EventSources: []EventSource{},
 			},

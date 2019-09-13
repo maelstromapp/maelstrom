@@ -124,7 +124,7 @@ func (v *V1) PutProject(input PutProjectInput) (PutProjectOutput, error) {
 	}
 
 	for _, c := range diff.ComponentPut {
-		_, err = v.db.PutComponent(c)
+		newVersion, err := v.db.PutComponent(c)
 		if err != nil {
 			return PutProjectOutput{}, v.onError(DbError, "PutComponent failed", err)
 		}
@@ -133,6 +133,7 @@ func (v *V1) PutProject(input PutProjectInput) (PutProjectOutput, error) {
 		} else {
 			out.ComponentsUpdated = append(out.ComponentsUpdated, c)
 		}
+		v.notifyPutComponent(&PutComponentOutput{Name: c.Name, Version: newVersion})
 	}
 	for _, ev := range diff.EventSourcePut {
 		_, err = v.db.PutEventSource(ev)
@@ -146,11 +147,12 @@ func (v *V1) PutProject(input PutProjectInput) (PutProjectOutput, error) {
 		}
 	}
 	for _, c := range diff.ComponentRemove {
-		_, err = v.db.RemoveComponent(c)
+		found, err := v.db.RemoveComponent(c)
 		if err != nil {
 			return PutProjectOutput{}, v.onError(DbError, "RemoveComponent failed", err)
 		}
 		out.ComponentsRemoved = append(out.ComponentsRemoved, c)
+		v.notifyRemoveComponent(&RemoveComponentOutput{Name: c, Found: found})
 	}
 	for _, ev := range diff.EventSourceRemove {
 		_, err = v.db.RemoveEventSource(ev)
@@ -237,12 +239,7 @@ func (v *V1) PutComponent(input PutComponentInput) (PutComponentOutput, error) {
 	}
 
 	// Notify subscribers
-	cn := ComponentNotification{
-		PutComponent: &output,
-	}
-	for _, s := range v.componentSubscribers {
-		go s.OnComponentNotification(cn)
-	}
+	v.notifyPutComponent(&output)
 
 	return output, nil
 }
@@ -283,12 +280,7 @@ func (v *V1) RemoveComponent(input RemoveComponentInput) (RemoveComponentOutput,
 	}
 
 	// Notify subscribers
-	cn := ComponentNotification{
-		RemoveComponent: &output,
-	}
-	for _, s := range v.componentSubscribers {
-		go s.OnComponentNotification(cn)
-	}
+	v.notifyRemoveComponent(&output)
 
 	return output, nil
 }
@@ -354,6 +346,24 @@ func (v *V1) ListEventSources(input ListEventSourcesInput) (ListEventSourcesOutp
 
 func (v *V1) ListNodeStatus(input ListNodeStatusInput) (ListNodeStatusOutput, error) {
 	return v.db.ListNodeStatus(input)
+}
+
+func (v *V1) notifyPutComponent(putOutput *PutComponentOutput) {
+	cn := ComponentNotification{
+		PutComponent: putOutput,
+	}
+	for _, s := range v.componentSubscribers {
+		go s.OnComponentNotification(cn)
+	}
+}
+
+func (v *V1) notifyRemoveComponent(rmOutput *RemoveComponentOutput) {
+	cn := ComponentNotification{
+		RemoveComponent: rmOutput,
+	}
+	for _, s := range v.componentSubscribers {
+		go s.OnComponentNotification(cn)
+	}
 }
 
 func validateComponent(errPrefix string, component Component) (string, error) {

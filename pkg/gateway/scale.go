@@ -13,8 +13,6 @@ import (
 type CalcAutoscaleInput struct {
 	Nodes            []v1.NodeStatus
 	ComponentsByName map[string]v1.Component
-	MinConcur        float64
-	MaxConcur        float64
 }
 
 type componentConcurrency struct {
@@ -31,6 +29,31 @@ type componentDelta struct {
 	componentName    string
 	reserveMemoryMiB int64
 	delta            int
+}
+
+type scaleTargetInput struct {
+	componentName         string
+	infos                 []v1.ComponentInfo
+	maxConcurrencyPerInst int64
+	minInst               int64
+	maxInst               int64
+	scaleDownConcurPct    float64
+	scaleUpConcurPct      float64
+}
+
+type scaleTargetOutput struct {
+	componentName     string
+	currentInstances  int
+	targetInstances   int
+	pctMaxConcurrency float64
+	sumConcur         sumConcurrencyOutput
+}
+
+type sumConcurrencyOutput struct {
+	currentInstances     int
+	sumMaxConcurrency    float64
+	sumLatestConcurrency float64
+	sumAvgConcurrency    float64
 }
 
 type componentDeltaByDelta []componentDelta
@@ -78,8 +101,7 @@ func loadActiveComponents(nodes []v1.NodeStatus, db v1.Db) (map[string]v1.Compon
 	return componentsByName, nil
 }
 
-func toComponentConcurrency(nodes []v1.NodeStatus, componentsByName map[string]v1.Component,
-	minConcurPct float64, maxConcurPct float64) []componentConcurrency {
+func toComponentConcurrency(nodes []v1.NodeStatus, componentsByName map[string]v1.Component) []componentConcurrency {
 	compInfoByComponent := map[string][]v1.ComponentInfo{}
 	lastReqTimeByComponent := map[string]int64{}
 	for _, node := range nodes {
@@ -95,7 +117,6 @@ func toComponentConcurrency(nodes []v1.NodeStatus, componentsByName map[string]v
 	var concur []componentConcurrency
 	for compName, comp := range componentsByName {
 		infos := compInfoByComponent[compName]
-		pctMaxConcur := calcPctMaxConcurrency(infos, comp.MaxConcurrency)
 		secsSinceLastReq := (common.NowMillis() - lastReqTimeByComponent[compName]) / 1000
 		minInstances := comp.MinInstances
 		idleTimeoutSec := comp.Docker.IdleTimeoutSeconds
@@ -105,59 +126,112 @@ func toComponentConcurrency(nodes []v1.NodeStatus, componentsByName map[string]v
 		if minInstances < 1 && secsSinceLastReq <= idleTimeoutSec {
 			minInstances = 1
 		}
+		scaleOutput := calcScaleTarget(toScaleTargetInput(comp, minInstances, infos))
+
 		concur = append(concur, componentConcurrency{
-			componentName:    compName,
-			minInstances:     int(comp.MinInstances),
-			maxInstances:     int(comp.MaxInstances),
-			reserveMemoryMiB: comp.Docker.ReserveMemoryMiB,
-			currentInstances: len(infos),
-			targetInstances: calcTargetInstances(len(infos), minInstances, comp.MaxInstances,
-				pctMaxConcur, minConcurPct, maxConcurPct),
-			pctMaxConcurrency: pctMaxConcur,
+			componentName:     compName,
+			minInstances:      int(comp.MinInstances),
+			maxInstances:      int(comp.MaxInstances),
+			reserveMemoryMiB:  comp.Docker.ReserveMemoryMiB,
+			currentInstances:  len(infos),
+			targetInstances:   scaleOutput.targetInstances,
+			pctMaxConcurrency: scaleOutput.pctMaxConcurrency,
 		})
 	}
 
 	return concur
 }
 
-func calcPctMaxConcurrency(infos []v1.ComponentInfo, maxConcurrency int64) float64 {
+func toScaleTargetInput(c v1.Component, minInstances int64, infos []v1.ComponentInfo) scaleTargetInput {
+	maxConcurPerInst := c.MaxConcurrency
+	if maxConcurPerInst <= 0 {
+		maxConcurPerInst = 1
+	}
+	scaleDownPct := c.ScaleDownConcurrencyPct
+	if scaleDownPct <= 0 {
+		scaleDownPct = 0.25
+	}
+	scaleUpPct := c.ScaleUpConcurrencyPct
+	if scaleUpPct <= 0 {
+		scaleUpPct = 0.75
+	}
+	return scaleTargetInput{
+		componentName:         c.Name,
+		infos:                 infos,
+		maxConcurrencyPerInst: maxConcurPerInst,
+		minInst:               minInstances,
+		maxInst:               c.MaxInstances,
+		scaleDownConcurPct:    scaleDownPct,
+		scaleUpConcurPct:      scaleUpPct,
+	}
+}
+
+func sumMaxConcurrency(infos []v1.ComponentInfo, maxConcurrencyPerInst int64) sumConcurrencyOutput {
 	if len(infos) == 0 {
-		return 0
+		return sumConcurrencyOutput{}
 	}
 
-	if maxConcurrency <= 0 {
-		maxConcurrency = 1
+	if maxConcurrencyPerInst <= 0 {
+		maxConcurrencyPerInst = 1
 	}
 
-	var sumOfAverageConcur float64
+	var sumMaxConcur, sumLatestConcur, sumAvgConcur float64
 	for _, compInfo := range infos {
 		nodeActivity := compInfo.Activity
 		if len(nodeActivity) > 0 {
-			sum := 0.0
-			for _, a := range nodeActivity {
-				sum += a.Concurrency
+			maxVal := float64(0)
+			totalConcur := float64(0)
+			sumLatestConcur += nodeActivity[0].Concurrency
+			for _, val := range nodeActivity {
+				if val.Concurrency > maxVal {
+					maxVal = val.Concurrency
+					totalConcur += val.Concurrency
+				}
 			}
-			sumOfAverageConcur += sum / float64(len(nodeActivity))
+			sumMaxConcur += maxVal
+			sumAvgConcur += totalConcur / float64(len(nodeActivity))
 		}
 	}
-	return sumOfAverageConcur / (float64(len(infos)) * float64(maxConcurrency))
+	return sumConcurrencyOutput{
+		currentInstances:     len(infos),
+		sumMaxConcurrency:    sumMaxConcur,
+		sumLatestConcurrency: sumLatestConcur,
+		sumAvgConcurrency:    sumAvgConcur,
+	}
 }
 
-func calcTargetInstances(currentInstCount int, minInst int64, maxInst int64,
-	currentConcurPct float64, minConcurPct float64, maxConcurPct float64) int {
+func calcScaleTarget(input scaleTargetInput) scaleTargetOutput {
+	var output scaleTargetOutput
 
-	target := int64(currentInstCount)
-	if currentConcurPct > maxConcurPct || currentConcurPct < minConcurPct {
-		target = int64(math.Ceil(float64(currentInstCount) * (currentConcurPct / maxConcurPct)))
+	sumConcurOut := sumMaxConcurrency(input.infos, input.maxConcurrencyPerInst)
+
+	output.componentName = input.componentName
+	output.sumConcur = sumConcurOut
+
+	target := int64(len(input.infos))
+	output.currentInstances = int(target)
+	if sumConcurOut.currentInstances > 0 {
+		denom := float64(int64(sumConcurOut.currentInstances) * input.maxConcurrencyPerInst)
+		scaleDenom := float64(input.maxConcurrencyPerInst) * input.scaleUpConcurPct
+		pctLatestConcurrency := sumConcurOut.sumLatestConcurrency / denom
+		pctMaxConcurrency := sumConcurOut.sumMaxConcurrency / denom
+		if pctLatestConcurrency > input.scaleUpConcurPct {
+			target = int64(math.Ceil(sumConcurOut.sumLatestConcurrency / scaleDenom))
+		} else if pctMaxConcurrency < input.scaleDownConcurPct {
+			target = int64(math.Ceil(sumConcurOut.sumMaxConcurrency / scaleDenom))
+		}
+		output.pctMaxConcurrency = pctMaxConcurrency
 	}
 
-	if target < minInst {
-		target = minInst
+	if target < input.minInst {
+		target = input.minInst
 	}
-	if target > maxInst && maxInst > minInst {
-		target = maxInst
+	if target > input.maxInst && input.maxInst > input.minInst {
+		target = input.maxInst
 	}
-	return int(target)
+	output.targetInstances = int(target)
+	log.Info("scale: output", "scaleOutput", fmt.Sprintf("%+v", output))
+	return output
 }
 
 func toComponentDeltas(concurrency []componentConcurrency) []componentDelta {
@@ -227,24 +301,6 @@ func nodeRamUsedMiB(runningComps []v1.ComponentInfo) int64 {
 		ramUsed += rc.MemoryReservedMiB
 	}
 	return ramUsed
-}
-
-func toOptionsByNode(options []*PlacementOption) map[string]*PlacementOption {
-	byNodeId := map[string]*PlacementOption{}
-	for _, opt := range options {
-		byNodeId[opt.TargetNode.NodeId] = opt
-	}
-	return byNodeId
-}
-
-func countByComponentFromRunningComp(nodes []v1.NodeStatus, optionByNode map[string]*PlacementOption) map[string]int {
-	countByComponent := map[string]int{}
-	for _, node := range nodes {
-		for _, rc := range RunningComponents(node, optionByNode[node.NodeId]) {
-			countByComponent[rc.ComponentName] += 1
-		}
-	}
-	return countByComponent
 }
 
 func computeScaleStartStopInputs(nodes []v1.NodeStatus, deltas []componentDelta) []*PlacementOption {
@@ -363,9 +419,8 @@ func findCompToMove(nodes []v1.NodeStatus, placementByNode map[string]*Placement
 	return nil, nil
 }
 
-func CalcAutoscalePlacement(nodes []v1.NodeStatus, componentsByName map[string]v1.Component,
-	minConcurPct float64, maxConcurPct float64) []*PlacementOption {
-	concurrency := toComponentConcurrency(nodes, componentsByName, minConcurPct, maxConcurPct)
+func CalcAutoscalePlacement(nodes []v1.NodeStatus, componentsByName map[string]v1.Component) []*PlacementOption {
+	concurrency := toComponentConcurrency(nodes, componentsByName)
 	deltas := toComponentDeltas(concurrency)
 	return computeScaleStartStopInputs(nodes, deltas)
 }

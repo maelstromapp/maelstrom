@@ -109,6 +109,10 @@ func (d *SqlDb) acquireOrRenewRoleOnce(roleId string, nodeId string, lockDur tim
 
 		result, err := q.RunWith(d.db).Exec()
 		if err != nil {
+			if sqliteErr(err, sqlite3.ErrLocked) {
+				// hack to workaround "table is locked" error when using sqlite3 - outer call will retry
+				return false, "", nil
+			}
 			return false, "", fmt.Errorf("sql_db: update failed for roleId: %s err: %v", roleId, err)
 		}
 		rows, err := result.RowsAffected()

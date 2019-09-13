@@ -190,11 +190,12 @@ func (f *DockerHandlerFactory) ConvergeToTarget(target v1.ComponentDelta,
 	} else if delta > 0 {
 		// scale up
 		for i := 0; i < delta; i++ {
-			cont, err := f.startContainer(component, reqCh)
+			cont, containerId, err := f.startContainer(component, reqCh)
 			if err == nil {
 				containers = append(containers, cont)
 			} else {
-				log.Error("handler: unable to start container", "err", err, "component", component.Name)
+				log.Error("handler: unable to start container", "err", err.Error(), "component", component.Name)
+				f.stopContainerQuietly(containerId, component)
 			}
 		}
 		f.byComponentName[target.ComponentName] = containers
@@ -203,7 +204,17 @@ func (f *DockerHandlerFactory) ConvergeToTarget(target v1.ComponentDelta,
 	return
 }
 
-func (f *DockerHandlerFactory) startContainer(component v1.Component, reqCh chan *MaelRequest) (*Container, error) {
+func (f *DockerHandlerFactory) stopContainerQuietly(containerId string, component v1.Component) {
+	if containerId != "" {
+		err := stopContainer(f.dockerClient, containerId, component.Name,
+			strconv.Itoa(int(component.Version)), "failed to start")
+		if err != nil {
+			log.Warn("handler: unable to stop container", "err", err.Error(), "component", component.Name)
+		}
+	}
+}
+
+func (f *DockerHandlerFactory) startContainer(component v1.Component, reqCh chan *MaelRequest) (*Container, string, error) {
 	err := pullImage(f.dockerClient, component)
 	if err != nil {
 		log.Warn("handler: unable to pull image", "err", err.Error(), "component", component.Name)
@@ -211,15 +222,15 @@ func (f *DockerHandlerFactory) startContainer(component v1.Component, reqCh chan
 
 	containerId, err := startContainer(f.dockerClient, component, f.maelstromUrl)
 	if err != nil {
-		return nil, err
+		return nil, containerId, err
 	}
 
 	c, err := StartContainer(reqCh, f.dockerClient, component, containerId, f.ctx)
 	if err != nil {
-		return nil, err
+		return nil, containerId, err
 	}
 
-	return c, nil
+	return c, containerId, nil
 }
 
 func (f *DockerHandlerFactory) GetComponentInfo(componentName string, containerId string) v1.ComponentInfo {
@@ -263,12 +274,14 @@ func (f *DockerHandlerFactory) OnContainerExited(msg common.ContainerExitedMessa
 			for i, cont := range containers {
 				if i == removeIdx {
 					log.Info("handler: OnContainerExited - restarting component", "component", cont.component.Name)
-					newContainer, err := f.restartComponent(cont, true, f.reqChanByComponentLocked(cont.component.Name))
+					newContainer, newContainerId, err := f.restartComponent(cont, true,
+						f.reqChanByComponentLocked(cont.component.Name))
 					if err == nil {
 						keep = append(keep, newContainer)
 					} else {
 						log.Error("handler: OnContainerExited - unable to restart component", "err", err,
 							"component", cont.component.Name)
+						f.stopContainerQuietly(newContainerId, cont.component)
 					}
 				} else {
 					keep = append(keep, cont)
@@ -290,12 +303,14 @@ func (f *DockerHandlerFactory) OnImageUpdated(msg common.ImageUpdatedMessage) {
 			if normalizeImageName(cont.component.Docker.Image) == msg.ImageName {
 				log.Info("handler: OnImageUpdated - stopping image for component", "component", componentName,
 					"imageName", msg.ImageName, "newImageId", msg.ImageId)
-				newContainer, err := f.restartComponent(cont, false, f.reqChanByComponentLocked(componentName))
+				newContainer, newContainerId, err := f.restartComponent(cont, false,
+					f.reqChanByComponentLocked(componentName))
 				if err == nil {
 					keep = append(keep, newContainer)
 				} else {
 					log.Error("handler: OnImageUpdated - unable to restart component", "err", err,
 						"component", componentName)
+					f.stopContainerQuietly(newContainerId, cont.component)
 				}
 			} else {
 				keep = append(keep, cont)
@@ -315,12 +330,16 @@ func (f *DockerHandlerFactory) OnComponentNotification(cn v1.ComponentNotificati
 			var keep []*Container
 			for _, cont := range containers {
 				if cont.component.Version < cn.PutComponent.Version {
-					newContainer, err := f.restartComponent(cont, false, f.reqChanByComponentLocked(cn.PutComponent.Name))
+					log.Info("handler: OnComponentNotification restarting container",
+						"component", cn.PutComponent.Name, "containerId", cont.containerId[0:8])
+					newContainer, newContainerId, err := f.restartComponent(cont, false,
+						f.reqChanByComponentLocked(cn.PutComponent.Name))
 					if err == nil {
 						keep = append(keep, newContainer)
 					} else {
 						log.Error("handler: OnComponentNotification - unable to restart component", "err", err,
 							"component", cn.PutComponent.Name)
+						f.stopContainerQuietly(newContainerId, cont.component)
 					}
 				} else {
 					keep = append(keep, cont)
@@ -344,10 +363,10 @@ func (f *DockerHandlerFactory) stopContainersByComponent(componentName string, r
 }
 
 func (f *DockerHandlerFactory) restartComponent(oldContainer *Container, stopAsync bool,
-	reqCh chan *MaelRequest) (*Container, error) {
+	reqCh chan *MaelRequest) (*Container, string, error) {
 	component, err := f.db.GetComponent(oldContainer.component.Name)
 	if err != nil {
-		return nil, fmt.Errorf("restartComponent: error loading component: %s - %v", oldContainer.component.Name, err)
+		return nil, "", fmt.Errorf("restartComponent: error loading component: %s - %v", oldContainer.component.Name, err)
 	}
 
 	if stopAsync {
@@ -433,7 +452,8 @@ func startContainer(dockerClient *docker.Client, c v1.Component, maelstromUrl st
 		return "", fmt.Errorf("containerCreate error for: %s - %v", c.Name, err)
 	}
 
-	log.Info("handler: starting container", "component", c.Name, "ver", c.Version, "containerId", resp.ID[0:8])
+	log.Info("handler: starting container", "component", c.Name, "ver", c.Version, "containerId", resp.ID[0:8],
+		"image", config.Image, "command", config.Cmd)
 
 	err = dockerClient.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
 	if err != nil {
@@ -487,9 +507,9 @@ func stopContainer(dockerClient *docker.Client, containerId string, componentNam
 func toContainerConfig(c v1.Component, maelstromUrl string) *container.Config {
 
 	env := make([]string, 0)
-	for _, e := range c.Docker.Env {
-		if !strings.HasPrefix(e, "MAELSTROM_") {
-			env = append(env, e)
+	for _, e := range c.Environment {
+		if !strings.HasPrefix(e.Name, "MAELSTROM_") {
+			env = append(env, e.Name+"="+e.Value)
 		}
 	}
 	env = append(env, fmt.Sprintf("MAELSTROM_PRIVATE_URL=%s", maelstromUrl))
@@ -498,6 +518,7 @@ func toContainerConfig(c v1.Component, maelstromUrl string) *container.Config {
 
 	return &container.Config{
 		Image: c.Docker.Image,
+		Cmd:   c.Docker.Command,
 		Env:   env,
 		ExposedPorts: nat.PortSet{
 			nat.Port(strconv.Itoa(int(c.Docker.HttpPort)) + "/tcp"): struct{}{},
@@ -523,6 +544,15 @@ func toContainerHostConfig(c v1.Component) *container.HostConfig {
 	hc.KernelMemory = memoryResBytes
 	if c.Docker.LimitMemoryMiB > c.Docker.ReserveMemoryMiB {
 		hc.KernelMemory = c.Docker.LimitMemoryMiB * 1024 * 1024
+	}
+
+	// Container logging
+	if c.Docker.LogDriver != "" {
+		hc.LogConfig.Type = c.Docker.LogDriver
+		hc.LogConfig.Config = map[string]string{}
+		for _, nv := range c.Docker.LogDriverOptions {
+			hc.LogConfig.Config[nv.Name] = nv.Value
+		}
 	}
 
 	// Set volume mounts
