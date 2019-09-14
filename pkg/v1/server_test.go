@@ -7,6 +7,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"math/rand"
+	"strings"
 	"testing"
 )
 
@@ -58,10 +59,10 @@ func TestComponentCRUD(t *testing.T) {
 
 		expected := GetComponentOutput{
 			Component: Component{
-				Name:                    input.Component.Name,
+				Name:                    strings.ToLower(input.Component.Name),
 				Version:                 1,
 				Docker:                  input.Component.Docker,
-				ProjectName:             input.Component.ProjectName,
+				ProjectName:             strings.ToLower(input.Component.ProjectName),
 				Environment:             input.Component.Environment,
 				MaxConcurrency:          input.Component.MaxConcurrency,
 				MaxDurationSeconds:      input.Component.MaxDurationSeconds,

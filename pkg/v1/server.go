@@ -89,12 +89,15 @@ func (v *V1) transformPutError(prefix string, err error) error {
 }
 
 func (v *V1) PutProject(input PutProjectInput) (PutProjectOutput, error) {
+	// force names lower
+	input.Project.Name = strings.ToLower(input.Project.Name)
+
 	// prepend project name to component and es names
 	namePrefix := strings.TrimSpace(input.Project.Name) + "_"
 	for x, c := range input.Project.Components {
-		c.Component.Name = ensureStartsWith(namePrefix, c.Component.Name)
+		c.Component.Name = ensureStartsWith(namePrefix, strings.ToLower(c.Component.Name))
 		for y, es := range c.EventSources {
-			es.Name = ensureStartsWith(namePrefix, es.Name)
+			es.Name = ensureStartsWith(namePrefix, strings.ToLower(es.Name))
 			es.ComponentName = c.Component.Name
 			c.EventSources[y] = es
 		}
@@ -166,6 +169,7 @@ func (v *V1) PutProject(input PutProjectInput) (PutProjectOutput, error) {
 }
 
 func (v *V1) GetProject(input GetProjectInput) (GetProjectOutput, error) {
+	input.Name = strings.ToLower(input.Name)
 	project, err := v.getProjectInternal(input.Name)
 	if err != nil {
 		return GetProjectOutput{}, err
@@ -204,6 +208,7 @@ func (v *V1) getProjectInternal(projectName string) (Project, error) {
 }
 
 func (v *V1) RemoveProject(input RemoveProjectInput) (RemoveProjectOutput, error) {
+	input.Name = strings.ToLower(input.Name)
 	compOut, err := v.db.ListComponents(ListComponentsInput{ProjectName: input.Name})
 	if err != nil {
 		return RemoveProjectOutput{}, v.onError(DbError, "ListComponents failed", err)
@@ -222,6 +227,8 @@ func (v *V1) RemoveProject(input RemoveProjectInput) (RemoveProjectOutput, error
 }
 
 func (v *V1) PutComponent(input PutComponentInput) (PutComponentOutput, error) {
+	input.Component.Name = strings.ToLower(input.Component.Name)
+	input.Component.ProjectName = strings.ToLower(input.Component.ProjectName)
 	name, err := validateComponent("input.name", input.Component)
 	if err != nil {
 		return PutComponentOutput{}, err
@@ -245,6 +252,7 @@ func (v *V1) PutComponent(input PutComponentInput) (PutComponentOutput, error) {
 }
 
 func (v *V1) GetComponent(input GetComponentInput) (GetComponentOutput, error) {
+	input.Name = strings.ToLower(input.Name)
 	c, err := v.db.GetComponent(input.Name)
 	if err != nil {
 		if err == NotFound {
@@ -259,11 +267,14 @@ func (v *V1) GetComponent(input GetComponentInput) (GetComponentOutput, error) {
 }
 
 func (v *V1) ListComponents(input ListComponentsInput) (ListComponentsOutput, error) {
+	input.NamePrefix = strings.ToLower(input.NamePrefix)
+	input.ProjectName = strings.ToLower(input.ProjectName)
 	return v.db.ListComponents(input)
 }
 
 func (v *V1) RemoveComponent(input RemoveComponentInput) (RemoveComponentOutput, error) {
 	// * 1001 - input.name is invalid
+	input.Name = strings.ToLower(input.Name)
 	name, err := componentNameValid("input.name", input.Name)
 	if err != nil {
 		return RemoveComponentOutput{}, err
@@ -286,6 +297,9 @@ func (v *V1) RemoveComponent(input RemoveComponentInput) (RemoveComponentOutput,
 }
 
 func (v *V1) PutEventSource(input PutEventSourceInput) (PutEventSourceOutput, error) {
+	input.EventSource.Name = strings.ToLower(input.EventSource.Name)
+	input.EventSource.ComponentName = strings.ToLower(input.EventSource.ComponentName)
+
 	name, err := validateEventSource("input.eventSource", input.EventSource)
 	if err != nil {
 		return PutEventSourceOutput{}, err
@@ -314,6 +328,7 @@ func (v *V1) PutEventSource(input PutEventSourceInput) (PutEventSourceOutput, er
 }
 
 func (v *V1) GetEventSource(input GetEventSourceInput) (GetEventSourceOutput, error) {
+	input.Name = strings.ToLower(input.Name)
 	es, err := v.db.GetEventSource(input.Name)
 	if err != nil {
 		if err == NotFound {
@@ -327,6 +342,7 @@ func (v *V1) GetEventSource(input GetEventSourceInput) (GetEventSourceOutput, er
 }
 
 func (v *V1) RemoveEventSource(input RemoveEventSourceInput) (RemoveEventSourceOutput, error) {
+	input.Name = strings.ToLower(input.Name)
 	// * 1001 - input.name is invalid
 	name, err := eventSourceNameValid("input.name", input.Name)
 	if err != nil {
@@ -341,6 +357,9 @@ func (v *V1) RemoveEventSource(input RemoveEventSourceInput) (RemoveEventSourceO
 }
 
 func (v *V1) ListEventSources(input ListEventSourcesInput) (ListEventSourcesOutput, error) {
+	input.NamePrefix = strings.ToLower(input.NamePrefix)
+	input.ComponentName = strings.ToLower(input.ComponentName)
+	input.ProjectName = strings.ToLower(input.ProjectName)
 	return v.db.ListEventSources(input)
 }
 

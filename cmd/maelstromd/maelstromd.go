@@ -10,6 +10,7 @@ import (
 	"github.com/mgutz/logxi/v1"
 	"gitlab.com/coopernurse/maelstrom/pkg/cert"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
+	"gitlab.com/coopernurse/maelstrom/pkg/config"
 	"gitlab.com/coopernurse/maelstrom/pkg/gateway"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"net/http"
@@ -67,29 +68,39 @@ func main() {
 		log.ProcessLogxiFormatEnv("happy,maxcol=120")
 	}
 
-	var publicPort = flag.Int("publicPort", 80, "Port used for public reverse proxying")
-	var publicHTTPSPort = flag.Int("publicHTTPSPort", 443, "HTTPS Port used for public reverse proxying")
-	var privatePort = flag.Int("privatePort", 8374, "Port used for private routing and management operations")
-	var sqlDriver = flag.String("sqlDriver", "", "database/sql driver to use. If so, -sqlDSN is required")
-	var sqlDSN = flag.String("sqlDSN", "", "DSN for sql database")
-	var cronRefreshSec = flag.Int("cronRefreshSec", 60, "Interval to refresh cron rules from db")
-	var logGc = flag.Int("loggc", 0, "If > 0, print gc stats every x seconds")
-	var cpuprofile = flag.String("cpuprofile", "", "If set, log profile data to file")
+	var envConfigFile = flag.String("f", "", "Path to env config file. Optional.")
 	flag.Parse()
 
-	if *logGc > 0 {
+	var conf config.Config
+	var err error
+	if *envConfigFile != "" {
+		conf, err = config.FromEnvFile(*envConfigFile)
+	} else {
+		conf, err = config.FromEnv()
+	}
+	if err != nil {
+		log.Error("maelstromd: cannot load config", "err", err)
+		os.Exit(2)
+	}
+
+	if conf.SqlDriver == "" || conf.SqlDSN == "" {
+		log.Error("maelstromd: MAEL_SQLDRIVER and MAEL_PUBLICPORT env vars are required")
+		os.Exit(2)
+	}
+
+	if conf.LogGCSeconds > 0 {
 		go func() {
 			var stats debug.GCStats
 			for {
-				time.Sleep(time.Duration(*logGc) * time.Second)
+				time.Sleep(time.Duration(conf.LogGCSeconds) * time.Second)
 				debug.ReadGCStats(&stats)
 				log.Info("stats", "last", stats.LastGC, "num", stats.NumGC, "pause", stats.PauseTotal.String())
 			}
 		}()
 	}
 
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
+	if conf.CpuProfileFilename != "" {
+		f, err := os.Create(conf.CpuProfileFilename)
 		if err != nil {
 			log.Error("maelstromd: cannot create profile file", "err", err)
 			os.Exit(2)
@@ -115,9 +126,9 @@ func main() {
 		log.Error("maelstromd: cannot resolve outbound IP address", "err", err)
 		os.Exit(2)
 	}
-	peerUrl := fmt.Sprintf("http://%s:%d", outboundIp, *privatePort)
+	peerUrl := fmt.Sprintf("http://%s:%d", outboundIp, conf.PrivatePort)
 
-	db := initDb(*sqlDriver, *sqlDSN)
+	db := initDb(conf.SqlDriver, conf.SqlDSN)
 	dockerClient, err := docker.NewEnvClient()
 	if err != nil {
 		log.Error("maelstromd: cannot create docker client", "err", err)
@@ -132,7 +143,7 @@ func main() {
 	daemonWG := &sync.WaitGroup{}
 
 	resolver := gateway.NewDbResolver(db, certWrapper, time.Second)
-	handlerFactory, err := gateway.NewDockerHandlerFactory(dockerClient, resolver, db, cancelCtx, *privatePort)
+	handlerFactory, err := gateway.NewDockerHandlerFactory(dockerClient, resolver, db, cancelCtx, conf.PrivatePort)
 	if err != nil {
 		log.Error("maelstromd: cannot create handler factory", "err", err)
 		os.Exit(2)
@@ -173,7 +184,7 @@ func main() {
 	if certWrapper == nil {
 		servers = []*http.Server{
 			{
-				Addr:         fmt.Sprintf(":%d", *publicPort),
+				Addr:         fmt.Sprintf(":%d", conf.PublicPort),
 				ReadTimeout:  30 * time.Second,
 				WriteTimeout: 600 * time.Second,
 				Handler:      publicSvr,
@@ -181,7 +192,7 @@ func main() {
 		}
 		go mustStart(servers[0])
 	} else {
-		servers, err = certWrapper.Start(publicSvr, *publicPort, *publicHTTPSPort)
+		servers, err = certWrapper.Start(publicSvr, conf.PublicPort, conf.PublicHTTPSPort)
 		if err != nil {
 			log.Error("maelstromd: cannot start public server", "err", err)
 			os.Exit(2)
@@ -189,7 +200,7 @@ func main() {
 	}
 
 	privateSvr := &http.Server{
-		Addr:        fmt.Sprintf(":%d", *privatePort),
+		Addr:        fmt.Sprintf(":%d", conf.PrivatePort),
 		ReadTimeout: 30 * time.Second,
 		Handler:     privateSvrMux,
 	}
@@ -201,10 +212,10 @@ func main() {
 		log.Info("maelstromd: aws session initialized")
 	}
 
-	log.Info("maelstromd: starting HTTP servers", "publicPort", publicPort, "privatePort", privatePort)
+	log.Info("maelstromd: starting HTTP servers", "publicPort", conf.PublicPort, "privatePort", conf.PrivatePort)
 
 	cronSvc := gateway.NewCronService(db, privateGateway, cancelCtx, nodeSvcImpl.NodeId(),
-		time.Second*time.Duration(*cronRefreshSec))
+		time.Second*time.Duration(conf.CronRefreshSeconds))
 	daemonWG.Add(1)
 	go cronSvc.Run(daemonWG)
 

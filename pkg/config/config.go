@@ -57,6 +57,26 @@ func FromEnv() (Config, error) {
 }
 
 type Config struct {
+	// Server options
+
+	// Port used for public reverse proxying
+	PublicPort int `default:"80"`
+	// HTTPS Port used for public reverse proxying
+	PublicHTTPSPort int `default:"443"`
+	// Port used for private routing and management operations
+	PrivatePort int `default:"8374"`
+	// database/sql driver to use
+	SqlDriver string
+	// DSN for sql database - format is specific to each particular database driver
+	SqlDSN string
+	// Interval to refresh cron rules from db
+	CronRefreshSeconds int `default:"60"`
+	// If > 0, print gc stats every x seconds
+	LogGCSeconds int
+	// If set, log profile data to this filename
+	CpuProfileFilename string
+
+	// Currently unsupported - will dust these off in the future
 	Cluster      ClusterOptions
 	DigitalOcean *DigitalOceanOptions `envconfig:"DO"`
 }

@@ -2,6 +2,9 @@
 .EXPORT_ALL_VARIABLES:
 
 GO111MODULE = on
+MAEL_SQLDRIVER = sqlite3
+MAEL_SQLDSN = ./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY
+MAEL_PUBLICPORT = 8008
 
 test:
 	scripts/gofmt_check.sh
@@ -30,13 +33,11 @@ idl:
 
 run-maelstromd:
 	mkdir -p tmp
-	./dist/maelstromd -publicPort 8008 -sqlDriver sqlite3 \
-	    -sqlDSN 'file:./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY' &
+	./dist/maelstromd &
 
 profile-maelstromd:
 	mkdir -p tmp
-	./dist/maelstromd -publicPort 8008 -sqlDriver sqlite3 -cpuprofile=tmp/mael.prof \
-	    -sqlDSN 'file:./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY' &
+	./dist/maelstromd &
 
 copy-to-s3:
 	aws s3 cp --acl public-read ./dist/maelstromd s3://bitmech-west2/maelstrom/latest/maelstromd
