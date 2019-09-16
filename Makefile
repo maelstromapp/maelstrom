@@ -45,3 +45,6 @@ copy-to-s3:
 
 copy-aws-scripts-to-s3:
 	aws s3 cp --acl public-read ./cloud/aws/mael-init-node.sh s3://bitmech-west2/maelstrom/latest/mael-init-node.sh
+
+gitbook:
+	cd docs/gitbook && gitbook build

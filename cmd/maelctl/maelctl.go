@@ -10,6 +10,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"gitlab.com/coopernurse/maelstrom/pkg/config"
+	"gitlab.com/coopernurse/maelstrom/pkg/maelstrom"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"gitlab.com/coopernurse/maelstrom/pkg/vm"
 	"io/ioutil"
@@ -192,11 +193,11 @@ func projectPut(args docopt.Opts, svc v1.MaelstromService) {
 	if fname == "" {
 		fname = "maelstrom.yml"
 	}
-	proj, err := v1.ParseYamlFileAndInterpolateEnv(fname)
+	proj, err := maelstrom.ParseYamlFileAndInterpolateEnv(fname)
 	checkErr(err, "Unable to load project YAML file")
 	out, err := svc.PutProject(v1.PutProjectInput{Project: proj})
 	checkErr(err, "PutProject failed")
-	if v1.PutProjectOutputEmpty(out) {
+	if maelstrom.PutProjectOutputEmpty(out) {
 		fmt.Printf("PutProject: No project changes detected for project: %s using file: %s", out.Name, fname)
 	} else {
 		fmt.Printf("Project saved: %s from file: %s\n", out.Name, fname)

@@ -11,7 +11,7 @@ import (
 	"gitlab.com/coopernurse/maelstrom/pkg/cert"
 	"gitlab.com/coopernurse/maelstrom/pkg/common"
 	"gitlab.com/coopernurse/maelstrom/pkg/config"
-	"gitlab.com/coopernurse/maelstrom/pkg/gateway"
+	"gitlab.com/coopernurse/maelstrom/pkg/maelstrom"
 	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"net/http"
 	"os"
@@ -35,8 +35,8 @@ func mustStart(s *http.Server) {
 	}
 }
 
-func initDb(sqlDriver, sqlDSN string) v1.Db {
-	sqlDb, err := v1.NewSqlDb(sqlDriver, sqlDSN)
+func initDb(sqlDriver, sqlDSN string) maelstrom.Db {
+	sqlDb, err := maelstrom.NewSqlDb(sqlDriver, sqlDSN)
 	if err != nil {
 		log.Error("maelstromd: cannot create SqlDb", "driver", sqlDriver, "err", err)
 		os.Exit(2)
@@ -142,8 +142,8 @@ func main() {
 	cancelCtx, cancelFx := context.WithCancel(context.Background())
 	daemonWG := &sync.WaitGroup{}
 
-	resolver := gateway.NewDbResolver(db, certWrapper, time.Second)
-	handlerFactory, err := gateway.NewDockerHandlerFactory(dockerClient, resolver, db, cancelCtx, conf.PrivatePort)
+	resolver := maelstrom.NewDbResolver(db, certWrapper, time.Second)
+	handlerFactory, err := maelstrom.NewDockerHandlerFactory(dockerClient, resolver, db, cancelCtx, conf.PrivatePort)
 	if err != nil {
 		log.Error("maelstromd: cannot create handler factory", "err", err)
 		os.Exit(2)
@@ -152,28 +152,28 @@ func main() {
 	dockerMonitor := common.NewDockerImageMonitor(dockerClient, handlerFactory, cancelCtx)
 	dockerMonitor.RunAsync(daemonWG)
 
-	nodeSvcImpl, err := gateway.NewNodeServiceImplFromDocker(handlerFactory, db, dockerClient, peerUrl)
+	nodeSvcImpl, err := maelstrom.NewNodeServiceImplFromDocker(handlerFactory, db, dockerClient, peerUrl)
 	if err != nil {
 		log.Error("maelstromd: cannot create NodeService", "err", err)
 		os.Exit(2)
 	}
-	router := gateway.NewRouter(nodeSvcImpl, handlerFactory, nodeSvcImpl.NodeId(), outboundIp.String(), cancelCtx)
+	router := maelstrom.NewRouter(nodeSvcImpl, handlerFactory, nodeSvcImpl.NodeId(), outboundIp.String(), cancelCtx)
 	nodeSvcImpl.Cluster().AddObserver(router)
 	daemonWG.Add(2)
 	go nodeSvcImpl.RunNodeStatusLoop(time.Second*30, cancelCtx, daemonWG)
 	go nodeSvcImpl.RunAutoscaleLoop(time.Minute, cancelCtx, daemonWG)
 	log.Info("maelstromd: created NodeService", nodeSvcImpl.LogPairs()...)
 
-	publicSvr := gateway.NewGateway(resolver, router, true)
+	publicSvr := maelstrom.NewGateway(resolver, router, true)
 
-	componentSubscribers := []v1.ComponentSubscriber{handlerFactory}
+	componentSubscribers := []maelstrom.ComponentSubscriber{handlerFactory}
 
 	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
-	v1Impl := v1.NewV1(db, componentSubscribers, certWrapper)
+	v1Impl := maelstrom.NewMaelServiceImpl(db, componentSubscribers, certWrapper)
 	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl, nodeSvcImpl)
-	logsHandler := gateway.NewLogsHandler(dockerClient)
+	logsHandler := maelstrom.NewLogsHandler(dockerClient)
 
-	privateGateway := gateway.NewGateway(resolver, router, false)
+	privateGateway := maelstrom.NewGateway(resolver, router, false)
 	privateSvrMux := http.NewServeMux()
 	privateSvrMux.Handle("/_mael/v1", &v1Server)
 	privateSvrMux.Handle("/_mael/logs", logsHandler)
@@ -214,12 +214,12 @@ func main() {
 
 	log.Info("maelstromd: starting HTTP servers", "publicPort", conf.PublicPort, "privatePort", conf.PrivatePort)
 
-	cronSvc := gateway.NewCronService(db, privateGateway, cancelCtx, nodeSvcImpl.NodeId(),
+	cronSvc := maelstrom.NewCronService(db, privateGateway, cancelCtx, nodeSvcImpl.NodeId(),
 		time.Second*time.Duration(conf.CronRefreshSeconds))
 	daemonWG.Add(1)
 	go cronSvc.Run(daemonWG)
 
-	evPoller := gateway.NewEvPoller(nodeSvcImpl.NodeId(), cancelCtx, db, router, awsSession)
+	evPoller := maelstrom.NewEvPoller(nodeSvcImpl.NodeId(), cancelCtx, db, router, awsSession)
 	daemonWG.Add(1)
 	go evPoller.Run(daemonWG)
 

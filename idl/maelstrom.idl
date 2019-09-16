@@ -10,6 +10,8 @@
 // * 1004 - Concurrent write violation (previous version of entity is not current)
 //
 
+// MaelstromService manages the core data structures (projects, components, event sources)
+// defined by the system users
 interface MaelstromService {
 
     // PutProject registers a set of components and event sources, grouped under a single name
@@ -28,8 +30,22 @@ interface MaelstromService {
     //
     PutProject(input PutProjectInput) PutProjectOutput
 
+    // GetProject returns the project with the given name
+    //
+    // Error Codes:
+    //
+    // * 1003 - No project found with that name
+    //
     GetProject(input GetProjectInput) GetProjectOutput
 
+    // RemoveProject deletes the project with the given name
+    //
+    // This operation removes the components and event sources contained
+    // in the project.
+    //
+    // If no project is found with that name no error is raised
+    // and the call silently no-ops.
+    //
     RemoveProject(input RemoveProjectInput) RemoveProjectOutput
 
     // PutComponent registers a component definition
@@ -41,7 +57,7 @@ interface MaelstromService {
     //
     PutComponent(input PutComponentInput) PutComponentOutput
 
-    // GetComponent returns a component with the given name
+    // GetComponent returns the component with the given name
     //
     // Error Codes:
     //
@@ -49,7 +65,7 @@ interface MaelstromService {
     //
     GetComponent(input GetComponentInput) GetComponentOutput
 
-    // RemoveComponent deletes a component with the given name
+    // RemoveComponent deletes the component with the given name
     //
     // If no component is found with that name no error is raised
     // and the call silently no-ops.
@@ -69,7 +85,6 @@ interface MaelstromService {
     // Results are sorted by name (ascending)
     //
     ListComponents(input ListComponentsInput) ListComponentsOutput
-
 
     // PutEventSource registers an event source definition associated
     // with a component
@@ -124,17 +139,33 @@ interface MaelstromService {
     ListNodeStatus(input ListNodeStatusInput) ListNodeStatusOutput
 }
 
+// NodeService contains operations used between nodes in the cluster to coordinate, start,
+// and stop containers.
 interface NodeService {
 
+    // GetStatus returns the current status of the target node including any running containers,
+    // load average, and memory availability.  Nodes periodically write their status to the database
+    // but this call is used to get the most recent information.
     GetStatus(input GetNodeStatusInput) GetNodeStatusOutput
 
+    // StatusChanged indicates that a node is leaving the cluster or has modified its list of
+    // running containers. The receiving node should update their in-memory cluster state as appropriate.
     StatusChanged(input StatusChangedInput) StatusChangedOutput
 
+    // PlaceComponent is called when a node wishes to invoke a component but is unaware of any
+    // running instances of that component.  The receiver should attempt to acquire the placement role
+    // and then determine which node in the cluster should start that component.
+    //
+    // This operation fulfills the zero to one instance cold start case.
+    //
     // Error Codes:
     //
     // * 1003 - input.componentName does not reference a component defined in the system
+    //
     PlaceComponent(input PlaceComponentInput) PlaceComponentOutput
 
+    // StartStopComponents is called by the placement node when scaling containers up or down for
+    // a component.  The receiving node should start or stop components as directed on the request.
     StartStopComponents(input StartStopComponentsInput) StartStopComponentsOutput
 
 }
