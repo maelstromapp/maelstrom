@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sqs"
 	log "github.com/mgutz/logxi/v1"
@@ -60,18 +61,38 @@ func (e *EvPoller) Run(daemonWG *sync.WaitGroup) {
 	}
 }
 
-func (e *EvPoller) sqsQueueUrlsForPrefix(prefix string) (*sqs.SQS, []*string, error) {
+func (e *EvPoller) sqsQueueUrlsForPrefix(queueNameOrPrefix string, prefix bool) (*sqs.SQS, []*string, error) {
 	if e.awsSession == nil {
 		return nil, nil, fmt.Errorf("evpoller: cannot create sqs client - awsSession is nil")
 	}
 
 	sqsClient := sqs.New(e.awsSession)
-	out, err := sqsClient.ListQueues(&sqs.ListQueuesInput{QueueNamePrefix: &prefix})
-	if err != nil {
-		return nil, nil, err
+	queueUrls := []*string{}
+	if prefix {
+		out, err := sqsClient.ListQueues(&sqs.ListQueuesInput{QueueNamePrefix: &queueNameOrPrefix})
+		if err != nil {
+			return nil, nil, err
+		}
+		sort.Sort(v1.StringPtr(out.QueueUrls))
+		queueUrls = out.QueueUrls
+	} else {
+		out, err := sqsClient.GetQueueUrl(&sqs.GetQueueUrlInput{QueueName: &queueNameOrPrefix})
+		if err != nil {
+			returnErr := true
+			if aerr, ok := err.(awserr.Error); ok {
+				switch aerr.Code() {
+				case sqs.ErrCodeQueueDoesNotExist:
+					returnErr = false
+				}
+			}
+			if returnErr {
+				return nil, nil, err
+			}
+		} else {
+			queueUrls = []*string{out.QueueUrl}
+		}
 	}
-	sort.Sort(v1.StringPtr(out.QueueUrls))
-	return sqsClient, out.QueueUrls, nil
+	return sqsClient, queueUrls, nil
 }
 
 func (e *EvPoller) initSqsEventSource(es v1.EventSource, validRoleIds map[string]bool) {
@@ -87,10 +108,10 @@ func (e *EvPoller) initSqsEventSource(es v1.EventSource, validRoleIds map[string
 			// acquired lock - start sqs poller
 			cancelFx := e.activeRoles[roleId]
 			if cancelFx == nil {
-				sqsClient, queueUrls, err := e.sqsQueueUrlsForPrefix(es.Sqs.QueueNamePrefix)
+				sqsClient, queueUrls, err := e.sqsQueueUrlsForPrefix(es.Sqs.QueueName, es.Sqs.NameAsPrefix)
 				if err != nil {
 					log.Error("evpoller: error loading queue urls", "err", err, "roleId", roleId,
-						"queuePrefix", es.Sqs.QueueNamePrefix)
+						"queueName", es.Sqs.QueueName)
 				} else if len(queueUrls) > 0 {
 					ctx, cancelFunc := context.WithCancel(e.ctx)
 					e.activeRoles[roleId] = cancelFunc
@@ -130,7 +151,7 @@ func (e *EvPoller) reload() {
 
 		// init pollers for event sources found
 		for _, es := range output.EventSources {
-			if es.Sqs != nil && es.Sqs.QueueNamePrefix != "" {
+			if es.Sqs != nil && es.Sqs.QueueName != "" {
 				e.initSqsEventSource(setSqsDefaults(es), validRoleIds)
 			}
 		}

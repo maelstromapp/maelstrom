@@ -145,10 +145,18 @@ func (s *SqsPoller) poll(queueUrl *string) ([]*sqs.Message, error) {
 	if log.IsDebug() {
 		log.Debug("sqs: polling queue", "queueUrl", *queueUrl)
 	}
+	maxMsgs := s.es.Sqs.MessagesPerPoll
+	if maxMsgs < 1 || maxMsgs > 10 {
+		maxMsgs = 1
+	}
+	visibilityTimeout := s.es.Sqs.VisibilityTimeout
+	if visibilityTimeout <= 0 {
+		visibilityTimeout = 300
+	}
 	out, err := s.sqs.ReceiveMessage(&sqs.ReceiveMessageInput{
 		QueueUrl:            queueUrl,
-		MaxNumberOfMessages: nil,
-		VisibilityTimeout:   aws.Int64(s.es.Sqs.VisibilityTimeout),
+		MaxNumberOfMessages: aws.Int64(maxMsgs),
+		VisibilityTimeout:   aws.Int64(visibilityTimeout),
 		WaitTimeSeconds:     aws.Int64(1),
 	})
 	if err == nil {

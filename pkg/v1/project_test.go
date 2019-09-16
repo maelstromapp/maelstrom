@@ -122,7 +122,8 @@ components:
     eventsources:
       messages:
         sqs:
-          queuenameprefix: ${ENV}_images
+          queuename: ${ENV}_images
+          nameasprefix: true
           visibilitytimeout: 300
           maxconcurrency: 10
           path: /message
@@ -161,7 +162,8 @@ components:
 						ComponentName: "detector",
 						ProjectName:   "demo-object-detector",
 						Sqs: &SqsEventSource{
-							QueueNamePrefix:   "${ENV}_images",
+							QueueName:         "${ENV}_images",
+							NameAsPrefix:      true,
 							VisibilityTimeout: 300,
 							MaxConcurrency:    10,
 							Path:              "/message",

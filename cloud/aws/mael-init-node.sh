@@ -2,6 +2,9 @@
 
 role="maelnode"
 
+EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
+EC2_REGION="`echo \"$EC2_AVAIL_ZONE\" | sed 's/[a-z]$//'`"
+
 # create systemd unit
 cat <<EOF > /etc/systemd/system/maelstromd.service
 [Unit]
@@ -11,12 +14,16 @@ After=docker.service
 TimeoutStartSec=0
 Restart=always
 RestartSec=5
+Environment=MAEL_SQLDRIVER=${dbDriver}
+Environment=MAEL_SQLDSN=${dbDSN}
+Environment=AWS_REGION=${EC2_REGION}
 ExecStartPre=/bin/mkdir -p /var/maelstrom
 ExecStartPre=/bin/chmod 700 /var/maelstrom
-ExecStart=/usr/bin/maelstromd -sqlDriver ${dbDriver} -sqlDSN ${dbDSN}
+ExecStart=/usr/bin/maelstromd
 [Install]
 WantedBy=multi-user.target
 EOF
+chmod 600 /etc/systemd/system/maelstromd.service
 
 # set hostname
 instanceId=`curl -s http://169.254.169.254/latest/meta-data/instance-id`

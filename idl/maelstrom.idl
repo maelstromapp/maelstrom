@@ -316,14 +316,21 @@ struct CronHttpRequest {
 }
 
 struct SqsEventSource {
-    // Name prefix of queues related to this event source
+
+    // Name of queue
+    // If nameAsPrefix=true, this is the queueName prefix
+    queueName            string
+
+    // Treat queueName as prefix and poll all queues with that prefix in order.
     // If more than one queue is found, the names will be sorted
     // and drained in ascending order. This allows priority queueing
     // to be done.  For example, create queues named:
     //     myQueue-0, myQueue-1, myQueue-2
     // In this example myQueue-0 would have highest priority and
     // would be drained before processing messages from myQueue-1
-    queueNamePrefix       string
+    //
+    // Optional. (default=false)
+    nameAsPrefix          bool    [optional]
 
     // Request path, optionally including a query string
     // If a query string is included, make sure the parameters are

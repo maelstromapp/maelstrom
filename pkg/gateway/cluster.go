@@ -152,7 +152,7 @@ func (c *Cluster) GetNodeService(node v1.NodeStatus) v1.NodeService {
 	if node.NodeId == c.myNodeId {
 		return c.localNodeService
 	}
-	client := barrister.NewRemoteClient(&barrister.HttpTransport{Url: node.PeerUrl}, false)
+	client := barrister.NewRemoteClient(&barrister.HttpTransport{Url: node.PeerUrl + "/_mael/v1"}, false)
 	return v1.NewNodeServiceProxy(client)
 }
 

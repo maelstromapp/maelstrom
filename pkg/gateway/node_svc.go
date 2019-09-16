@@ -311,7 +311,7 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 
 	startedCount := map[string]int64{}
 	stoppedCount := map[string]int64{}
-	var errors []v1.ComponentDeltaError
+	errors := make([]v1.ComponentDeltaError, 0)
 	var stopRequests []v1.ComponentDelta
 	var startRequests []v1.ComponentDelta
 
@@ -397,10 +397,11 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 	n.cluster.SetNode(status)
 
 	return v1.StartStopComponentsOutput{
-		TargetStatus: &status,
-		Started:      started,
-		Stopped:      stopped,
-		Errors:       errors,
+		TargetVersionMismatch: false,
+		TargetStatus:          &status,
+		Started:               started,
+		Stopped:               stopped,
+		Errors:                errors,
 	}, nil
 }
 
