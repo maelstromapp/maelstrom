@@ -1,6 +1,6 @@
 package maelstrom
 
-import "gitlab.com/coopernurse/maelstrom/pkg/v1"
+import "github.com/coopernurse/maelstrom/pkg/v1"
 
 type nameValueByName []v1.NameValue
 

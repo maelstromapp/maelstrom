@@ -2,9 +2,9 @@ package maelstrom
 
 import (
 	"fmt"
+	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/go-yaml/yaml"
-	"gitlab.com/coopernurse/maelstrom/pkg/common"
-	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"io/ioutil"
 	"reflect"
 	"sort"

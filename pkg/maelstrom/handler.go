@@ -3,6 +3,8 @@ package maelstrom
 import (
 	"context"
 	"fmt"
+	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -10,8 +12,6 @@ import (
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/mgutz/logxi/v1"
-	"gitlab.com/coopernurse/maelstrom/pkg/common"
-	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"io"
 	"io/ioutil"
 	"os"

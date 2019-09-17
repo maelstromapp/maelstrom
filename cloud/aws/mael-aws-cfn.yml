@@ -424,13 +424,13 @@ Resources:
           yum install -y curl ca-certificates docker
           # download maelstrom
           cd /usr/bin
-          curl -LO https://bitmech-west2.s3.amazonaws.com/maelstrom/latest/maelstromd
-          curl -LO https://bitmech-west2.s3.amazonaws.com/maelstrom/latest/maelctl
+          curl -LO https://download.maelstromapp.com/latest/linux_x86_64/maelstromd
+          curl -LO https://download.maelstromapp.com/latest/linux_x86_64/maelctl
           chmod 755 maelstromd maelctl
           # run init script
           export dbDriver="mysql"
           export dbDSN="${DBUsername}:${DBPassword}@(${RDSCluster.Endpoint.Address}:3306)/${DBName}"
-          curl -L https://bitmech-west2.s3.amazonaws.com/maelstrom/latest/mael-init-node.sh | bash -xe
+          curl -L https://download.maelstromapp.com/latest/mael-init-node.sh | bash -xe
           # notify success
           /opt/aws/bin/cfn-signal -e $? -r 'Setup complete' --region ${AWS::Region} \
                --stack ${AWS::StackName} --resource ${AWS::StackName}-ASG

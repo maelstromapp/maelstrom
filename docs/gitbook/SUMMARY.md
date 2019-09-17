@@ -1,6 +1,15 @@
-# Summary
+# Maelstrom
 
 * [Introduction](README.md)
-* [Getting Started](getting_started.md)
-* [A1 - maelstromd env vars](maelstromd_env_vars.md)
-* [A2 - project yaml reference](project_yaml_ref.md)
+* [Getting Started](getting_started/README.md)
+  * [Prerequisites](getting_started/prerequisites.md)
+  * [Download and Install](getting_started/installation.md)
+  * [Create Project](getting_started/create_project.md)
+  * [Activate Component](getting_started/activate_component.md)
+  * [What Happened](getting_started/what_happened.md)
+  * [Update Project](getting_started/update_project.md)
+  * [Remove Project](getting_started/remove_project.md)
+  * [Next Steps](getting_started/next_steps.md)
+* [Appendixes](appendix/README.md)
+  * [maelstromd Environment Variables](appendix/maelstromd_env_vars.md)
+  * [Project YAML reference](appendix/project_yaml_ref.md)

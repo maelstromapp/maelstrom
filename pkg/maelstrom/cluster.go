@@ -2,8 +2,8 @@ package maelstrom
 
 import (
 	"github.com/coopernurse/barrister-go"
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	log "github.com/mgutz/logxi/v1"
-	v1 "gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"sync"
 )
 

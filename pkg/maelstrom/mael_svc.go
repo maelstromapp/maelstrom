@@ -3,10 +3,10 @@ package maelstrom
 import (
 	"fmt"
 	"github.com/coopernurse/barrister-go"
+	"github.com/coopernurse/maelstrom/pkg/cert"
+	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/mgutz/logxi/v1"
-	"gitlab.com/coopernurse/maelstrom/pkg/cert"
-	"gitlab.com/coopernurse/maelstrom/pkg/common"
-	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"regexp"
 	"strings"
 	"time"

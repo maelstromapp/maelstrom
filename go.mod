@@ -1,4 +1,4 @@
-module gitlab.com/coopernurse/maelstrom
+module github.com/coopernurse/maelstrom
 
 require (
 	github.com/GuiaBolso/darwin v0.0.0-20170210191649-86919dfcf808

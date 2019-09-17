@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/mgutz/logxi/v1"
 	"github.com/robfig/cron"
-	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -42,10 +42,9 @@ func (c *CronService) Run(wg *sync.WaitGroup) {
 	defer wg.Done()
 	log.Info("cron: starting cron service", "refreshRate", c.refreshRate.String())
 	lockTicker := time.Tick(15 * time.Second)
-	c.acquireRole()
-	c.reloadRulesAndStartCron()
+	reloadTicker := time.Tick(c.refreshRate)
+	c.reloadRulesAndStartCron(c.acquireRoleOrStop())
 	for {
-		reload := time.After(c.refreshRate)
 		select {
 		case <-c.ctx.Done():
 			if c.cron != nil {
@@ -55,10 +54,10 @@ func (c *CronService) Run(wg *sync.WaitGroup) {
 			return
 
 		case <-lockTicker:
-			c.acquireRole()
+			c.acquireRoleOrStop()
 
-		case <-reload:
-			c.reloadRulesAndStartCron()
+		case <-reloadTicker:
+			c.reloadRulesAndStartCron(c.acquireRoleOrStop())
 		}
 	}
 }
@@ -81,7 +80,8 @@ func (c *CronService) createCronInvoker(es v1.EventSource) func() {
 			req.Header.Set("Maelstrom-Component", es.ComponentName)
 			c.gateway.ServeHTTP(rw, req)
 			if rw.Code < 200 || rw.Code > 299 {
-				log.Error("cron: invoke returned non 2xx status", "name", es.Name, "component", es.ComponentName)
+				log.Warn("cron: invoke returned non 2xx status", "name", es.Name, "component", es.ComponentName,
+					"status", rw.Code)
 			}
 		} else {
 			log.Error("cron: http.NewRequest failed", "err", err, "name", es.Name, "component", es.ComponentName)
@@ -89,7 +89,7 @@ func (c *CronService) createCronInvoker(es v1.EventSource) func() {
 	}
 }
 
-func (c *CronService) acquireRole() {
+func (c *CronService) acquireRoleOrStop() bool {
 	previous := c.acquiredRole
 	c.acquiredRole = false
 	roleOk, roleNode, err := c.db.AcquireOrRenewRole(roleCron, c.nodeId, time.Minute)
@@ -108,6 +108,7 @@ func (c *CronService) acquireRole() {
 	} else {
 		log.Error("cron: db.AcquireOrRenewRole error", "err", err, "node", c.nodeId)
 	}
+	return c.acquiredRole
 }
 
 func (c *CronService) stopCron() {
@@ -118,8 +119,8 @@ func (c *CronService) stopCron() {
 	}
 }
 
-func (c *CronService) reloadRulesAndStartCron() {
-	if !c.acquiredRole {
+func (c *CronService) reloadRulesAndStartCron(hasRoleLock bool) {
+	if !hasRoleLock {
 		return
 	}
 

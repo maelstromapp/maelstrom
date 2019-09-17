@@ -2,7 +2,7 @@ package maelstrom
 
 import (
 	"fmt"
-	"gitlab.com/coopernurse/maelstrom/pkg/v1"
+	"github.com/coopernurse/maelstrom/pkg/v1"
 	"time"
 )
 

@@ -1,8 +1,8 @@
 package maelstrom
 
 import (
+	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/stretchr/testify/assert"
-	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"testing"
 )
 

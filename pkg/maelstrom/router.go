@@ -2,8 +2,8 @@ package maelstrom
 
 import (
 	"context"
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	log "github.com/mgutz/logxi/v1"
-	v1 "gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"math/rand"
 	"net/http"
 	"net/http/httputil"

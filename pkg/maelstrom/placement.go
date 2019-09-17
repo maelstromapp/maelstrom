@@ -2,7 +2,7 @@ package maelstrom
 
 import (
 	"fmt"
-	v1 "gitlab.com/coopernurse/maelstrom/pkg/v1"
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	"sort"
 )
 

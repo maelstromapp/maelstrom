@@ -1,6 +1,6 @@
 package maelstrom
 
-import "gitlab.com/coopernurse/maelstrom/pkg/v1"
+import "github.com/coopernurse/maelstrom/pkg/v1"
 
 func getEventSourceType(e v1.EventSource) v1.EventSourceType {
 	if e.Http != nil {

@@ -2,8 +2,8 @@ package maelstrom
 
 import (
 	"fmt"
-	"gitlab.com/coopernurse/maelstrom/pkg/cert"
-	"gitlab.com/coopernurse/maelstrom/pkg/v1"
+	"github.com/coopernurse/maelstrom/pkg/cert"
+	"github.com/coopernurse/maelstrom/pkg/v1"
 	"net/http"
 	"strings"
 	"sync"

@@ -17,8 +17,8 @@ watch-test:
 
 cover:
 	mkdir -p tmp
-	go test -coverprofile=tmp/cover.out gitlab.com/coopernurse/maelstrom/pkg/gateway \
-	    gitlab.com/coopernurse/maelstrom/pkg/v1
+	go test -coverprofile=tmp/cover.out github.com/coopernurse/maelstrom/pkg/gateway \
+	    github.com/coopernurse/maelstrom/pkg/v1
 	go tool cover -html=tmp/cover.out
 
 maelctl:
@@ -39,12 +39,18 @@ profile-maelstromd:
 	mkdir -p tmp
 	./dist/maelstromd &
 
-copy-to-s3:
-	aws s3 cp --acl public-read ./dist/maelstromd s3://bitmech-west2/maelstrom/latest/maelstromd
-	aws s3 cp --acl public-read ./dist/maelctl s3://bitmech-west2/maelstrom/latest/maelctl
+copy-to-server:
+	scp ./dist/maelstromd root@maelstromapp.com:/opt/web/sites/download.maelstromapp.com/latest/linux_x86_64/
+	scp ./dist/maelctl root@maelstromapp.com:/opt/web/sites/download.maelstromapp.com/latest/linux_x86_64/
 
-copy-aws-scripts-to-s3:
-	aws s3 cp --acl public-read ./cloud/aws/mael-init-node.sh s3://bitmech-west2/maelstrom/latest/mael-init-node.sh
+copy-aws-scripts-to-server:
+	scp ./cloud/aws/mael-init-node.sh root@maelstromapp.com:/opt/web/sites/download.maelstromapp.com/latest/
 
 gitbook:
 	cd docs/gitbook && gitbook build
+
+publish-web:
+	make gitbook
+	rm -rf docs/maelstromapp.com/docs/
+	cp -r docs/gitbook/_book docs/maelstromapp.com/docs
+	rsync -avz docs/maelstromapp.com/ root@maelstromapp.com:/opt/web/sites/maelstromapp.com/

@@ -2,9 +2,9 @@ package maelstrom
 
 import (
 	"fmt"
+	"github.com/coopernurse/maelstrom/pkg/common"
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/stretchr/testify/assert"
-	"gitlab.com/coopernurse/maelstrom/pkg/common"
-	v1 "gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"math/rand"
 	"reflect"
 	"strconv"

@@ -3,9 +3,9 @@ package vm
 import (
 	"context"
 	"fmt"
+	"github.com/coopernurse/maelstrom/pkg/config"
 	"github.com/digitalocean/godo"
 	"github.com/mgutz/logxi/v1"
-	"gitlab.com/coopernurse/maelstrom/pkg/config"
 	"golang.org/x/oauth2"
 	"io/ioutil"
 	"strconv"

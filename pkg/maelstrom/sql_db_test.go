@@ -2,10 +2,10 @@ package maelstrom
 
 import (
 	"fmt"
+	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/v1"
 	fuzz "github.com/google/gofuzz"
 	"github.com/stretchr/testify/assert"
-	"gitlab.com/coopernurse/maelstrom/pkg/common"
-	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"sort"
 	"sync"
 	"testing"

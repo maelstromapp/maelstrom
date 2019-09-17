@@ -3,10 +3,10 @@ package maelstrom
 import (
 	"fmt"
 	"github.com/coopernurse/barrister-go"
+	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/google/gofuzz"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
-	"gitlab.com/coopernurse/maelstrom/pkg/v1"
 	"math/rand"
 	"strings"
 	"testing"

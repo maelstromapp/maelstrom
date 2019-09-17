@@ -326,7 +326,7 @@ struct CronEventSource {
     // For format rules see: https://godoc.org/github.com/robfig/cron
     schedule      string
 
-    // Request to mak
+    // Request to make
     http          CronHttpRequest
 }
 

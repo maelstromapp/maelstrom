@@ -1,8 +1,8 @@
 package vm
 
 import (
-	"gitlab.com/coopernurse/maelstrom/pkg/common"
-	"gitlab.com/coopernurse/maelstrom/pkg/config"
+	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/config"
 )
 
 func CreateCluster(cfg config.Config, opts CreateClusterOptions, adapter Adapter) (CreateClusterOut, error) {

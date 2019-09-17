@@ -2,7 +2,7 @@ package vm
 
 import (
 	"fmt"
-	"gitlab.com/coopernurse/maelstrom/pkg/config"
+	"github.com/coopernurse/maelstrom/pkg/config"
 	"time"
 )
 
