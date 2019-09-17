@@ -1,19 +1,19 @@
-#!/bin/bash
+#!/bin/bash -x
 
 # install barrister
 cmd=$(command -v barrister)
 if [ -z "$cmd" ]; then
     echo "Installing barrister"
     set -e
-    opts="--user"
-    if [ -n "$CI_CACHEDIR" ]; then
-        apt-get update
-        apt-get install -y python-setuptools
-        easy_install pip
-        opts="--install-option=--prefix=$CI_CACHEDIR --ignore-installed"
-        pip install $opts setuptools
-    fi
-    pip install --pre $opts barrister
+#    opts="--user"
+#    if [ -n "$CI_CACHEDIR" ]; then
+#        apt-get update
+#        apt-get install -y python-setuptools
+#        easy_install pip
+#        opts="--install-option=--prefix=$CI_CACHEDIR --ignore-installed"
+#        pip install $opts setuptools
+#    fi
+    pip install --pre --user barrister
     set +e
 else
     echo "Found barrister: $cmd"
