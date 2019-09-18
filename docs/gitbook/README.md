@@ -15,6 +15,9 @@ and the `maelstrom.yml` project YAML format.
 **maelstrom** is built on top of [Docker](https://www.docker.com/) and provides a way to 
 start and stop Docker containers in response to inbound requests.
 
+In **maelstrom** all running containers **must** expose a HTTP server. Requests will be reverse
+proxied to this web server.
+
 ### Docker concepts
 
 | Term                 | Meaning                                                |

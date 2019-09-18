@@ -541,9 +541,13 @@ func toContainerHostConfig(c v1.Component) *container.HostConfig {
 	}
 	memoryResBytes := resMem * 1024 * 1024
 	hc.MemoryReservation = memoryResBytes
-	hc.KernelMemory = memoryResBytes
-	if c.Docker.LimitMemoryMiB > c.Docker.ReserveMemoryMiB {
-		hc.KernelMemory = c.Docker.LimitMemoryMiB * 1024 * 1024
+	if c.Docker.LimitMemoryMiB > 0 {
+		hc.Memory = c.Docker.LimitMemoryMiB * 1024 * 1024
+	}
+
+	// CPU shares
+	if c.Docker.CpuShares > 0 {
+		hc.CPUShares = c.Docker.CpuShares
 	}
 
 	// Container logging

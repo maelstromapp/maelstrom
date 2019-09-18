@@ -117,7 +117,7 @@ components:
     logdriver: syslog
     logdriveroptions:
       syslog-host: localhost
-    limitcpu: 1.5
+    cpushares: 250
     reservememory: 1024
     limitmemory: 2048
     eventsources:
@@ -152,7 +152,7 @@ components:
 						LogDriverOptions: []v1.NameValue{
 							{Name: "syslog-host", Value: "localhost"},
 						},
-						LimitCpu:         1.5,
+						CpuShares:        250,
 						LimitMemoryMiB:   2048,
 						ReserveMemoryMiB: 1024,
 					},

@@ -265,14 +265,16 @@ struct DockerComponent {
     // or "fluentd-buffer-limit"
     logDriverOptions         []NameValue    [optional]
 
-    limitCpu                 float          [optional]
+    // If set, this increases or reduces the container's CPU weight.
+    // Equivalent to the "docker run --cpu-shares" flag.
+    cpuShares                int            [optional]
 
     // RAM in MiB that should be reserved on a node when starting this component
     // Optional. Default=128
     reserveMemoryMiB         int            [optional]
 
     // Hard RAM limit for this component. This must be greater than or equal to reserveMemoryMiB
-    // Optional. If not set, this will default to reserveMemoryMiB
+    // Optional. If not set, no hard RAM limit will be imposed.
     limitMemoryMiB           int            [optional]
 }
 

@@ -363,7 +363,7 @@ func makeComponentWithConcur(name string, requiredRamMiB int64, minInst int64, m
 			NetworkName:                 "",
 			LogDriver:                   "",
 			LogDriverOptions:            nil,
-			LimitCpu:                    0,
+			CpuShares:                   0,
 			ReserveMemoryMiB:            requiredRamMiB,
 			LimitMemoryMiB:              0,
 		},
