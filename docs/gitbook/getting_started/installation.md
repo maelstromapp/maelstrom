@@ -10,6 +10,7 @@ cd /usr/local/bin
 # download binaries
 curl -LO https://download.maelstromapp.com/latest/linux_x86_64/maelstromd
 curl -LO https://download.maelstromapp.com/latest/linux_x86_64/maelctl
+chmod 755 maelstromd maelctl
 ```
 
 ## Configure Environment

@@ -13,19 +13,15 @@ jobs:
       shell: bash
       run: |
         set -x
-        #export DIND_HOST=docker
-        #export DOCKER_HOST=tcp://localhost:2375
-        #export DOCKER_DRIVER=overlay2
         export CI_CACHEDIR=`pwd`/.cache
         export GOPATH="$CI_CACHEDIR"
         export PATH="$PATH:$CI_CACHEDIR/bin:$HOME/.local/bin"
         export PYTHONPATH="$CI_CACHEDIR/lib/python2.7/site-packages"
         mkdir -p "$CI_CACHEDIR"
-        #docker images
         pip install --user wheel
         ./scripts/install_deps.sh
         sudo apt-get install -y libsqlite3-dev
         make idl
         make maelctl
         make maelstromd
-        #make test
+        make test

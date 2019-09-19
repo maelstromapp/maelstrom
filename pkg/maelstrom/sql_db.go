@@ -10,6 +10,7 @@ import (
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/mattn/go-sqlite3"
 	"github.com/mgutz/logxi/v1"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -56,6 +57,7 @@ func (d *SqlDb) AcquireOrRenewRole(roleId string, nodeId string, lockDur time.Du
 		acquired, lockNodeId, err := d.acquireOrRenewRoleOnce(roleId, nodeId, lockDur)
 		if lockNodeId == "" && err == nil {
 			// retry terminal case where insert failed. this ensures we resolve the current nodeId
+			time.Sleep(time.Duration(rand.Intn(50)+1) * time.Millisecond)
 		} else {
 			return acquired, lockNodeId, err
 		}
