@@ -144,6 +144,13 @@ components:
         type: bind
         # Whether volume is read only. Default = false
         readonly: false
+    # Expose ports from container to host
+    # Probably only useful during local development (e.g. for debugger ports)
+    # Note that if you statically bind a port here and maxinstances > 1
+    # You could run into port conflicts if maelstrom tries to deploy the same
+    # component twice on the same host. Use with care.
+    ports:
+      - 6001:6001
     # Network name to attach container to. Optional.
     # This is sometimes useful when developing locally and you wish to access 
     # resources from a docker-compose stack that are placed on a non-default network.
