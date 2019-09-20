@@ -247,6 +247,11 @@ struct DockerComponent {
     // the docker container is stopped and removed.  (default=300)
     idleTimeoutSeconds           int     [optional]
 
+    // Optional list of ports to expose from the container
+    // The httpPort specified above will be automatically mapped and should not be
+    // included in this list.
+    ports                    []string       [optional]
+
     // List of filesystem mounts to bind to container
     // Use we care, as you must ensure these paths exist on any host in the maelstrom cluster
     volumes                  []VolumeMount  [optional]

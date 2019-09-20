@@ -17,6 +17,19 @@ $ docker ps
 CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES
 ```
 
+## Setup hostname
+
+In our `maelstrom.yml` we used the hostname `hello.localhost`. Let's add that to `/etc/hosts` so our 
+computer can resolve it.
+
+```bash
+sudo bash -c "echo '127.0.0.1  hello.localhost' >> /etc/hosts"
+```
+
+Note: If you're running `dnsmasq` you may not need to perform the above step, as it sets up a wildcard
+DNS entry for `*.localhost` automatically. Trying pinging `hello.localhost` first and if it doesn't resolve,
+run the command above.
+
 ## Make a request
 
 `maelstromd` is running on port 8008 (because of `MAEL_PUBLICPORT=8008` in `mael.env`).

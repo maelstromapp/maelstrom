@@ -12,6 +12,7 @@ import (
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/mgutz/logxi/v1"
+	"github.com/pkg/errors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -446,7 +447,10 @@ func startContainer(dockerClient *docker.Client, c v1.Component, maelstromUrl st
 		return "", fmt.Errorf("c.Docker is nil")
 	}
 	config := toContainerConfig(c, maelstromUrl)
-	hostConfig := toContainerHostConfig(c)
+	hostConfig, err := toContainerHostConfig(c)
+	if err != nil {
+		return "", err
+	}
 	resp, err := dockerClient.ContainerCreate(ctx, config, hostConfig, nil, "")
 	if err != nil {
 		return "", fmt.Errorf("containerCreate error for: %s - %v", c.Name, err)
@@ -531,7 +535,7 @@ func toContainerConfig(c v1.Component, maelstromUrl string) *container.Config {
 	}
 }
 
-func toContainerHostConfig(c v1.Component) *container.HostConfig {
+func toContainerHostConfig(c v1.Component) (*container.HostConfig, error) {
 	hc := &container.HostConfig{}
 
 	// Set memory (RAM) limits
@@ -575,6 +579,22 @@ func toContainerHostConfig(c v1.Component) *container.HostConfig {
 		}
 	}
 
+	// Port mappings
+	if len(c.Docker.Ports) > 0 {
+		if hc.PortBindings == nil {
+			hc.PortBindings = nat.PortMap{}
+		}
+		for x, spec := range c.Docker.Ports {
+			portMappings, err := nat.ParsePortSpec(spec)
+			if err != nil {
+				return nil, errors.Wrapf(err, "Unable to parse port: %d - %s", x, spec)
+			}
+			for _, m := range portMappings {
+				hc.PortBindings[m.Port] = []nat.PortBinding{m.Binding}
+			}
+		}
+	}
+
 	// Set HostConfig so that we can route to host when using docker-in-docker
 	// See: https://stackoverflow.com/questions/44830663/docker-container-networking-with-docker-in-docker
 	dindHost := os.Getenv("DIND_HOST")
@@ -582,12 +602,13 @@ func toContainerHostConfig(c v1.Component) *container.HostConfig {
 		portStr := strconv.Itoa(int(c.Docker.HttpPort))
 		port := nat.Port(portStr + "/tcp")
 		bindPort := atomic.AddInt64(&hostBindPort, 1)
-		hc.PortBindings = nat.PortMap{
-			port: []nat.PortBinding{
-				{
-					HostIP:   "0.0.0.0",
-					HostPort: strconv.Itoa(int(bindPort)),
-				},
+		if hc.PortBindings == nil {
+			hc.PortBindings = nat.PortMap{}
+		}
+		hc.PortBindings[port] = []nat.PortBinding{
+			{
+				HostIP:   "0.0.0.0",
+				HostPort: strconv.Itoa(int(bindPort)),
 			},
 		}
 	}
@@ -596,7 +617,7 @@ func toContainerHostConfig(c v1.Component) *container.HostConfig {
 		hc.NetworkMode = container.NetworkMode(c.Docker.NetworkName)
 	}
 
-	return hc
+	return hc, nil
 }
 
 func resolveMaelstromHost(dockerClient *docker.Client) (string, error) {
