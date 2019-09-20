@@ -301,6 +301,12 @@ func eventSourceLs(args docopt.Opts, svc v1.MaelstromService) {
 			} else if es.Cron != nil {
 				esType = "cron"
 				description = fmt.Sprintf("sched='%s' path=%s", es.Cron.Schedule, es.Cron.Http.Path)
+			} else if es.Sqs != nil {
+				esType = "sqs"
+				description = es.Sqs.QueueName
+				if es.Sqs.NameAsPrefix {
+					description += "*"
+				}
 			}
 			fmt.Printf("%-20s  %-20s  %-5s  %-30s  %-5d  %-13s\n", trunc(es.Name, 20),
 				trunc(es.ComponentName, 20), esType, trunc(description, 30), es.Version, mod)
