@@ -84,6 +84,16 @@ func (r *Router) GetNodeService() v1.NodeService {
 	return r.nodeService
 }
 
+func (r *Router) InstanceCountForComponent(componentName string) int {
+	r.lock.Lock()
+	ring, ok := r.ringByComponent[componentName]
+	r.lock.Unlock()
+	if ok {
+		return len(ring.handlers)
+	}
+	return 0
+}
+
 func (r *Router) OnClusterUpdated(nodes map[string]v1.NodeStatus) {
 	newRing := map[string]*componentRing{}
 	componentNames := make([]string, 0)

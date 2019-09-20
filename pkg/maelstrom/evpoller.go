@@ -96,7 +96,13 @@ func (e *EvPoller) sqsQueueUrlsForPrefix(queueNameOrPrefix string, prefix bool) 
 }
 
 func (e *EvPoller) initSqsEventSource(es v1.EventSource, validRoleIds map[string]bool) {
-	roleIdConcurs := sqsRoleIdConcurrency(es)
+	comp, err := e.db.GetComponent(es.ComponentName)
+	if err != nil {
+		log.Error("evpoller: Unable to load component", "component", es.ComponentName, "err", err)
+		return
+	}
+	instancesRunning := e.router.InstanceCountForComponent(es.ComponentName)
+	roleIdConcurs := sqsRoleIdConcurrency(es, int(comp.MaxConcurrency), instancesRunning)
 	for _, rc := range roleIdConcurs {
 		roleId := rc.roleId
 		validRoleIds[roleId] = true
@@ -184,10 +190,23 @@ func setSqsDefaults(es v1.EventSource) v1.EventSource {
 	return es
 }
 
-func sqsRoleIdConcurrency(es v1.EventSource) []roleIdConcurrency {
+func sqsRoleIdConcurrency(es v1.EventSource, maxConcurPerInst int, instancesRunning int) []roleIdConcurrency {
 	roleIdConcur := make([]roleIdConcurrency, 0)
-	num := int(math.Round(math.Ceil(float64(es.Sqs.MaxConcurrency) / float64(es.Sqs.ConcurrencyPerPoller))))
-	concurRemain := int(es.Sqs.MaxConcurrency)
+	if maxConcurPerInst <= 0 {
+		maxConcurPerInst = 1
+	}
+	if instancesRunning <= 0 {
+		instancesRunning = 1
+	}
+	maxConcur := instancesRunning * maxConcurPerInst
+	if maxConcur > int(es.Sqs.MaxConcurrency) {
+		maxConcur = int(es.Sqs.MaxConcurrency)
+	}
+	num := int(math.Round(math.Ceil(float64(maxConcur) / float64(es.Sqs.ConcurrencyPerPoller))))
+	concurRemain := int(es.Sqs.ConcurrencyPerPoller) * num
+	if concurRemain > maxConcur {
+		concurRemain = maxConcur
+	}
 	for i := 0; i < num; i++ {
 		c := int(es.Sqs.ConcurrencyPerPoller)
 		if c > concurRemain {
