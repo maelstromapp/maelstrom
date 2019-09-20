@@ -75,6 +75,8 @@ type Config struct {
 	LogGCSeconds int
 	// If set, log profile data to this filename
 	CpuProfileFilename string
+	// Memory (MiB) to make available to containers (if set to zero, maelstromd will simply act as a relay)
+	TotalMemory int64 `default:"-1"`
 
 	// Currently unsupported - will dust these off in the future
 	Cluster      ClusterOptions

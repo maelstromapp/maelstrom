@@ -18,13 +18,14 @@ const rolePlacement = "placement"
 const roleCron = "cron"
 
 func NewNodeServiceImpl(handlerFactory *DockerHandlerFactory, db Db, dockerClient *docker.Client, nodeId string,
-	peerUrl string, startTime time.Time, numCPUs int64) (*NodeServiceImpl, error) {
+	peerUrl string, startTime time.Time, numCPUs int64, totalMemAllowed int64) (*NodeServiceImpl, error) {
 	nodeSvc := &NodeServiceImpl{
 		handlerFactory:  handlerFactory,
 		db:              db,
 		dockerClient:    dockerClient,
 		nodeId:          nodeId,
 		peerUrl:         peerUrl,
+		totalMemAllowed: totalMemAllowed,
 		startTimeMillis: common.TimeToMillis(startTime),
 		numCPUs:         numCPUs,
 		loadStatusLock:  &sync.Mutex{},
@@ -40,14 +41,15 @@ func NewNodeServiceImpl(handlerFactory *DockerHandlerFactory, db Db, dockerClien
 }
 
 func NewNodeServiceImplFromDocker(handlerFactory *DockerHandlerFactory, db Db, dockerClient *docker.Client,
-	peerUrl string) (*NodeServiceImpl, error) {
+	peerUrl string, totalMemAllowed int64) (*NodeServiceImpl, error) {
 
 	info, err := dockerClient.Info(context.Background())
 	if err != nil {
 		return nil, err
 	}
 
-	return NewNodeServiceImpl(handlerFactory, db, dockerClient, info.ID, peerUrl, time.Now(), int64(info.NCPU))
+	return NewNodeServiceImpl(handlerFactory, db, dockerClient, info.ID, peerUrl, time.Now(), int64(info.NCPU),
+		totalMemAllowed)
 }
 
 type NodeServiceImpl struct {
@@ -57,6 +59,7 @@ type NodeServiceImpl struct {
 	cluster         *Cluster
 	nodeId          string
 	peerUrl         string
+	totalMemAllowed int64
 	startTimeMillis int64
 	numCPUs         int64
 	loadStatusLock  *sync.Mutex
@@ -512,6 +515,17 @@ func (n *NodeServiceImpl) resolveNodeStatus(ctx context.Context) (v1.NodeStatus,
 	}
 	nodeStatus.TotalMemoryMiB = int64(meminfo.MemTotal / 1024)
 	nodeStatus.FreeMemoryMiB = int64(meminfo.MemAvailable / 1024)
+
+	if n.totalMemAllowed >= 0 {
+		delta := nodeStatus.TotalMemoryMiB - n.totalMemAllowed
+		if delta > 0 {
+			nodeStatus.TotalMemoryMiB -= delta
+			nodeStatus.FreeMemoryMiB -= delta
+			if nodeStatus.FreeMemoryMiB < 0 {
+				nodeStatus.FreeMemoryMiB = 0
+			}
+		}
+	}
 
 	loadavg, err := linuxproc.ReadLoadAvg("/proc/loadavg")
 	if err != nil {

@@ -131,7 +131,7 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *SqlDb) *Fixtur
 	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, sqlDb, ctx, testGatewayPort)
 	assert.Nil(t, err, "NewDockerHandlerFactory err != nil: %v", err)
 
-	nodeSvcImpl, err := NewNodeServiceImplFromDocker(hFactory, sqlDb, dockerClient, "")
+	nodeSvcImpl, err := NewNodeServiceImplFromDocker(hFactory, sqlDb, dockerClient, "", -1)
 	assert.Nil(t, err, "NewNodeServiceImplFromDocker err != nil: %v", err)
 
 	router := NewRouter(nodeSvcImpl, hFactory, nodeSvcImpl.nodeId, outboundIp.String(), ctx)

@@ -27,6 +27,12 @@
 |---------------------------------|----------------------------------------------|-----------|---------|
 | MAEL_CRONREFRESHSECONDS         | Interval to reload cron rules from db        | No        | 60      |
 
+## System Resources
+
+| Variable                  | Description                                  | Required? | Default                 |
+|---------------------------|----------------------------------------------|-----------|-------------------------|
+| MAEL_TOTALMEMORY          | Memory (MiB) to make available to containers | No        | System total memory     |
+
 ## Debugging
 
 | Variable                        | Description                                  | Required? | Default |

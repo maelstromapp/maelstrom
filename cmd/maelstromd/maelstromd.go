@@ -152,7 +152,8 @@ func main() {
 	dockerMonitor := common.NewDockerImageMonitor(dockerClient, handlerFactory, cancelCtx)
 	dockerMonitor.RunAsync(daemonWG)
 
-	nodeSvcImpl, err := maelstrom.NewNodeServiceImplFromDocker(handlerFactory, db, dockerClient, peerUrl)
+	nodeSvcImpl, err := maelstrom.NewNodeServiceImplFromDocker(handlerFactory, db, dockerClient, peerUrl,
+		conf.TotalMemory)
 	if err != nil {
 		log.Error("maelstromd: cannot create NodeService", "err", err)
 		os.Exit(2)
