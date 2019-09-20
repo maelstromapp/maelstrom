@@ -21,6 +21,13 @@
 | MAEL_SQLDRIVER                  | sql db driver to use (sqlite3, mysql)        | Yes       | None    |
 | MAEL_SQLDSN                     | DSN for maelstrom sql db                     | Yes       | None    |
 
+#### Example DSNs:
+
+| Driver  | Project                                                       | Example DSN 
+|---------|---------------------------------------------------------------|----------------------
+| sqlite3 | [go-sqlite3](https://github.com/mattn/go-sqlite3)             | `file:test.db?cache=shared&mode=memory`
+| mysql   | [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql) | `user:passwd@(hostname:3306)/mael`
+
 ## Refresh Intervals
 
 | Variable                        | Description                                  | Required? | Default |
