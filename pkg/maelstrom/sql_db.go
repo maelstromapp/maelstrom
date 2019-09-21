@@ -180,6 +180,55 @@ func (d *SqlDb) GetComponent(componentName string) (component v1.Component, err 
 	return
 }
 
+func (d *SqlDb) ListProjects(input v1.ListProjectsInput) (v1.ListProjectsOutput, error) {
+	componentCounts, err := d.countRowsByProject(input.NamePrefix, "component")
+	if err != nil {
+		return v1.ListProjectsOutput{}, err
+	}
+	eventSourceCounts, err := d.countRowsByProject(input.NamePrefix, "eventsource")
+	if err != nil {
+		return v1.ListProjectsOutput{}, err
+	}
+
+	projects := make([]v1.ProjectInfo, len(componentCounts))
+	i := 0
+	for projectName, componentCount := range componentCounts {
+		projects[i] = v1.ProjectInfo{
+			ProjectName:      projectName,
+			ComponentCount:   componentCount,
+			EventSourceCount: eventSourceCounts[projectName],
+		}
+		i++
+	}
+
+	return v1.ListProjectsOutput{Projects: projects}, nil
+}
+
+func (d *SqlDb) countRowsByProject(projectPrefix string, table string) (map[string]int64, error) {
+	projectToCount := map[string]int64{}
+	q := squirrel.Select("projectName", "count(*)").From(table).GroupBy("projectName")
+	if projectPrefix != "" {
+		q = q.Where(squirrel.Like{"projectName": projectPrefix + "%"})
+	}
+	rows, err := q.RunWith(d.db).Query()
+	if err != nil {
+		return projectToCount, err
+	}
+	defer common.CheckClose(rows, &err)
+	for rows.Next() {
+		var projectName sql.NullString
+		var count int64
+		err = rows.Scan(&projectName, &count)
+		if err != nil {
+			return projectToCount, fmt.Errorf("db: countRowsByProject %s scan err: %v", table, err)
+		}
+		if projectName.Valid {
+			projectToCount[projectName.String] = count
+		}
+	}
+	return projectToCount, err
+}
+
 func (d *SqlDb) ListComponents(input v1.ListComponentsInput) (output v1.ListComponentsOutput, err error) {
 	q := squirrel.Select("json").From("component").OrderBy("name")
 	if input.NamePrefix != "" {

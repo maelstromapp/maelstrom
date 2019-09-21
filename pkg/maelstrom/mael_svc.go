@@ -8,6 +8,7 @@ import (
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/mgutz/logxi/v1"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -87,6 +88,15 @@ func (v *MaelServiceImpl) transformPutError(prefix string, err error) error {
 		return v.onError(DbError, "v1.server: transformPutError "+prefix, err)
 	}
 	return nil
+}
+
+func (v *MaelServiceImpl) ListProjects(input v1.ListProjectsInput) (v1.ListProjectsOutput, error) {
+	input.NamePrefix = strings.ToLower(input.NamePrefix)
+	out, err := v.db.ListProjects(input)
+	if err == nil {
+		sort.Sort(projectInfoByName(out.Projects))
+	}
+	return out, err
 }
 
 func (v *MaelServiceImpl) PutProject(input v1.PutProjectInput) (v1.PutProjectOutput, error) {

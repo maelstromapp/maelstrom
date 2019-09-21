@@ -63,3 +63,9 @@ type StringPtr []*string
 func (s StringPtr) Len() int           { return len(s) }
 func (s StringPtr) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 func (s StringPtr) Less(i, j int) bool { return *s[i] < *s[j] }
+
+type projectInfoByName []v1.ProjectInfo
+
+func (s projectInfoByName) Len() int           { return len(s) }
+func (s projectInfoByName) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s projectInfoByName) Less(i, j int) bool { return s[i].ProjectName < s[j].ProjectName }

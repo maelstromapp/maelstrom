@@ -16,6 +16,8 @@ type Db interface {
 	AcquireOrRenewRole(roleId string, nodeId string, lockDur time.Duration) (bool, string, error)
 	ReleaseAllRoles(nodeId string) error
 
+	ListProjects(input v1.ListProjectsInput) (v1.ListProjectsOutput, error)
+
 	PutComponent(component v1.Component) (int64, error)
 	GetComponent(componentName string) (v1.Component, error)
 	ListComponents(input v1.ListComponentsInput) (v1.ListComponentsOutput, error)

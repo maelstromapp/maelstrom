@@ -64,6 +64,14 @@ func createClusterAdapter(cfg config.Config, ctx context.Context) vm.Adapter {
 	return nil
 }
 
+func clusterNodes(args docopt.Opts, nodeSvc v1.NodeService) {
+
+}
+
+func clusterPs(args docopt.Opts, nodeSvc v1.NodeService) {
+
+}
+
 func clusterCreate(args docopt.Opts, ctx context.Context) {
 	outDir := argStr(args, "<outdir>")
 	cfg := loadConfig(args)
@@ -220,6 +228,27 @@ func projectPut(args docopt.Opts, svc v1.MaelstromService) {
 		for _, es := range out.EventSourcesRemoved {
 			fmt.Printf("%-11s  %-33s  %s\n", "EventSource", es, "Removed")
 		}
+	}
+}
+
+func projectLs(args docopt.Opts, svc v1.MaelstromService) {
+	input := v1.ListProjectsInput{
+		NamePrefix: strings.TrimSpace(argStr(args, "--prefix")),
+	}
+
+	count := 0
+	output, err := svc.ListProjects(input)
+	checkErr(err, "ListComponents failed")
+	for _, p := range output.Projects {
+		if count == 0 {
+			fmt.Printf("%-30s  %-15s  %-15s\n", "Project", "# Components", "# Event Sources")
+			fmt.Printf("--------------------------------------------------------------------------\n")
+		}
+		fmt.Printf("%-30s  %-15d  %-15d\n", trunc(p.ProjectName, 30), p.ComponentCount, p.EventSourceCount)
+		count++
+	}
+	if count == 0 {
+		fmt.Println("No projects found")
 	}
 }
 
@@ -403,20 +432,22 @@ func newMaelstromServiceClient(url string) v1.MaelstromService {
 	return v1.NewMaelstromServiceProxy(client)
 }
 
+func newNodeServiceClient(url string) v1.NodeService {
+	trans := &barrister.HttpTransport{Url: url}
+	client := barrister.NewRemoteClient(trans, true)
+	return v1.NewNodeServiceProxy(client)
+}
+
 func main() {
 	usage := `maelctl - Maelstrom Command Line Tool
 
 Usage:
-  maelctl cluster create [--out=<outdir>] [--env-file=<envfile>]
-  maelctl cluster destroy [--env-file=<envfile>]
-  maelctl cluster info [--env-file=<envfile>]
-  maelctl comp put [--file=<file>] [--json=<json>]
+  maelctl cluster nodes
+  maelctl cluster ps
   maelctl comp ls [--prefix=<prefix>]
-  maelctl comp rm <name>
-  maelctl es put [--file=<file>] [--json=<json>]
   maelctl es ls [--prefix=<prefix>] [--component=<component>] [--type=<type>]
-  maelctl es rm <name>
   maelctl logs [--components=<components>] [--since=<since>]
+  maelctl project ls [--prefix=<prefix>]
   maelctl project put [--file=<file>]
   maelctl project rm <name>
 `
@@ -432,27 +463,20 @@ Usage:
 	}
 	apiUrl := fmt.Sprintf("%s/_mael/v1", baseUrl)
 	svc := newMaelstromServiceClient(apiUrl)
+	nodeSvc := newNodeServiceClient(apiUrl)
 
-	if argBool(args, "cluster") && argBool(args, "create") {
-		clusterCreate(args, context.Background())
-	} else if argBool(args, "cluster") && argBool(args, "destroy") {
-		clusterDestroy(args, context.Background())
-	} else if argBool(args, "cluster") && argBool(args, "info") {
-		clusterInfo(args, context.Background())
-	} else if argBool(args, "comp") && argBool(args, "put") {
-		componentPut(args, svc)
+	if argBool(args, "cluster") && argBool(args, "nodes") {
+		clusterNodes(args, nodeSvc)
+	} else if argBool(args, "cluster") && argBool(args, "ps") {
+		clusterPs(args, nodeSvc)
 	} else if argBool(args, "comp") && argBool(args, "ls") {
 		componentLs(args, svc)
-	} else if argBool(args, "comp") && argBool(args, "rm") {
-		componentRm(args, svc)
-	} else if argBool(args, "es") && argBool(args, "put") {
-		eventSourcePut(args, svc)
 	} else if argBool(args, "es") && argBool(args, "ls") {
 		eventSourceLs(args, svc)
-	} else if argBool(args, "es") && argBool(args, "rm") {
-		eventSourceRm(args, svc)
 	} else if argBool(args, "logs") {
 		logsGet(args, baseUrl)
+	} else if argBool(args, "project") && argBool(args, "ls") {
+		projectLs(args, svc)
 	} else if argBool(args, "project") && argBool(args, "put") {
 		projectPut(args, svc)
 	} else if argBool(args, "project") && argBool(args, "rm") {

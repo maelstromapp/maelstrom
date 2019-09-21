@@ -14,6 +14,15 @@
 // defined by the system users
 interface MaelstromService {
 
+    // ListProjects returns a paginated list of projects registered in the system.
+    //
+    // If no projects exist in the system, ListProjectsOutput.projects
+    // will be an empty list.
+    //
+    // Results are sorted by project name (ascending)
+    //
+    ListProjects(input ListProjectsInput) ListProjectsOutput
+
     // PutProject registers a set of components and event sources, grouped under a single name
     // This call diffs the input project with the prior state of the project, updating components
     // in the project that already exist, adding components that do not, and removing components
@@ -429,6 +438,23 @@ struct ComponentInfo {
 struct ComponentActivity {
     requests      int
     concurrency   float
+}
+
+struct ProjectInfo {
+    projectName       string
+    componentCount    int
+    eventSourceCount  int
+}
+
+struct ListProjectsInput {
+    // If specified only projects matching this name prefix will be returned.
+    namePrefix  string  [optional]
+}
+
+struct ListProjectsOutput {
+    // Projects in current page of output or an empty list if
+    // no additional results exist
+    projects    []ProjectInfo
 }
 
 struct PutProjectInput {
