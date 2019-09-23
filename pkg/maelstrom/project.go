@@ -157,6 +157,9 @@ type yamlComponent struct {
 	CpuShares                   int64
 	ReserveMemory               int64
 	LimitMemory                 int64
+	PullCommand                 []string
+	PullUsername                string
+	PullPassword                string
 }
 
 func (c yamlComponent) toComponentWithEventSources(name string, projectName string,
@@ -211,6 +214,9 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 				CpuShares:                   c.CpuShares,
 				ReserveMemoryMiB:            c.ReserveMemory,
 				LimitMemoryMiB:              c.LimitMemory,
+				PullCommand:                 c.PullCommand,
+				PullUsername:                c.PullUsername,
+				PullPassword:                c.PullPassword,
 			},
 		},
 		EventSources: eventSources,

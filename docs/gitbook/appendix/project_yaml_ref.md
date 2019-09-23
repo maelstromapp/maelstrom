@@ -104,6 +104,36 @@ components:
       syslog-facility: local4
 ```
 
+### Docker pull options
+
+By default docker images are pulled without authentication. Each component may optionally specify registry auth
+credentials or provide a completely custom command to run on the host to pull the image.
+
+#### Registry credentials
+
+```yaml
+
+---
+name: myproject
+components:
+  component_name_1:
+    pullusername: scott
+    pullpassword: tiger
+```
+
+#### Custom command
+
+The `<image>` string will be replaced with the docker image configured on the component.
+
+```yaml
+
+---
+name: myproject
+components:
+  component_name_1:
+    pullcommand: ["/usr/local/bin/mypull", "<image>"]
+```
+
 ### HTTP options
 
 ```yaml

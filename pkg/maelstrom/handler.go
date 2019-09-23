@@ -2,6 +2,8 @@ package maelstrom
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"github.com/coopernurse/maelstrom/pkg/common"
 	"github.com/coopernurse/maelstrom/pkg/v1"
@@ -16,6 +18,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -387,12 +390,49 @@ func listContainers(dockerClient *docker.Client) ([]types.Container, error) {
 }
 
 func pullImage(dockerClient *docker.Client, c v1.Component) error {
-	out, err := dockerClient.ImagePull(context.Background(), c.Docker.Image, types.ImagePullOptions{})
-	if err == nil {
-		defer common.CheckClose(out, &err)
-		_, err = ioutil.ReadAll(out)
+	if len(c.Docker.PullCommand) == 0 {
+		// normal pull
+		authStr, err := pullImageAuth(c)
+		if err != nil {
+			return err
+		}
+		out, err := dockerClient.ImagePull(context.Background(), c.Docker.Image,
+			types.ImagePullOptions{RegistryAuth: authStr})
+		if err == nil {
+			defer common.CheckClose(out, &err)
+			_, err = ioutil.ReadAll(out)
+		}
+		return err
+	} else {
+		// custom pull
+
+		// rewrite placeholder
+		for i, s := range c.Docker.PullCommand {
+			if s == "<image>" {
+				c.Docker.PullCommand[i] = c.Docker.Image
+			}
+		}
+
+		// run command
+		cmd := exec.Command(c.Docker.PullCommand[0], c.Docker.PullCommand[1:]...)
+		return cmd.Run()
 	}
-	return err
+}
+
+func pullImageAuth(c v1.Component) (string, error) {
+	if c.Docker.PullUsername == "" && c.Docker.PullPassword == "" {
+		return "", nil
+	}
+	authConfig := types.AuthConfig{
+		Username: c.Docker.PullUsername,
+		Password: c.Docker.PullPassword,
+	}
+	encodedJSON, err := json.Marshal(authConfig)
+	if err != nil {
+		return "", err
+	}
+	authStr := base64.URLEncoding.EncodeToString(encodedJSON)
+	return authStr, nil
 }
 
 func getImageByNameStripRepo(dockerClient *docker.Client, imageName string) (*types.ImageSummary, error) {

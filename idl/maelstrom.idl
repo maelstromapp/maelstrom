@@ -291,6 +291,16 @@ struct DockerComponent {
     // Hard RAM limit for this component. This must be greater than or equal to reserveMemoryMiB
     // Optional. If not set, no hard RAM limit will be imposed.
     limitMemoryMiB           int            [optional]
+
+    // If set, this command will be executed to pull the image
+    // If any string element = "<image>" it will be replaced with the image
+    // name of the component before running the command
+    pullCommand              []string       [optional]
+
+    // Username and password to use for docker registry auth
+    // If unset, no credentials will be used when pulling images
+    pullUsername             string         [optional]
+    pullPassword             string         [optional]
 }
 
 struct VolumeMount {
