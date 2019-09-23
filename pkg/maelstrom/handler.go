@@ -152,13 +152,13 @@ func (f *DockerHandlerFactory) reqChanByComponentLocked(componentName string) ch
 func (f *DockerHandlerFactory) HandlerComponentInfo() ([]v1.ComponentInfo, int64) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
-	names := make([]v1.ComponentInfo, 0)
+	componentInfos := make([]v1.ComponentInfo, 0)
 	for _, clist := range f.byComponentName {
 		for _, cont := range clist {
-			names = append(names, cont.componentInfo())
+			componentInfos = append(componentInfos, cont.componentInfo())
 		}
 	}
-	return names, f.version
+	return componentInfos, f.version
 }
 
 func (f *DockerHandlerFactory) ConvergeToTarget(target v1.ComponentDelta,

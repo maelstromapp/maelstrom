@@ -114,6 +114,7 @@ func (n *NodeServiceImpl) refreshNodes() ([]v1.NodeStatus, error) {
 		for res := range singleNodeChan {
 			if res.Error == nil {
 				nodes = append(nodes, res.Node)
+				n.cluster.SetNode(res.Node)
 			} else {
 				err = res.Error
 			}
@@ -128,8 +129,8 @@ func (n *NodeServiceImpl) refreshNodes() ([]v1.NodeStatus, error) {
 	wg := &sync.WaitGroup{}
 	for _, node := range n.cluster.GetNodes() {
 		wg.Add(1)
-		go func() {
-			nodeSvc := n.cluster.GetNodeServiceWithTimeout(node, 15*time.Second)
+		go func(node v1.NodeStatus) {
+			nodeSvc := n.cluster.GetNodeServiceWithTimeout(node, 30*time.Second)
 			out, err := nodeSvc.GetStatus(v1.GetNodeStatusInput{})
 			if err == nil {
 				singleNodeChan <- nodeStatusOrError{Node: out.Status}
@@ -137,7 +138,7 @@ func (n *NodeServiceImpl) refreshNodes() ([]v1.NodeStatus, error) {
 				singleNodeChan <- nodeStatusOrError{Error: err}
 			}
 			wg.Done()
-		}()
+		}(node)
 	}
 	wg.Wait()
 	close(singleNodeChan)
