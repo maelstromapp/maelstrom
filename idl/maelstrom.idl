@@ -138,19 +138,20 @@ interface MaelstromService {
     //
     ListEventSources(input ListEventSourcesInput) ListEventSourcesOutput
 
-    // ListNodeStatus returns a paginated list of nodes registered in the system.
-    //
-    // If no nodes exist in the system, ListNodeStatusOutput.nodes
-    // will be an empty list.
-    //
-    // Results are sorted by nodeId (ascending)
-    //
-    ListNodeStatus(input ListNodeStatusInput) ListNodeStatusOutput
 }
 
 // NodeService contains operations used between nodes in the cluster to coordinate, start,
 // and stop containers.
 interface NodeService {
+
+    // ListNodeStatus returns a paginated list of nodes registered in the system.
+    //
+    // If no nodes exist in the system, ListNodeStatusOutput.nodes
+    // will be an empty list.
+    //
+    // Results are sorted by the time the node's maelstrom process started (ascending)
+    //
+    ListNodeStatus(input ListNodeStatusInput) ListNodeStatusOutput
 
     // GetStatus returns the current status of the target node including any running containers,
     // load average, and memory availability.  Nodes periodically write their status to the database
@@ -621,23 +622,17 @@ struct ListEventSourcesOutput {
 }
 
 struct ListNodeStatusInput {
-    // Max items to return per response (1..1000)
-    // default=1000
-    limit       int     [optional]
-
-    // If set the next set of paginated results will be returned
-    nextToken   string  [optional]
+    // If true, contact all peers and request current NodeStatus
+    // Otherwise use cached status on the node. (default=false)
+    forceRefresh       bool    [optional]
 }
 
 struct ListNodeStatusOutput {
-    // Components in current page of output or an empty list if
-    // no additional results exist
-    nodes    []NodeStatus
+    // Node ID of node responding to request
+    respondingNodeId     string
 
-    // If set there are additional results.
-    // Client may make another ListNodeStatus() request setting this
-    // as ListNodeStatusInput.nextToken
-    nextToken   string  [optional]
+    // Nodes in cluster
+    nodes                []NodeStatus
 }
 
 struct GetNodeStatusInput {

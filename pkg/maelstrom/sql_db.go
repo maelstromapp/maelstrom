@@ -415,22 +415,24 @@ func (d *SqlDb) PutNodeStatus(status v1.NodeStatus) error {
 	return nil
 }
 
-func (d *SqlDb) ListNodeStatus(input v1.ListNodeStatusInput) (v1.ListNodeStatusOutput, error) {
+func (d *SqlDb) ListNodeStatus() ([]v1.NodeStatus, error) {
 	q := squirrel.Select("json").From("nodestatus").OrderBy("nodeId")
 	nodes := make([]v1.NodeStatus, 0)
-	nextToken, err := d.selectPaginated(q, input.NextToken, input.Limit, func(rows *sql.Rows) error {
+	rows, err := q.RunWith(d.db).Query()
+	if err != nil {
+		return nil, err
+	}
+	defer common.CheckClose(rows, &err)
+	for rows.Next() {
 		var node v1.NodeStatus
-		err := d.scanJSON(rows, &node)
+		err = d.scanJSON(rows, &node)
 		if err != nil {
-			return fmt.Errorf("ListNodeStatus: %v", err)
+			return nil, fmt.Errorf("ListNodeStatus: %v", err)
 		}
 		nodes = append(nodes, node)
-		return nil
-	})
-	if err != nil {
-		return v1.ListNodeStatusOutput{}, err
 	}
-	return v1.ListNodeStatusOutput{NextToken: nextToken, Nodes: nodes}, nil
+
+	return nodes, nil
 }
 
 func (d *SqlDb) RemoveNodeStatusOlderThan(observedAt time.Time) (int64, error) {

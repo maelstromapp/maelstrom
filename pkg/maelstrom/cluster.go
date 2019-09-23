@@ -4,7 +4,9 @@ import (
 	"github.com/coopernurse/barrister-go"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	log "github.com/mgutz/logxi/v1"
+	"net/http"
 	"sync"
+	"time"
 )
 
 type ClusterObserver interface {
@@ -148,12 +150,20 @@ func (c *Cluster) GetNodeServiceById(nodeId string) v1.NodeService {
 	}
 }
 
-func (c *Cluster) GetNodeService(node v1.NodeStatus) v1.NodeService {
+func (c *Cluster) GetNodeServiceWithTimeout(node v1.NodeStatus, timeout time.Duration) v1.NodeService {
 	if node.NodeId == c.myNodeId {
 		return c.localNodeService
 	}
-	client := barrister.NewRemoteClient(&barrister.HttpTransport{Url: node.PeerUrl + "/_mael/v1"}, false)
+	transport := &barrister.HttpTransport{Url: node.PeerUrl + "/_mael/v1"}
+	if timeout > 0 {
+		transport.Client = &http.Client{Timeout: timeout}
+	}
+	client := barrister.NewRemoteClient(transport, false)
 	return v1.NewNodeServiceProxy(client)
+}
+
+func (c *Cluster) GetNodeService(node v1.NodeStatus) v1.NodeService {
+	return c.GetNodeServiceWithTimeout(node, 0)
 }
 
 func (c *Cluster) GetRemoteNodeServices() []v1.NodeService {

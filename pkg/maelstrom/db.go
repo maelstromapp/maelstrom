@@ -29,7 +29,7 @@ type Db interface {
 	RemoveEventSource(eventSourceName string) (bool, error)
 
 	PutNodeStatus(status v1.NodeStatus) error
-	ListNodeStatus(input v1.ListNodeStatusInput) (v1.ListNodeStatusOutput, error)
+	ListNodeStatus() ([]v1.NodeStatus, error)
 	RemoveNodeStatusOlderThan(observedAt time.Time) (int64, error)
 	RemoveNodeStatus(nodeId string) (bool, error)
 }

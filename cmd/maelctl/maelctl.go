@@ -65,11 +65,54 @@ func createClusterAdapter(cfg config.Config, ctx context.Context) vm.Adapter {
 }
 
 func clusterNodes(args docopt.Opts, nodeSvc v1.NodeService) {
-
+	forceRefresh := argBool(args, "--refresh")
+	out, err := nodeSvc.ListNodeStatus(v1.ListNodeStatusInput{ForceRefresh: forceRefresh})
+	checkErr(err, "ListNodeStatus failed")
+	for x, node := range out.Nodes {
+		if x == 0 {
+			fmt.Printf("%-20s  %-15s  %-15s  %-15s  %-10s  %-15s  %-4s\n", "Node ID", "IP Addr", "Started", "Ver", "Free RAM",
+				"Load Avg", "# Containers")
+			fmt.Printf("------------------------------------------------------------------------------------------------------------------\n")
+		}
+		started := humanize.Time(time.Unix(0, node.StartedAt*1e6))
+		urlParse, err := url.Parse(node.PeerUrl)
+		ipAddr := "Parse error"
+		if err == nil {
+			ipAddr = urlParse.Hostname()
+		}
+		fmt.Printf("%-20s  %-15s  %-15s  %-15d  %-10d  %-3.2f %-3.2f %-3.2f   %-4d\n", trunc(node.NodeId, 19),
+			ipAddr, started, node.Version, node.FreeMemoryMiB, node.LoadAvg1m, node.LoadAvg5m, node.LoadAvg15m,
+			len(node.RunningComponents))
+	}
 }
 
 func clusterPs(args docopt.Opts, nodeSvc v1.NodeService) {
-
+	forceRefresh := argBool(args, "--refresh")
+	out, err := nodeSvc.ListNodeStatus(v1.ListNodeStatusInput{ForceRefresh: forceRefresh})
+	checkErr(err, "ListNodeStatus failed")
+	first := true
+	for _, node := range out.Nodes {
+		if len(node.RunningComponents) > 0 {
+			if first {
+				first = false
+				fmt.Printf("%-30s  %-20s  %-7s  %-15s  %-11s  %-6s  %-5s\n", "Component", "Node ID", "Max RAM", "Last Request", "# Requests", "Concur", "Max Concur")
+				fmt.Printf("---------------------------------------------------------------------------------------------------------------\n")
+			}
+			for _, rc := range node.RunningComponents {
+				lastReqAt := humanize.Time(time.Unix(0, rc.LastRequestTime*1e6))
+				var concur float64
+				if len(rc.Activity) > 0 {
+					concur = rc.Activity[0].Concurrency
+				}
+				fmt.Printf("%-30s  %-20s  %-7d  %-15s  %-11d  %-6.2f  %-5d\n", trunc(rc.ComponentName, 20),
+					trunc(node.NodeId, 19), rc.MemoryReservedMiB, lastReqAt, rc.TotalRequests, concur,
+					rc.MaxConcurrency)
+			}
+		}
+	}
+	if first {
+		fmt.Println("No running containers found")
+	}
 }
 
 func clusterCreate(args docopt.Opts, ctx context.Context) {
@@ -442,8 +485,8 @@ func main() {
 	usage := `maelctl - Maelstrom Command Line Tool
 
 Usage:
-  maelctl cluster nodes
-  maelctl cluster ps
+  maelctl cluster nodes [--refresh]
+  maelctl cluster ps [--refresh]
   maelctl comp ls [--prefix=<prefix>]
   maelctl es ls [--prefix=<prefix>] [--component=<component>] [--type=<type>]
   maelctl logs [--components=<components>] [--since=<since>]

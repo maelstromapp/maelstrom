@@ -10,6 +10,7 @@ import (
 	docker "github.com/docker/docker/client"
 	log "github.com/mgutz/logxi/v1"
 	"math/rand"
+	"sort"
 	"sync"
 	"time"
 )
@@ -75,6 +76,74 @@ func (n *NodeServiceImpl) Cluster() *Cluster {
 
 func (n *NodeServiceImpl) LogPairs() []interface{} {
 	return []interface{}{"nodeId", n.nodeId, "peerUrl", n.peerUrl, "numCPUs", n.numCPUs}
+}
+
+func (n *NodeServiceImpl) ListNodeStatus(input v1.ListNodeStatusInput) (v1.ListNodeStatusOutput, error) {
+	var nodes []v1.NodeStatus
+	var err error
+	if input.ForceRefresh {
+		nodes, err = n.refreshNodes()
+		if err != nil {
+			code := MiscError
+			msg := "nodesvc: ListNodeStatus - error refreshing node status"
+			log.Error(msg, "code", code, "err", err)
+			return v1.ListNodeStatusOutput{}, &barrister.JsonRpcError{Code: int(code), Message: msg}
+		}
+	} else {
+		nodes = n.cluster.GetNodes()
+	}
+	sort.Sort(NodeStatusByStartedAt(nodes))
+	return v1.ListNodeStatusOutput{RespondingNodeId: n.nodeId, Nodes: nodes}, nil
+}
+
+func (n *NodeServiceImpl) refreshNodes() ([]v1.NodeStatus, error) {
+	type nodeStatusOrError struct {
+		Node  v1.NodeStatus
+		Error error
+	}
+	type nodeStatusListOrError struct {
+		Nodes []v1.NodeStatus
+		Error error
+	}
+	singleNodeChan := make(chan nodeStatusOrError)
+	finalResultChan := make(chan nodeStatusListOrError)
+
+	go func() {
+		nodes := make([]v1.NodeStatus, 0)
+		var err error
+		for res := range singleNodeChan {
+			if res.Error == nil {
+				nodes = append(nodes, res.Node)
+			} else {
+				err = res.Error
+			}
+		}
+		if err == nil {
+			finalResultChan <- nodeStatusListOrError{Nodes: nodes}
+		} else {
+			finalResultChan <- nodeStatusListOrError{Error: err}
+		}
+	}()
+
+	wg := &sync.WaitGroup{}
+	for _, node := range n.cluster.GetNodes() {
+		wg.Add(1)
+		go func() {
+			nodeSvc := n.cluster.GetNodeServiceWithTimeout(node, 15*time.Second)
+			out, err := nodeSvc.GetStatus(v1.GetNodeStatusInput{})
+			if err == nil {
+				singleNodeChan <- nodeStatusOrError{Node: out.Status}
+			} else {
+				singleNodeChan <- nodeStatusOrError{Error: err}
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	close(singleNodeChan)
+
+	res := <-finalResultChan
+	return res.Nodes, res.Error
 }
 
 func (n *NodeServiceImpl) GetStatus(input v1.GetNodeStatusInput) (v1.GetNodeStatusOutput, error) {
@@ -449,26 +518,12 @@ func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context
 	if err != nil && !docker.IsErrContainerNotFound(err) {
 		log.Error("nodesvc: error logging status", "err", err)
 	}
-	input := v1.ListNodeStatusInput{
-		Limit:     1000,
-		NextToken: "",
-	}
 
-	running := true
-	allNodes := make([]v1.NodeStatus, 0)
-	for running {
-		output, err := n.db.ListNodeStatus(input)
-		if err == nil {
-			for _, node := range output.Nodes {
-				allNodes = append(allNodes, node)
-			}
-			input.NextToken = output.NextToken
-			running = input.NextToken != ""
-		} else {
-			// don't update cluster
-			log.Error("nodesvc: error listing nodes", "err", err)
-			return
-		}
+	allNodes, err := n.db.ListNodeStatus()
+	if err != nil {
+		// don't update cluster
+		log.Error("nodesvc: error listing nodes", "err", err)
+		return
 	}
 	n.cluster.SetAllNodes(allNodes)
 }

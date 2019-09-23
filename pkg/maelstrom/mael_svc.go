@@ -374,10 +374,6 @@ func (v *MaelServiceImpl) ListEventSources(input v1.ListEventSourcesInput) (v1.L
 	return v.db.ListEventSources(input)
 }
 
-func (v *MaelServiceImpl) ListNodeStatus(input v1.ListNodeStatusInput) (v1.ListNodeStatusOutput, error) {
-	return v.db.ListNodeStatus(input)
-}
-
 func (v *MaelServiceImpl) notifyPutComponent(putOutput *v1.PutComponentOutput) {
 	cn := ComponentNotification{
 		PutComponent: putOutput,

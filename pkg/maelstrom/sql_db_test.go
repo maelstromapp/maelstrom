@@ -39,13 +39,9 @@ func TestNodeStatusCRUD(t *testing.T) {
 	db := createTestSqlDb()
 
 	// empty list by default
-	listOutEmpty := v1.ListNodeStatusOutput{
-		Nodes:     []v1.NodeStatus{},
-		NextToken: "",
-	}
-	listOut, err := db.ListNodeStatus(v1.ListNodeStatusInput{})
+	dbNodes, err := db.ListNodeStatus()
 	assert.Nil(t, err)
-	assert.Equal(t, listOutEmpty, listOut)
+	assert.Equal(t, []v1.NodeStatus{}, dbNodes)
 
 	node1 := v1.NodeStatus{}
 	f.Fuzz(&node1)
@@ -56,10 +52,9 @@ func TestNodeStatusCRUD(t *testing.T) {
 	// insert first row and query
 	err = db.PutNodeStatus(node1)
 	assert.Nil(t, err)
-	listOut, err = db.ListNodeStatus(v1.ListNodeStatusInput{})
+	dbNodes, err = db.ListNodeStatus()
 	assert.Nil(t, err)
-	assert.Equal(t, []v1.NodeStatus{node1}, listOut.Nodes)
-	assert.Equal(t, "", listOut.NextToken)
+	assert.Equal(t, []v1.NodeStatus{node1}, dbNodes)
 
 	// insert second row and update first, query
 	node2 := v1.NodeStatus{}
@@ -73,9 +68,9 @@ func TestNodeStatusCRUD(t *testing.T) {
 	node1.NodeId = node1Id
 	node1.ObservedAt = node2.ObservedAt
 	assert.Nil(t, db.PutNodeStatus(node1))
-	listOut, err = db.ListNodeStatus(v1.ListNodeStatusInput{})
+	dbNodes, err = db.ListNodeStatus()
 	assert.Nil(t, err)
-	assert.Equal(t, []v1.NodeStatus{node1, node2}, listOut.Nodes)
+	assert.Equal(t, []v1.NodeStatus{node1, node2}, dbNodes)
 
 	// delete first row, query
 	deleted, err := db.RemoveNodeStatus(node1.NodeId)
@@ -84,9 +79,9 @@ func TestNodeStatusCRUD(t *testing.T) {
 	deleted, err = db.RemoveNodeStatus(node1.NodeId)
 	assert.Nil(t, err)
 	assert.False(t, deleted)
-	listOut, err = db.ListNodeStatus(v1.ListNodeStatusInput{})
+	dbNodes, err = db.ListNodeStatus()
 	assert.Nil(t, err)
-	assert.Equal(t, []v1.NodeStatus{node2}, listOut.Nodes)
+	assert.Equal(t, []v1.NodeStatus{node2}, dbNodes)
 
 	// delete rows modified at start of test - should delete nothing
 	count, err := db.RemoveNodeStatusOlderThan(start)
@@ -99,12 +94,12 @@ func TestNodeStatusCRUD(t *testing.T) {
 	assert.Equal(t, int64(1), count)
 
 	// should be empty
-	listOut, err = db.ListNodeStatus(v1.ListNodeStatusInput{})
+	dbNodes, err = db.ListNodeStatus()
 	assert.Nil(t, err)
-	assert.Equal(t, listOutEmpty, listOut)
+	assert.Equal(t, []v1.NodeStatus{}, dbNodes)
 }
 
-func TestListNodeStatusPagination(t *testing.T) {
+func TestListNodeStatus(t *testing.T) {
 	nowMillis := common.TimeToMillis(mockTimeNow(time.Now()))
 	db := createTestSqlDb()
 	f := fuzz.New()
@@ -121,27 +116,9 @@ func TestListNodeStatusPagination(t *testing.T) {
 	}
 
 	// load all
-	listOut, err := db.ListNodeStatus(v1.ListNodeStatusInput{
-		Limit:     200,
-		NextToken: "",
-	})
+	dbNodes, err := db.ListNodeStatus()
 	assert.Nil(t, err)
-	assert.Equal(t, v1.ListNodeStatusOutput{Nodes: nodes, NextToken: ""}, listOut)
-
-	// load 15 at a time
-	listOut, err = db.ListNodeStatus(v1.ListNodeStatusInput{
-		Limit:     15,
-		NextToken: "",
-	})
-	assert.Nil(t, err)
-	assert.Equal(t, v1.ListNodeStatusOutput{Nodes: nodes[0:15], NextToken: "15"}, listOut)
-
-	listOut, err = db.ListNodeStatus(v1.ListNodeStatusInput{
-		Limit:     15,
-		NextToken: "190",
-	})
-	assert.Nil(t, err)
-	assert.Equal(t, v1.ListNodeStatusOutput{Nodes: nodes[190:], NextToken: ""}, listOut)
+	assert.Equal(t, nodes, dbNodes)
 }
 
 func TestAcquireReleaseRole(t *testing.T) {

@@ -16,6 +16,12 @@ func (s componentWithEventSourcesByName) Less(i, j int) bool {
 	return s[i].Component.Name < s[j].Component.Name
 }
 
+type NodeStatusByStartedAt []v1.NodeStatus
+
+func (s NodeStatusByStartedAt) Len() int           { return len(s) }
+func (s NodeStatusByStartedAt) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s NodeStatusByStartedAt) Less(i, j int) bool { return s[i].StartedAt < s[j].StartedAt }
+
 type NodeStatusByEmptyThenLoadAvg []v1.NodeStatus
 
 func (s NodeStatusByEmptyThenLoadAvg) Len() int      { return len(s) }
