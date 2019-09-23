@@ -2,7 +2,34 @@
 
 [![GitHub Actions](https://github.com/coopernurse/maelstrom/workflows/test/badge.svg)](https://github.com/coopernurse/maelstrom/actions)
 
-## Build and Test
+## Overview
+
+Maelstrom is a HTTP reverse proxy and container orchestrator that starts and scales containers
+automatically as needed.
+
+A Maelstrom cluster is composed of nodes each running `maelstromd` pointed at a shared database which
+stores configuration state about the components and event sources in the system.
+
+* A component is a docker image with a related run configuration and environment variables.
+* An event source is something that generates requests for a component. HTTP requests, scheduled jobs, and 
+  messages in queues are all types of events.  Maelstrom currently supports HTTP, cron, and AWS SQS events.
+  
+## Documentation
+
+Full docs including a getting started guide are available at:
+[https://maelstromapp.com/docs/](https://maelstromapp.com/docs/)
+
+## Support
+
+I'm available on a contract basis to help your team begin using Maelstrom.
+
+Please contact James Cooper at: james@bitmechanic.com.
+
+## Development
+
+Maelstrom is written in Go and uses the [Go 1.11 module system](https://github.com/golang/go/wiki/Modules).
+
+### Build and Test
 
 ```
 # run tests
@@ -15,43 +42,15 @@ make maelctl
 make maelstromd
 ```
 
-## Registering a component
+### Contributions
 
-```
-# Create a component named 'hello'
-maelctl comp put --json='{"name":"hello", "docker": { "image": "coopernurse/go-hello-http", "httpPort": 8080, "httpHealthCheckPath": "/"}}'
+Pull requests are very welcome. I'd suggest opening an issue first so we can all discuss the
+solution before major work is done. But if you have an itch to scratch feel free to open a PR
+directly.
 
-# Same as above but including a volume mount and some custom environment variables
-maelctl comp put --json='{"name":"hello", "docker": { "image": "coopernurse/go-hello-http", "httpPort": 8080, "httpHealthCheckPath": "/", "env": ["MY_ENV1=foo", "OTHER_VAR=baz"], "volumes": [{ "source": "/home/james/src/maelstrom/tmp/static", "target": "/static" }] }}'
+* Keep documentation in `docs/gitbook` up to date if you add a new feature
+* Make sure all code has been formatted with `gofmt`
 
-# Or bind a component to a specific network
-maelctl comp put --json='{"name":"hello-compose", "docker": { "image": "coopernurse/go-hello-http", "httpPort": 8080, "httpHealthCheckPath": "/", "networkName": "composetest_default"}}'
-```
-
-## Event Sources
-
-An event source is a rule describing a condition that invokes a component.  Event sources have a globally unique name.
-Components may have zero or more event sources.
-
-### HTTP
-
-Allows the component to be invoked by an inbound HTTP request to the public maelstrom HTTP endpoint.
-
-```
-# Bind component to hostname: hello.example.org
-maelctl es put --json='{"name": "hello-web", "componentName": "hello", "http": { "hostname": "hello.example.org" } }'
-```
-
-### Schedule job (cron)
-
-Invokes the component automatically on the specified schedule.
-
-```
-maelctl es put --json='{"name": "hello-hourly", "componentName": "hello", 
-  "cron": { "schedule": "3 32 * * * *", "http": { "path": "/count", "method": "GET" } } }'
-```
-
-
-## Dev notes
+### Dev notes
 
 * [Docker Go API](https://docs.docker.com/develop/sdk/examples/#list-and-manage-containers)
