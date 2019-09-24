@@ -4,6 +4,8 @@
 GO111MODULE = on
 MAEL_SQLDRIVER = sqlite3
 MAEL_SQLDSN = ./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY
+#MAEL_SQLDRIVER = postgres
+#MAEL_SQLDSN = postgres://postgres:test@localhost:5432/mael?sslmode=disable
 MAEL_PUBLICPORT = 8008
 
 test:

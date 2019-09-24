@@ -21,16 +21,20 @@ func NewSqlDb(driver string, dsn string) (*SqlDb, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	blobType := "mediumblob"
 	if strings.Contains(driver, "postgres") {
-		squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar)
+		squirrel.StatementBuilder = squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar)
+		blobType = "jsonb"
 	}
 
-	return &SqlDb{db: db, driver: driver}, nil
+	return &SqlDb{db: db, driver: driver, blobType: blobType}, nil
 }
 
 type SqlDb struct {
 	db       *sql.DB
 	driver   string
+	blobType string
 	DebugLog bool
 }
 
@@ -557,7 +561,7 @@ func (d *SqlDb) Migrate() error {
                         version       int not null,
                         createdAt     bigint not null,
                         modifiedAt    bigint not null,
-                        json          mediumblob not null
+                        json          ` + d.blobType + ` not null
                      )`,
 		},
 		{
@@ -571,7 +575,7 @@ func (d *SqlDb) Migrate() error {
                         createdAt      bigint not null,
                         modifiedAt     bigint not null,
                         type           varchar(30) not null,
-                        json           mediumblob not null
+                        json           ` + d.blobType + ` not null
                      )`,
 		},
 		{
@@ -580,7 +584,7 @@ func (d *SqlDb) Migrate() error {
 			Script: `create table nodestatus (
                         nodeId         varchar(60) primary key,
                         observedAt     bigint not null,
-                        json           mediumblob not null
+                        json           ` + d.blobType + ` not null
                      )`,
 		},
 		{
@@ -597,7 +601,7 @@ func (d *SqlDb) Migrate() error {
 	m := darwin.New(darwinDriver, migrations, nil)
 	err := m.Migrate()
 	if err != nil {
-		return fmt.Errorf("GorpDb.Migrate failed: %v", err)
+		return fmt.Errorf("sql_db.Migrate failed: %v", err)
 	}
 	return nil
 }
