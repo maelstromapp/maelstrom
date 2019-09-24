@@ -497,7 +497,7 @@ func startContainer(dockerClient *docker.Client, c v1.Component, maelstromUrl st
 	}
 
 	log.Info("handler: starting container", "component", c.Name, "ver", c.Version, "containerId", resp.ID[0:8],
-		"image", config.Image, "command", config.Cmd)
+		"image", config.Image, "command", config.Cmd, "entrypoint", config.Entrypoint)
 
 	err = dockerClient.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
 	if err != nil {
@@ -561,9 +561,10 @@ func toContainerConfig(c v1.Component, maelstromUrl string) *container.Config {
 	env = append(env, fmt.Sprintf("MAELSTROM_COMPONENT_VERSION=%d", c.Version))
 
 	return &container.Config{
-		Image: c.Docker.Image,
-		Cmd:   c.Docker.Command,
-		Env:   env,
+		Image:      c.Docker.Image,
+		Cmd:        c.Docker.Command,
+		Entrypoint: c.Docker.Entrypoint,
+		Env:        env,
 		ExposedPorts: nat.PortSet{
 			nat.Port(strconv.Itoa(int(c.Docker.HttpPort)) + "/tcp"): struct{}{},
 		},

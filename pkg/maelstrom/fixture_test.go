@@ -210,7 +210,7 @@ func (f *Fixture) makeHttpRequest(url string) *httptest.ResponseRecorder {
 	req, err := http.NewRequest("GET", url, nil)
 	rw := httptest.NewRecorder()
 	assert.Nil(f.t, err, "http.NewRequest err != nil: %v", err)
-	f.router.Route(rw, req, f.component)
+	f.router.Route(rw, req, f.component, false)
 	return rw
 }
 

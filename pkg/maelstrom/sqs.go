@@ -74,7 +74,7 @@ func (s *SqsPoller) Run(concurrency int) {
 					log.Error("sqs: error creating http req", "err", err, "queueUrl", m.queueUrl)
 				} else {
 					rw := httptest.NewRecorder()
-					s.router.Route(rw, req, *m.component)
+					s.router.Route(rw, req, *m.component, false)
 					if rw.Code == 200 {
 						if log.IsDebug() {
 							log.Debug("sqs: deleting message", "queueUrl", m.queueUrl)

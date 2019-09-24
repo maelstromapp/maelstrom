@@ -51,28 +51,32 @@ func (c *componentRing) nextIdx() int {
 func NewRouter(nodeService v1.NodeService, handlerFactory *DockerHandlerFactory, myNodeId string, myIpAddr string,
 	ctx context.Context) *Router {
 	return &Router{
-		nodeService:        nodeService,
-		handlerFactory:     handlerFactory,
-		myNodeId:           myNodeId,
-		myIpAddr:           myIpAddr,
-		ringByComponent:    make(map[string]*componentRing),
-		waitersByComponent: make(map[string][]chan http.Handler),
-		wg:                 &sync.WaitGroup{},
-		ctx:                ctx,
-		lock:               &sync.Mutex{},
+		nodeService:              nodeService,
+		handlerFactory:           handlerFactory,
+		myNodeId:                 myNodeId,
+		myIpAddr:                 myIpAddr,
+		ringByComponent:          make(map[string]*componentRing),
+		waitersByComponent:       make(map[string][]chan http.Handler),
+		placementTimeByComponent: make(map[string]time.Time),
+		placementInterval:        time.Second * 30,
+		wg:                       &sync.WaitGroup{},
+		ctx:                      ctx,
+		lock:                     &sync.Mutex{},
 	}
 }
 
 type Router struct {
-	nodeService        v1.NodeService
-	handlerFactory     *DockerHandlerFactory
-	myNodeId           string
-	myIpAddr           string
-	ringByComponent    map[string]*componentRing
-	waitersByComponent map[string][]chan http.Handler
-	wg                 *sync.WaitGroup
-	ctx                context.Context
-	lock               *sync.Mutex
+	nodeService              v1.NodeService
+	handlerFactory           *DockerHandlerFactory
+	myNodeId                 string
+	myIpAddr                 string
+	ringByComponent          map[string]*componentRing
+	waitersByComponent       map[string][]chan http.Handler
+	placementTimeByComponent map[string]time.Time
+	placementInterval        time.Duration
+	wg                       *sync.WaitGroup
+	ctx                      context.Context
+	lock                     *sync.Mutex
 }
 
 func (r *Router) SetNodeService(svc v1.NodeService, myNodeId string) {
@@ -180,42 +184,57 @@ func (r *Router) OnClusterUpdated(nodes map[string]v1.NodeStatus) {
 				w <- ring.next(false)
 			}
 			delete(r.waitersByComponent, compName)
+			delete(r.placementTimeByComponent, compName)
 		}
 	}
 	r.lock.Unlock()
 }
 
+// getHandlerOrActivate returns a handler from the routing ring for this component, or returns a channel
+// if no handler is running yet for this component. The channel will be notified when component activation
+// succeeds.
 func (r *Router) getHandlerOrActivate(comp *v1.Component, preferLocal bool) (http.Handler, chan http.Handler) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	// TODO: need to route local requests to local handler
-
 	ring := r.ringByComponent[comp.Name]
-	if ring == nil {
+	if ring == nil || len(ring.handlers) == 0 {
+		// No handler available - return waitCh which will be notified with handler once activation finishes
 		waitCh := make(chan http.Handler, 1)
 		waiters := r.waitersByComponent[comp.Name]
+
 		if waiters == nil {
 			r.waitersByComponent[comp.Name] = []chan http.Handler{waitCh}
-			_, err := r.nodeService.PlaceComponent(v1.PlaceComponentInput{ComponentName: comp.Name})
-			if err != nil {
-				log.Error("router: PlaceComponent error", "err", err, "component", comp.Name)
-			}
 		} else {
 			r.waitersByComponent[comp.Name] = append(waiters, waitCh)
 		}
+
+		// If placement interval as elapsed, ask placement node to activate component
+		now := time.Now()
+		if now.Sub(r.placementTimeByComponent[comp.Name]) > r.placementInterval {
+			r.placementTimeByComponent[comp.Name] = now
+			go func() {
+				_, err := r.nodeService.PlaceComponent(v1.PlaceComponentInput{ComponentName: comp.Name})
+				if err != nil {
+					log.Error("router: PlaceComponent error", "err", err, "component", comp.Name)
+				}
+			}()
+		}
+
 		return nil, waitCh
 	} else {
 		return ring.next(preferLocal), nil
 	}
 }
 
-func (r *Router) Route(rw http.ResponseWriter, req *http.Request, c v1.Component) {
+func (r *Router) Route(rw http.ResponseWriter, req *http.Request, c v1.Component, publicGateway bool) {
 	var deadline time.Time
 	var deadlineNano int64
-	deadlineStr := req.Header.Get("MAELSTROM-DEADLINE-NANO")
-	if deadlineStr != "" {
-		deadlineNano, _ = strconv.ParseInt(deadlineStr, 10, 64)
+	if !publicGateway {
+		deadlineStr := req.Header.Get("MAELSTROM-DEADLINE-NANO")
+		if deadlineStr != "" {
+			deadlineNano, _ = strconv.ParseInt(deadlineStr, 10, 64)
+		}
 	}
 	if deadlineNano == 0 {
 		maxDur := c.MaxDurationSeconds
@@ -232,15 +251,22 @@ func (r *Router) Route(rw http.ResponseWriter, req *http.Request, c v1.Component
 
 	preferLocal := req.Header.Get("MAELSTROM-RELAY-PATH") != ""
 
+	// Get handler from routing ring for this component, or request 0->1 activation if no containers are
+	// running for this component
 	handler, waitCh := r.getHandlerOrActivate(&c, preferLocal)
+
 	if waitCh != nil {
+		// No containers are running. We're waiting for activation on waitCh
 		select {
 		case <-ctx.Done():
 			respondText(rw, http.StatusGatewayTimeout, "Timeout getting handler for component: "+c.Name)
 			return
 		case handler = <-waitCh:
+			// happy branch - container activated
 		}
 	}
+
+	// round trip request to the handler (could be remote or local)
 	if handler != nil {
 		if req.Header.Get("MAELSTROM-DEADLINE-NANO") == "" {
 			req.Header.Set("MAELSTROM-DEADLINE-NANO", strconv.FormatInt(deadline.UnixNano(), 10))

@@ -242,6 +242,7 @@ struct Component {
 struct DockerComponent {
     image                   string
     command                 []string     [optional]
+    entrypoint              []string     [optional]
     httpPort                int
     httpHealthCheckPath     string
 

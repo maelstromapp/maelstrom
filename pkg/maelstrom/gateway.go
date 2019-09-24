@@ -36,10 +36,7 @@ func (g *Gateway) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// TODO: need to look for a request header with deadline and adjust accordingly
-	// should only look for header if gateway is private
-
-	g.router.Route(rw, req, comp)
+	g.router.Route(rw, req, comp, g.public)
 }
 
 func respondText(rw http.ResponseWriter, statusCode int, body string) {

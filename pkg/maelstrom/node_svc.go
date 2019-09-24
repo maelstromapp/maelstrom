@@ -18,18 +18,25 @@ import (
 const rolePlacement = "placement"
 const roleCron = "cron"
 
+type placeComponentResult struct {
+	output *v1.PlaceComponentOutput
+	err    error
+}
+
 func NewNodeServiceImpl(handlerFactory *DockerHandlerFactory, db Db, dockerClient *docker.Client, nodeId string,
 	peerUrl string, startTime time.Time, numCPUs int64, totalMemAllowed int64) (*NodeServiceImpl, error) {
 	nodeSvc := &NodeServiceImpl{
-		handlerFactory:  handlerFactory,
-		db:              db,
-		dockerClient:    dockerClient,
-		nodeId:          nodeId,
-		peerUrl:         peerUrl,
-		totalMemAllowed: totalMemAllowed,
-		startTimeMillis: common.TimeToMillis(startTime),
-		numCPUs:         numCPUs,
-		loadStatusLock:  &sync.Mutex{},
+		handlerFactory:   handlerFactory,
+		db:               db,
+		dockerClient:     dockerClient,
+		nodeId:           nodeId,
+		peerUrl:          peerUrl,
+		totalMemAllowed:  totalMemAllowed,
+		startTimeMillis:  common.TimeToMillis(startTime),
+		numCPUs:          numCPUs,
+		loadStatusLock:   &sync.Mutex{},
+		placeCompLock:    &sync.Mutex{},
+		placeCompWaiters: make(map[string][]chan placeComponentResult),
 	}
 
 	cluster := NewCluster(nodeId, nodeSvc)
@@ -54,16 +61,18 @@ func NewNodeServiceImplFromDocker(handlerFactory *DockerHandlerFactory, db Db, d
 }
 
 type NodeServiceImpl struct {
-	handlerFactory  *DockerHandlerFactory
-	dockerClient    *docker.Client
-	db              Db
-	cluster         *Cluster
-	nodeId          string
-	peerUrl         string
-	totalMemAllowed int64
-	startTimeMillis int64
-	numCPUs         int64
-	loadStatusLock  *sync.Mutex
+	handlerFactory   *DockerHandlerFactory
+	dockerClient     *docker.Client
+	db               Db
+	cluster          *Cluster
+	nodeId           string
+	peerUrl          string
+	totalMemAllowed  int64
+	startTimeMillis  int64
+	numCPUs          int64
+	loadStatusLock   *sync.Mutex
+	placeCompLock    *sync.Mutex
+	placeCompWaiters map[string][]chan placeComponentResult
 }
 
 func (n *NodeServiceImpl) NodeId() string {
@@ -192,6 +201,53 @@ func (n *NodeServiceImpl) PlaceComponent(input v1.PlaceComponentInput) (v1.Place
 		}
 	}
 
+	var waitCh chan placeComponentResult
+
+	n.placeCompLock.Lock()
+	waiters := n.placeCompWaiters[input.ComponentName]
+	if waiters == nil {
+		// no waiters yet - create slice so future callers will queue here
+		n.placeCompWaiters[input.ComponentName] = make([]chan placeComponentResult, 0)
+	} else {
+		// waiter queue exists - add to slice and wait
+		waitCh = make(chan placeComponentResult, 1)
+		n.placeCompWaiters[input.ComponentName] = append(waiters, waitCh)
+	}
+	n.placeCompLock.Unlock()
+
+	if waitCh == nil {
+		out, err := n.placeComponentInternal(input)
+		res := placeComponentResult{err: err}
+		if err == nil {
+			res.output = &out
+		}
+		n.placeCompLock.Lock()
+		for _, waitCh := range n.placeCompWaiters[input.ComponentName] {
+			waitCh <- res
+		}
+		delete(n.placeCompWaiters, input.ComponentName)
+		n.placeCompLock.Unlock()
+		return out, err
+	} else {
+		// placement is in progress - wait for completion
+		return waitForPlacement(waitCh)
+	}
+}
+
+func waitForPlacement(waitCh chan placeComponentResult) (v1.PlaceComponentOutput, error) {
+	select {
+	case <-time.After(time.Minute * 3):
+		// timeout
+		return v1.PlaceComponentOutput{}, fmt.Errorf("nodesvc: timeout waiting for placement")
+	case res := <-waitCh:
+		if res.err == nil {
+			return *res.output, nil
+		}
+		return v1.PlaceComponentOutput{}, res.err
+	}
+}
+
+func (n *NodeServiceImpl) placeComponentInternal(input v1.PlaceComponentInput) (v1.PlaceComponentOutput, error) {
 	// get component
 	comp, err := n.db.GetComponent(input.ComponentName)
 	if err == NotFound {
@@ -213,7 +269,7 @@ func (n *NodeServiceImpl) PlaceComponent(input v1.PlaceComponentInput) (v1.Place
 	startTime := time.Now()
 	deadline := startTime.Add(time.Minute * 3)
 	for time.Now().Before(deadline) {
-		placedNode, retry := n.placeComponentInternal(input.ComponentName, requiredRAM)
+		placedNode, retry := n.placeComponentTryOnce(input.ComponentName, requiredRAM)
 		if placedNode != nil {
 			log.Info("nodesvc: PlaceComponent successful", "elapsedMillis", time.Now().Sub(startTime)/1e6,
 				"component", input.ComponentName, "clientNode", n.nodeId, "placedNode", placedNode.NodeId)
@@ -224,12 +280,12 @@ func (n *NodeServiceImpl) PlaceComponent(input v1.PlaceComponentInput) (v1.Place
 		}
 		if !retry {
 			code := MiscError
-			msg := "nodesvc: PlaceComponent:placeComponentInternal error"
+			msg := "nodesvc: PlaceComponent:placeComponent error"
 			log.Error(msg, "component", input.ComponentName, "code", code)
 			return v1.PlaceComponentOutput{}, &barrister.JsonRpcError{Code: int(code), Message: msg}
 		}
 		sleepDur := time.Millisecond * time.Duration(rand.Intn(3000))
-		log.Warn("nodesvc: PlaceComponent:placeComponentInternal - will retry",
+		log.Warn("nodesvc: PlaceComponent:placeComponent - will retry",
 			"component", input.ComponentName, "nodeId", n.nodeId, "sleep", sleepDur)
 		time.Sleep(sleepDur)
 	}
@@ -239,7 +295,7 @@ func (n *NodeServiceImpl) PlaceComponent(input v1.PlaceComponentInput) (v1.Place
 	return v1.PlaceComponentOutput{}, &barrister.JsonRpcError{Code: int(code), Message: msg}
 }
 
-func (n *NodeServiceImpl) placeComponentInternal(componentName string, requiredRAM int64) (*v1.NodeStatus, bool) {
+func (n *NodeServiceImpl) placeComponentTryOnce(componentName string, requiredRAM int64) (*v1.NodeStatus, bool) {
 	// filter nodes to subset whose total ram is > required
 	nodes := make([]v1.NodeStatus, 0)
 

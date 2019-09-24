@@ -136,6 +136,7 @@ func mapToNameValues(m map[string]string) []v1.NameValue {
 type yamlComponent struct {
 	Image                       string
 	Command                     []string
+	Entrypoint                  []string
 	Environment                 []string
 	MinInstances                int64
 	MaxInstances                int64
@@ -201,6 +202,7 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 			Docker: &v1.DockerComponent{
 				Image:                       c.Image,
 				Command:                     c.Command,
+				Entrypoint:                  c.Entrypoint,
 				HttpPort:                    c.HttpPort,
 				HttpHealthCheckPath:         c.HttpHealthCheckPath,
 				HttpStartHealthCheckSeconds: c.HttpStartHealthCheckSeconds,
