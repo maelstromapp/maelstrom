@@ -14,6 +14,8 @@
   * [HTTP](event_sources/http.md)
   * [Cron](event_sources/cron.md)
   * [AWS SQS](event_sources/aws_sqs.md)
+* [How it Works](how_works/README.md)
+  * [Architecture](how_works/architecture.md)
 * [Appendixes](appendix/README.md)
   * [maelstromd Environment Variables](appendix/maelstromd_env_vars.md)
   * [Project YAML reference](appendix/project_yaml_ref.md)
