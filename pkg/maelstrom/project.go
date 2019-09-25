@@ -103,7 +103,7 @@ func DiffProject(oldProject v1.Project, newProject v1.Project) ProjectDiff {
 	}
 }
 
-func ParseYamlFileAndInterpolateEnv(fname string) (v1.Project, error) {
+func ParseYamlFileAndInterpolateEnv(fname string, strict bool) (v1.Project, error) {
 	data, err := ioutil.ReadFile(fname)
 	if err != nil {
 		return v1.Project{}, err
@@ -111,12 +111,17 @@ func ParseYamlFileAndInterpolateEnv(fname string) (v1.Project, error) {
 
 	envVars := common.EnvVarMap()
 	converted := common.InterpolateWithMap(string(data), envVars)
-	return ParseProjectYaml(converted)
+	return ParseProjectYaml(converted, strict)
 }
 
-func ParseProjectYaml(yamlStr string) (v1.Project, error) {
+func ParseProjectYaml(yamlStr string, strict bool) (v1.Project, error) {
 	var yamlProj yamlProject
-	err := yaml.Unmarshal([]byte(yamlStr), &yamlProj)
+	var err error
+	if strict {
+		err = yaml.UnmarshalStrict([]byte(yamlStr), &yamlProj)
+	} else {
+		err = yaml.Unmarshal([]byte(yamlStr), &yamlProj)
+	}
 	if err != nil {
 		return v1.Project{}, err
 	}

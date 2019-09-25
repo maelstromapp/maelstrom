@@ -12,9 +12,15 @@
 ---
 # Project name
 name: myproject
-# If set, name=value environment variables will be loaded from this file
+# If set, name=value environment variables will be loaded from this file and set in the 
+# environment of runnning containers
+# NOTE: this does NOT load variables for purposes of ${FOO} variable interpolation
+#       in this YAML file. Interpolation is done based on env vars in scope in the shell
+#       that invokes "maelctl project put".  If you wish to scope in env vars from a file
+#       for purposes of interpolation, use the "--env=filename" switch. For example:
+#       "maelctl project put --env=interpolate-vars.env" 
 envfile: /path/to/file
-# Environment variables that will be set in all components
+# Environment variables that will be set in all component containers
 environment:
   - ENV_VAR1=value1
   - ENV_VAR2=value2

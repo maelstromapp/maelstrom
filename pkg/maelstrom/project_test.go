@@ -196,7 +196,7 @@ components:
 		},
 	}
 
-	project, err := ParseProjectYaml(yaml)
+	project, err := ParseProjectYaml(yaml, true)
 	assert.Equal(t, nil, err)
 	assert.Equal(t, expected, project)
 }
