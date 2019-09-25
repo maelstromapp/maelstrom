@@ -126,6 +126,12 @@ func (e *EvPoller) initSqsEventSource(es v1.EventSource, validRoleIds map[string
 					e.pollerWg.Add(1)
 					go sqsPoller.Run(rc.concurrency)
 					pollerOk = true
+				} else {
+					if es.Sqs.NameAsPrefix {
+						log.Warn("evpoller: No SQS queues found with name prefix", "queueNamePrefix", es.Sqs.QueueName)
+					} else {
+						log.Warn("evpoller: SQS queue not found", "queueName", es.Sqs.QueueName)
+					}
 				}
 			} else {
 				pollerOk = true
