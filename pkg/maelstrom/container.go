@@ -195,7 +195,6 @@ func initReverseProxy(dockerClient *docker.Client, component v1.Component,
 	}
 
 	var ipAddr string
-	var port string
 
 	for _, endpoint := range cont.NetworkSettings.Networks {
 		if endpoint.IPAddress != "" {
@@ -209,16 +208,13 @@ func initReverseProxy(dockerClient *docker.Client, component v1.Component,
 			if len(portMap) > 0 && dindHost != "" && portMap[0].HostIP == "0.0.0.0" {
 				// CI docker-in-docker mode
 				target.Host = dindHost + ":" + portMap[0].HostPort
-			} else {
-				// Normal mode where we can route directly to the container's IP addr
-				port = k[0:strings.Index(k, "/")]
 			}
 			break
 		}
 	}
 
-	if target.Host == "" && ipAddr != "" && port != "" {
-		target.Host = ipAddr + ":" + port
+	if target.Host == "" && ipAddr != "" {
+		target.Host = fmt.Sprintf("%s:%d", ipAddr, component.Docker.HttpPort)
 	}
 
 	if target.Host == "" {
