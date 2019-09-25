@@ -1,12 +1,7 @@
 package maelstrom
 
-import "github.com/coopernurse/maelstrom/pkg/v1"
+import v1 "github.com/coopernurse/maelstrom/pkg/v1"
 
 type ComponentSubscriber interface {
-	OnComponentNotification(cn ComponentNotification)
-}
-
-type ComponentNotification struct {
-	PutComponent    *v1.PutComponentOutput
-	RemoveComponent *v1.RemoveComponentOutput
+	OnComponentNotification(change v1.DataChangedUnion)
 }

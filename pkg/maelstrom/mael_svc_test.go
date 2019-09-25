@@ -20,7 +20,7 @@ func panicOnErr(err error) {
 
 func createV1() (*MaelServiceImpl, *SqlDb) {
 	sqlDb := createTestSqlDb()
-	return NewMaelServiceImpl(sqlDb, nil, nil), sqlDb
+	return NewMaelServiceImpl(sqlDb, nil, nil, "node1", nil), sqlDb
 }
 
 func TestComponentCRUD(t *testing.T) {

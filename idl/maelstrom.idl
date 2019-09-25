@@ -138,6 +138,11 @@ interface MaelstromService {
     //
     ListEventSources(input ListEventSourcesInput) ListEventSourcesOutput
 
+    // NotifyDataChanged allows cluster peers to communicate that components have
+    // been updated / removed in the system.
+    //
+    // The receiver should update any internal state as appropriate.
+    NotifyDataChanged(input NotifyDataChangedInput) NotifyDataChangedOutput
 }
 
 // NodeService contains operations used between nodes in the cluster to coordinate, start,
@@ -302,6 +307,11 @@ struct DockerComponent {
     // If unset, no credentials will be used when pulling images
     pullUsername             string         [optional]
     pullPassword             string         [optional]
+
+    // If true, image will be pulled after each PutComponent call even if no containers
+    // for this component are running. (default=false)
+    // Images are always pulled for a component when starting a container.
+    pullImageOnPut      bool  [optional]
 }
 
 struct VolumeMount {
@@ -563,6 +573,24 @@ struct PutComponentOutput {
     // For a newly created component, this value will be 1.
     // The value will increment by one with each successful PutComponent() call.
     version int
+}
+
+struct NotifyDataChangedInput {
+    // Node ID that changes originated on
+    nodeId     string
+
+    // List of changes that peer should apply locally
+    changes    []DataChangedUnion
+}
+
+struct NotifyDataChangedOutput {
+    respondingNodeId   string
+}
+
+struct DataChangedUnion {
+    // only one of the elements will be populated
+    putComponent      PutComponentOutput      [optional]
+    removeComponent   RemoveComponentOutput   [optional]
 }
 
 struct PutEventSourceInput {

@@ -146,7 +146,7 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *SqlDb) *Fixtur
 		t:              t,
 		dockerClient:   dockerClient,
 		successfulReqs: &successfulReqs,
-		v1Impl:         NewMaelServiceImpl(sqlDb, nil, nil),
+		v1Impl:         NewMaelServiceImpl(sqlDb, nil, nil, nodeSvcImpl.nodeId, nodeSvcImpl.Cluster()),
 		nodeSvcImpl:    nodeSvcImpl,
 		hFactory:       hFactory,
 		router:         router,
@@ -306,7 +306,7 @@ func (f *Fixture) WhenAutoscaleRuns() *Fixture {
 }
 
 func (f *Fixture) WhenComponentIsUpdated() *Fixture {
-	f.hFactory.OnComponentNotification(ComponentNotification{
+	f.hFactory.OnComponentNotification(v1.DataChangedUnion{
 		PutComponent: &v1.PutComponentOutput{
 			Name:    f.component.Name,
 			Version: f.component.Version + 1,

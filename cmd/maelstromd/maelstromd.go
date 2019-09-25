@@ -168,12 +168,15 @@ func main() {
 
 	publicSvr := maelstrom.NewGateway(resolver, router, true)
 
-	componentSubscribers := []maelstrom.ComponentSubscriber{handlerFactory}
+	componentSubscribers := []maelstrom.ComponentSubscriber{handlerFactory, resolver}
 
 	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
-	v1Impl := maelstrom.NewMaelServiceImpl(db, componentSubscribers, certWrapper)
+	v1Impl := maelstrom.NewMaelServiceImpl(db, componentSubscribers, certWrapper, nodeSvcImpl.NodeId(),
+		nodeSvcImpl.Cluster())
 	v1Server := v1.NewJSONServer(v1Idl, true, v1Impl, nodeSvcImpl)
 	logsHandler := maelstrom.NewLogsHandler(dockerClient)
+
+	nodeSvcImpl.Cluster().SetLocalMaelstromService(v1Impl)
 
 	privateGateway := maelstrom.NewGateway(resolver, router, false)
 	privateSvrMux := http.NewServeMux()

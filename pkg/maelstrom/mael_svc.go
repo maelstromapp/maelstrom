@@ -59,11 +59,14 @@ func projectNameValid(errPrefix string, name string) (string, error) {
 	return nameValid(errPrefix, name, 20)
 }
 
-func NewMaelServiceImpl(db Db, componentSubscribers []ComponentSubscriber, certWrapper *cert.CertMagicWrapper) *MaelServiceImpl {
+func NewMaelServiceImpl(db Db, componentSubscribers []ComponentSubscriber, certWrapper *cert.CertMagicWrapper,
+	myNodeId string, cluster *Cluster) *MaelServiceImpl {
 	return &MaelServiceImpl{
 		db:                   db,
 		componentSubscribers: componentSubscribers,
 		certWrapper:          certWrapper,
+		myNodeId:             myNodeId,
+		cluster:              cluster,
 	}
 }
 
@@ -71,6 +74,8 @@ type MaelServiceImpl struct {
 	db                   Db
 	componentSubscribers []ComponentSubscriber
 	certWrapper          *cert.CertMagicWrapper
+	myNodeId             string
+	cluster              *Cluster
 }
 
 func (v *MaelServiceImpl) onError(code ErrorCode, msg string, err error) error {
@@ -147,7 +152,7 @@ func (v *MaelServiceImpl) PutProject(input v1.PutProjectInput) (v1.PutProjectOut
 		} else {
 			out.ComponentsUpdated = append(out.ComponentsUpdated, c)
 		}
-		v.notifyPutComponent(&v1.PutComponentOutput{Name: c.Name, Version: newVersion})
+		v.notifyPutComponent(&v1.PutComponentOutput{Name: c.Name, Version: newVersion}, true)
 	}
 	for _, ev := range diff.EventSourcePut {
 		_, err = v.db.PutEventSource(ev)
@@ -166,7 +171,7 @@ func (v *MaelServiceImpl) PutProject(input v1.PutProjectInput) (v1.PutProjectOut
 			return v1.PutProjectOutput{}, v.onError(DbError, "RemoveComponent failed", err)
 		}
 		out.ComponentsRemoved = append(out.ComponentsRemoved, c)
-		v.notifyRemoveComponent(&v1.RemoveComponentOutput{Name: c, Found: found})
+		v.notifyRemoveComponent(&v1.RemoveComponentOutput{Name: c, Found: found}, true)
 	}
 	for _, ev := range diff.EventSourceRemove {
 		_, err = v.db.RemoveEventSource(ev)
@@ -257,7 +262,7 @@ func (v *MaelServiceImpl) PutComponent(input v1.PutComponentInput) (v1.PutCompon
 	}
 
 	// Notify subscribers
-	v.notifyPutComponent(&output)
+	v.notifyPutComponent(&output, true)
 
 	return output, nil
 }
@@ -302,7 +307,7 @@ func (v *MaelServiceImpl) RemoveComponent(input v1.RemoveComponentInput) (v1.Rem
 	}
 
 	// Notify subscribers
-	v.notifyRemoveComponent(&output)
+	v.notifyRemoveComponent(&output, true)
 
 	return output, nil
 }
@@ -374,22 +379,46 @@ func (v *MaelServiceImpl) ListEventSources(input v1.ListEventSourcesInput) (v1.L
 	return v.db.ListEventSources(input)
 }
 
-func (v *MaelServiceImpl) notifyPutComponent(putOutput *v1.PutComponentOutput) {
-	cn := ComponentNotification{
+func (v *MaelServiceImpl) notifyPutComponent(putOutput *v1.PutComponentOutput, broadcast bool) {
+	cn := v1.DataChangedUnion{
 		PutComponent: putOutput,
 	}
 	for _, s := range v.componentSubscribers {
 		go s.OnComponentNotification(cn)
 	}
+	if broadcast && v.cluster != nil {
+		v.cluster.BroadcastDataChanged(v1.NotifyDataChangedInput{
+			NodeId:  v.myNodeId,
+			Changes: []v1.DataChangedUnion{{PutComponent: putOutput}},
+		})
+	}
 }
 
-func (v *MaelServiceImpl) notifyRemoveComponent(rmOutput *v1.RemoveComponentOutput) {
-	cn := ComponentNotification{
+func (v *MaelServiceImpl) notifyRemoveComponent(rmOutput *v1.RemoveComponentOutput, broadcast bool) {
+	cn := v1.DataChangedUnion{
 		RemoveComponent: rmOutput,
 	}
 	for _, s := range v.componentSubscribers {
 		go s.OnComponentNotification(cn)
 	}
+	if broadcast && v.cluster != nil {
+		v.cluster.BroadcastDataChanged(v1.NotifyDataChangedInput{
+			NodeId:  v.myNodeId,
+			Changes: []v1.DataChangedUnion{{RemoveComponent: rmOutput}},
+		})
+	}
+}
+
+func (v *MaelServiceImpl) NotifyDataChanged(input v1.NotifyDataChangedInput) (v1.NotifyDataChangedOutput, error) {
+	for _, change := range input.Changes {
+		if change.PutComponent != nil {
+			v.notifyPutComponent(change.PutComponent, false)
+		}
+		if change.RemoveComponent != nil {
+			v.notifyRemoveComponent(change.RemoveComponent, false)
+		}
+	}
+	return v1.NotifyDataChangedOutput{RespondingNodeId: v.myNodeId}, nil
 }
 
 func validateComponent(errPrefix string, component v1.Component) (string, error) {

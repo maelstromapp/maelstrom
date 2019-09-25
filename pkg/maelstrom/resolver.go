@@ -37,6 +37,23 @@ type DbComponentResolver struct {
 	componentsExpires   time.Time
 }
 
+func (r *DbComponentResolver) OnComponentNotification(cn v1.DataChangedUnion) {
+	r.lock.Lock()
+
+	// remove component by name to force reload
+	if cn.PutComponent != nil {
+		delete(r.componentsByName, cn.PutComponent.Name)
+	}
+	if cn.RemoveComponent != nil {
+		delete(r.componentsByName, cn.RemoveComponent.Name)
+	}
+
+	// force reload of event sources
+	r.eventSources = nil
+
+	r.lock.Unlock()
+}
+
 func (r *DbComponentResolver) ByName(componentName string) (comp v1.Component, err error) {
 	ok := false
 	r.lock.Lock()

@@ -24,17 +24,22 @@ func NewCluster(myNodeId string, localNodeService v1.NodeService) *Cluster {
 }
 
 type Cluster struct {
-	myNodeId         string
-	localNodeService v1.NodeService
-	observers        []ClusterObserver
-	nodesById        map[string]v1.NodeStatus
-	lock             *sync.Mutex
+	myNodeId              string
+	localNodeService      v1.NodeService
+	localMaelstromService v1.MaelstromService
+	observers             []ClusterObserver
+	nodesById             map[string]v1.NodeStatus
+	lock                  *sync.Mutex
 }
 
 func (c *Cluster) AddObserver(observer ClusterObserver) {
 	c.lock.Lock()
 	c.observers = append(c.observers, observer)
 	c.lock.Unlock()
+}
+
+func (c *Cluster) SetLocalMaelstromService(svc v1.MaelstromService) {
+	c.localMaelstromService = svc
 }
 
 func (c *Cluster) SetNode(node v1.NodeStatus) bool {
@@ -163,7 +168,23 @@ func (c *Cluster) GetNodeServiceWithTimeout(node v1.NodeStatus, timeout time.Dur
 }
 
 func (c *Cluster) GetNodeService(node v1.NodeStatus) v1.NodeService {
-	return c.GetNodeServiceWithTimeout(node, 0)
+	return c.GetNodeServiceWithTimeout(node, 5*time.Minute)
+}
+
+func (c *Cluster) GetMaelstromServiceWithTimeout(node v1.NodeStatus, timeout time.Duration) v1.MaelstromService {
+	if node.NodeId == c.myNodeId {
+		return c.localMaelstromService
+	}
+	transport := &barrister.HttpTransport{Url: node.PeerUrl + "/_mael/v1"}
+	if timeout > 0 {
+		transport.Client = &http.Client{Timeout: timeout}
+	}
+	client := barrister.NewRemoteClient(transport, false)
+	return v1.NewMaelstromServiceProxy(client)
+}
+
+func (c *Cluster) GetMaelstromService(node v1.NodeStatus) v1.MaelstromService {
+	return c.GetMaelstromServiceWithTimeout(node, time.Minute)
 }
 
 func (c *Cluster) GetRemoteNodeServices() []v1.NodeService {
@@ -176,6 +197,29 @@ func (c *Cluster) GetRemoteNodeServices() []v1.NodeService {
 	}
 	c.lock.Unlock()
 	return svcs
+}
+
+func (c *Cluster) GetRemoteMaelstromServices() []v1.MaelstromService {
+	svcs := make([]v1.MaelstromService, 0)
+	c.lock.Lock()
+	for nodeId, nodeStatus := range c.nodesById {
+		if nodeId != c.myNodeId {
+			svcs = append(svcs, c.GetMaelstromService(nodeStatus))
+		}
+	}
+	c.lock.Unlock()
+	return svcs
+}
+
+func (c *Cluster) BroadcastDataChanged(input v1.NotifyDataChangedInput) {
+	for _, svc := range c.GetRemoteMaelstromServices() {
+		go func(s v1.MaelstromService) {
+			_, err := s.NotifyDataChanged(input)
+			if err != nil {
+				log.Warn("cluster: error broadcasting data change", "err", err.Error())
+			}
+		}(svc)
+	}
 }
 
 func (c *Cluster) notifyAll() {

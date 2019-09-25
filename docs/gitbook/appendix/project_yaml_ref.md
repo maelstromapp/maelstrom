@@ -109,6 +109,20 @@ components:
 By default docker images are pulled without authentication. Each component may optionally specify registry auth
 credentials or provide a completely custom command to run on the host to pull the image.
 
+#### Pull after component put
+
+Images are always pulled before starting a container. To pull an image immediately after a component put operation,
+set `pullimageonput: true`.  This will pull the image immediately any time the component is modified.
+
+```yaml
+
+---
+name: myproject
+components:
+  component_name_1:
+    pullimageonput: true
+```
+
 #### Registry credentials
 
 ```yaml

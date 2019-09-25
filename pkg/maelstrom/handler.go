@@ -324,11 +324,12 @@ func (f *DockerHandlerFactory) OnImageUpdated(msg common.ImageUpdatedMessage) {
 	}
 }
 
-func (f *DockerHandlerFactory) OnComponentNotification(cn ComponentNotification) {
+func (f *DockerHandlerFactory) OnComponentNotification(cn v1.DataChangedUnion) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
 	if cn.PutComponent != nil {
+		containerRestarted := false
 		containers, ok := f.byComponentName[cn.PutComponent.Name]
 		if ok {
 			var keep []*Container
@@ -339,6 +340,7 @@ func (f *DockerHandlerFactory) OnComponentNotification(cn ComponentNotification)
 					newContainer, newContainerId, err := f.restartComponent(cont, false,
 						f.reqChanByComponentLocked(cn.PutComponent.Name))
 					if err == nil {
+						containerRestarted = true
 						keep = append(keep, newContainer)
 					} else {
 						log.Error("handler: OnComponentNotification - unable to restart component", "err", err,
@@ -351,8 +353,26 @@ func (f *DockerHandlerFactory) OnComponentNotification(cn ComponentNotification)
 			}
 			f.byComponentName[cn.PutComponent.Name] = keep
 		}
+		if !containerRestarted {
+			go f.tryPullImage(cn.PutComponent.Name)
+		}
 	} else if cn.RemoveComponent != nil {
 		f.stopContainersByComponent(cn.RemoveComponent.Name, "component removed")
+	}
+}
+
+func (f *DockerHandlerFactory) tryPullImage(componentName string) {
+	comp, err := f.db.GetComponent(componentName)
+	if err == nil {
+		if comp.Docker.PullImageOnPut {
+			err = pullImage(f.dockerClient, comp)
+			if err != nil {
+				log.Error("handler: OnComponentNotification - unable to pull component", "err", err,
+					"component", componentName)
+			}
+		}
+	} else {
+		log.Error("handler: OnComponentNotification - unable to load component", "err", err, "component", componentName)
 	}
 }
 

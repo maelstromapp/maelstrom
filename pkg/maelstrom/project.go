@@ -161,6 +161,7 @@ type yamlComponent struct {
 	PullCommand                 []string
 	PullUsername                string
 	PullPassword                string
+	PullImageOnPut              bool
 }
 
 func (c yamlComponent) toComponentWithEventSources(name string, projectName string,
@@ -219,6 +220,7 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 				PullCommand:                 c.PullCommand,
 				PullUsername:                c.PullUsername,
 				PullPassword:                c.PullPassword,
+				PullImageOnPut:              c.PullImageOnPut,
 			},
 		},
 		EventSources: eventSources,
