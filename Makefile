@@ -33,6 +33,22 @@ idl:
 	barrister idl/maelstrom.idl | idl2go -i -p v1 -d pkg
 	gofmt -w pkg/v1/*.go
 
+docker-image:
+	docker build -t coopernurse/maelstrom .
+
+docker-run-maelstromd:
+	mkdir -p tmp
+	docker run -d --name maelstromd -p 8374:8374 -p 8008:8008 -v `pwd`/tmp:/data --privileged \
+	  -v /var/run/docker.sock:/var/run/docker.sock \
+	  -e MAEL_SQLDRIVER="sqlite3" \
+	  -e MAEL_PUBLICPORT=8008 \
+	  -e MAEL_SQLDSN="/data/maelstrom.db?cache=shared&_journal_mode=MEMORY"  \
+	  coopernurse/maelstrom maelstromd
+
+docker-push-image:
+	docker tag coopernurse/maelstrom docker.io/coopernurse/maelstrom
+	docker push docker.io/coopernurse/maelstrom
+
 run-maelstromd:
 	mkdir -p tmp
 	./dist/maelstromd &

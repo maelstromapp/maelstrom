@@ -28,6 +28,12 @@ Use `maelctl` to register this project with `maelstromd`:
 $ /usr/local/bin/maelctl project put
 ```
 
+Or via docker (we volume mounted the current dir to `/app` so we can access it there in the container):
+
+```
+docker exec maelstromd maelctl project put
+```
+
 You should see this output:
 
 ```

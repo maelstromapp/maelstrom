@@ -31,6 +31,19 @@ Maelstrom is written in Go and uses the [Go 1.11 module system](https://github.c
 
 ### Build and Test
 
+Maelstrom uses [Barrister RPC](http://barrister.bitmechanic.com/) for communication between `maelctl` and `maelstromd` 
+and for communication between cluster peers.
+
+```
+# install Barrister and Go bindings
+pip install --pre --user barrister
+go get github.com/coopernurse/barrister-go
+go install github.com/coopernurse/barrister-go/idl2go
+
+# compile IDL to go
+make idl
+```
+
 ```
 # run tests
 make test

@@ -2,7 +2,7 @@
 
 ## Download
 
-Pre-built binaries are available for Linux x86_64. On other platforms you'll need to compile `maelstromd` from source.
+Pre-built binaries are available for Linux x86_64. On other platforms you'll need to use a pre-compiled docker image.
 
 ```
 # Use any directory you wish that's in your PATH
@@ -28,10 +28,20 @@ MAEL_PUBLICPORT=8008
 
 ## Start maelstromd
 
-Run `maelstromd`:
+Run `maelstromd` - if using the Linux binaries:
 
 ```
 $ /usr/local/bin/maelstromd -f mael.env
+```
+
+Or if using the docker image:
+
+```
+# add a -d switch if you want to background this process
+# otherwise it will run in the foreground
+docker run --name maelstromd -p 8374:8374 -p 8008:8008 -v `pwd`:/app --privileged \
+    -v /var/run/docker.sock:/var/run/docker.sock --env-file mael.env \
+    coopernurse/maelstrom maelstromd
 ```
 
 You should see output that looks like this:

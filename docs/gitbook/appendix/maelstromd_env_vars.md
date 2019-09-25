@@ -2,9 +2,20 @@
 # maelstromd Environment Variables
 
 * `maelstromd` configuration is done via environment variables.
-* All variables are prefixed with `MAEL_`.
+* All variables (except LOGXI vars) are prefixed with `MAEL_`.
 * All variables are upper case
 * Variables are bound to the `Config` struct in [config.go](https://github.com/coopernurse/maelstrom/blob/master/pkg/config/config.go#L59) using [envconfig](https://github.com/kelseyhightower/envconfig)
+
+## Logging
+
+`maelstromd` uses [mgutz/logxi](https://github.com/mgutz/logxi) for logging, which has a set of environment variables
+that control the logging format. Please read the logxi docs for more details.
+
+| Variable         | Description                                  | Example
+|------------------|----------------------------------------------|-----------------------------------|
+| LOGXI            | Sets log levels                              | `LOGXI=*=DBG`
+| LOGXI_FORMAT     | Sets format for logger                       | `LOGXI_FORMAT=text`
+| LOGXI_COLORS     | Color schema for log levels                  | `LOGXI_COLORS=TRC,DBG,WRN=yellow,INF=green,ERR=red`
 
 ## Ports
 

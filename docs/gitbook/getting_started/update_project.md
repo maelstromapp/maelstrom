@@ -34,6 +34,12 @@ Then re-run `maelctl project put`
 $ /usr/local/bin/maelctl project put
 ```
 
+Or via docker:
+
+```
+docker exec maelstromd maelctl project put
+```
+
 ## Wait 10 seconds..
 
 We just told `maelstromd` to make a `GET` request to `/log` on this component every 10 seconds.
@@ -50,3 +56,9 @@ $ /usr/local/bin/maelctl logs
 [hello-mael_hello]	Current time: 2019-09-17 21:12:21.001580013 +0000 UTC m=+952.075605806
 [hello-mael_hello]	Current time: 2019-09-17 21:12:31.001557084 +0000 UTC m=+962.075582883
 ``` 
+
+Or via docker:
+
+```
+docker exec maelstromd maelctl logs
+```
