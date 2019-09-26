@@ -142,6 +142,24 @@ func (v *MaelServiceImpl) PutProject(input v1.PutProjectInput) (v1.PutProjectOut
 		EventSourcesRemoved: make([]string, 0),
 	}
 
+	// remove first - in case components were renamed (which is a remove + put)
+	for _, c := range diff.ComponentRemove {
+		found, err := v.db.RemoveComponent(c)
+		if err != nil {
+			return v1.PutProjectOutput{}, v.onError(DbError, "RemoveComponent failed", err)
+		}
+		out.ComponentsRemoved = append(out.ComponentsRemoved, c)
+		v.notifyRemoveComponent(&v1.RemoveComponentOutput{Name: c, Found: found}, true)
+	}
+	for _, ev := range diff.EventSourceRemove {
+		_, err = v.db.RemoveEventSource(ev)
+		if err != nil {
+			return v1.PutProjectOutput{}, v.onError(DbError, "RemoveEventSource failed", err)
+		}
+		out.EventSourcesRemoved = append(out.EventSourcesRemoved, ev)
+	}
+
+	// then put
 	for _, c := range diff.ComponentPut {
 		newVersion, err := v.db.PutComponent(c)
 		if err != nil {
@@ -164,21 +182,6 @@ func (v *MaelServiceImpl) PutProject(input v1.PutProjectInput) (v1.PutProjectOut
 		} else {
 			out.EventSourcesUpdated = append(out.EventSourcesUpdated, ev)
 		}
-	}
-	for _, c := range diff.ComponentRemove {
-		found, err := v.db.RemoveComponent(c)
-		if err != nil {
-			return v1.PutProjectOutput{}, v.onError(DbError, "RemoveComponent failed", err)
-		}
-		out.ComponentsRemoved = append(out.ComponentsRemoved, c)
-		v.notifyRemoveComponent(&v1.RemoveComponentOutput{Name: c, Found: found}, true)
-	}
-	for _, ev := range diff.EventSourceRemove {
-		_, err = v.db.RemoveEventSource(ev)
-		if err != nil {
-			return v1.PutProjectOutput{}, v.onError(DbError, "RemoveEventSource failed", err)
-		}
-		out.EventSourcesRemoved = append(out.EventSourcesRemoved, ev)
 	}
 
 	return out, nil
