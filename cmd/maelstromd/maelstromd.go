@@ -28,6 +28,10 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+var version string
+var builddate string
+var gitsha string
+
 func mustStart(s *http.Server) {
 	err := s.ListenAndServe()
 	if err != nil && err != http.ErrServerClosed {
@@ -51,6 +55,12 @@ func initDb(sqlDriver, sqlDSN string) maelstrom.Db {
 }
 
 func main() {
+
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		fmt.Printf("maelstromd v%s built on %s commit %s\n", version, builddate, gitsha)
+		os.Exit(0)
+	}
+
 	go func() {
 		sigs := make(chan os.Signal, 1)
 		signal.Notify(sigs, syscall.SIGQUIT)

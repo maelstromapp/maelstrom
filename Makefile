@@ -8,6 +8,11 @@ MAEL_SQLDSN = ./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY
 #MAEL_SQLDSN = postgres://postgres:test@localhost:5432/mael?sslmode=disable
 MAEL_PUBLICPORT = 8008
 
+BUILD_VER = 0.0.1
+BUILD_DATE := $(shell date +%FT%T%z)
+BUILD_GITSHA := $(shell git rev-parse --short HEAD)
+LD_FLAGS = -ldflags "-X main.version=$(BUILD_VER) -X main.builddate=$(BUILD_DATE) -X main.gitsha=$(BUILD_GITSHA)"
+
 test:
 	scripts/gofmt_check.sh
 	rm -f pkg/v1/test.db pkg/gateway/test.db
@@ -24,10 +29,10 @@ cover:
 	go tool cover -html=tmp/cover.out
 
 maelctl:
-	go build -o dist/maelctl --tags "libsqlite3 linux" cmd/maelctl/*.go
+	go build ${LD_FLAGS} -o dist/maelctl --tags "libsqlite3 linux" cmd/maelctl/*.go
 
 maelstromd:
-	go build -o dist/maelstromd --tags "libsqlite3 linux" cmd/maelstromd/*.go
+	go build ${LD_FLAGS} -o dist/maelstromd --tags "libsqlite3 linux" cmd/maelstromd/*.go
 
 idl:
 	barrister idl/maelstrom.idl | idl2go -i -p v1 -d pkg

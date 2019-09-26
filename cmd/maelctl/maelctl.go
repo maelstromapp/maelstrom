@@ -24,6 +24,10 @@ import (
 
 ////////////////////////////////////
 
+var version string
+var builddate string
+var gitsha string
+
 func readJSON(args docopt.Opts, target interface{}) {
 	var data []byte
 	var err error
@@ -499,6 +503,7 @@ Usage:
   maelctl project ls [--prefix=<prefix>]
   maelctl project put [--file=<file>] [--env=<envfile>]
   maelctl project rm <name>
+  maelctl version
 `
 	args, err := docopt.ParseDoc(usage)
 	if err != nil {
@@ -530,6 +535,8 @@ Usage:
 		projectPut(args, svc)
 	} else if argBool(args, "project") && argBool(args, "rm") {
 		projectRm(args, svc)
+	} else if argBool(args, "version") {
+		fmt.Printf("maelctl v%s built on %s commit %s\n", version, builddate, gitsha)
 	} else {
 		fmt.Printf("ERROR: unsupported command. args=%v\n", args)
 		os.Exit(2)
