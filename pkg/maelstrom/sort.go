@@ -75,3 +75,28 @@ type projectInfoByName []v1.ProjectInfo
 func (s projectInfoByName) Len() int           { return len(s) }
 func (s projectInfoByName) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 func (s projectInfoByName) Less(i, j int) bool { return s[i].ProjectName < s[j].ProjectName }
+
+type httpEventSourcesForResolver []v1.EventSource
+
+func (s httpEventSourcesForResolver) Len() int      { return len(s) }
+func (s httpEventSourcesForResolver) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+func (s httpEventSourcesForResolver) Less(i, j int) bool {
+	// want most specific to least specific
+	if s[i].Http != nil && s[j].Http != nil {
+		// if hostname empty, sort to bottom
+		if s[i].Http.Hostname == "" && s[j].Http.Hostname != "" {
+			return false
+		}
+		if s[j].Http.Hostname == "" && s[i].Http.Hostname != "" {
+			return true
+		}
+
+		// if paths are same length, sort by hostname desc
+		if len(s[i].Http.PathPrefix) == len(s[j].Http.PathPrefix) {
+			return s[i].Http.Hostname > s[j].Http.Hostname
+		}
+		// sort by path length descending so most specific paths are considered first
+		return len(s[i].Http.PathPrefix) > len(s[j].Http.PathPrefix)
+	}
+	return s[i].Name < s[j].Name
+}

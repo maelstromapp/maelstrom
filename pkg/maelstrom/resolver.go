@@ -5,6 +5,7 @@ import (
 	"github.com/coopernurse/maelstrom/pkg/cert"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -121,6 +122,11 @@ func (r *DbComponentResolver) ByHTTPRequest(req *http.Request, public bool) (v1.
 
 	for _, es := range httpEventSources {
 		if httpEventSourceMatches(es, hostname, path) {
+
+			if es.Http.StripPrefix && es.Http.PathPrefix != "" {
+				req.URL.Path = path[len(es.Http.PathPrefix):]
+			}
+
 			return r.ByName(es.ComponentName)
 		}
 	}
@@ -129,7 +135,13 @@ func (r *DbComponentResolver) ByHTTPRequest(req *http.Request, public bool) (v1.
 }
 
 func httpEventSourceMatches(es v1.EventSource, hostname string, path string) bool {
-	return es.Http != nil && hostname == es.Http.Hostname &&
+	if es.Http == nil || (es.Http.Hostname == "" && es.Http.PathPrefix == "") {
+		return false
+	}
+	if es.Http.Hostname == "" && strings.HasPrefix(path, es.Http.PathPrefix) {
+		return true
+	}
+	return hostname == es.Http.Hostname &&
 		(es.Http.PathPrefix == "" || strings.HasPrefix(path, es.Http.PathPrefix))
 }
 
@@ -154,5 +166,6 @@ func allHttpEventSources(db Db, certWrapper *cert.CertMagicWrapper) ([]v1.EventS
 			break
 		}
 	}
+	sort.Sort(httpEventSourcesForResolver(allSources))
 	return allSources, nil
 }

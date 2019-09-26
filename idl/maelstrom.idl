@@ -357,6 +357,10 @@ struct HttpEventSource {
     // if more than one is provided, only requests matching all fields will match
     hostname      string    [optional]
     pathPrefix    string    [optional]
+
+    // If true, and pathPrefix is provided, the pathPrefix will be
+    // stripped from the request before proxying to the target
+    stripPrefix   bool      [optional]
 }
 
 struct CronEventSource {
