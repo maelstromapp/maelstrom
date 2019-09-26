@@ -172,6 +172,9 @@ components:
     httpstarthealthcheckseconds: 90
     # Interval in seconds to perform health check. Default = 10
     httphealthcheckseconds: 15
+    # If this number of failures is reached the container will be considered
+    # non-responsive and will be restarted. Default = 1
+    httphealthcheckmaxfailures: 2
 ```
 
 ### Other options

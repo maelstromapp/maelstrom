@@ -248,7 +248,12 @@ struct DockerComponent {
     image                   string
     command                 []string     [optional]
     entrypoint              []string     [optional]
+
+    // Port that process binds to in the container. This is the port
+    // maelstrom will reverse proxy to when a request is received.
     httpPort                int
+
+    // Path to make GET request against to verify that the container is running
     httpHealthCheckPath     string
 
     // max seconds between container start and initial health check pass
@@ -258,6 +263,10 @@ struct DockerComponent {
 
     // interval to run health check (default=10)
     httpHealthCheckSeconds       int     [optional]
+
+    // If this number of failures is reached the container will be considered
+    // non-responsive and will be restarted. (default=1)
+    httpHealthCheckMaxFailures   int     [optional]
 
     // If component is not invoked within this duration then
     // the docker container is stopped and removed.  (default=300)

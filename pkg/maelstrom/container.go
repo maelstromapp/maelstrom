@@ -137,6 +137,11 @@ func (c *Container) Run() {
 	if healthCheckSecs <= 0 {
 		healthCheckSecs = 10
 	}
+	healthCheckMaxFailures := c.component.Docker.HttpHealthCheckMaxFailures
+	if healthCheckMaxFailures <= 0 {
+		healthCheckMaxFailures = 1
+	}
+	healthCheckFailures := int64(0)
 
 	healthCheckTicker := time.Tick(time.Duration(healthCheckSecs) * time.Second)
 	concurrencyTicker := time.Tick(time.Second * 20)
@@ -157,10 +162,19 @@ func (c *Container) Run() {
 				rolloverStartTime = time.Now()
 				durationSinceRollover = 0
 			case <-healthCheckTicker:
-				if !getUrlOK(c.healthCheckUrl) {
-					log.Error("container: health check failed. stopping container", "containerId", c.containerId[0:8],
-						"component", c.component.Name)
-					go c.Stop("health check failed")
+				if getUrlOK(c.healthCheckUrl) {
+					healthCheckFailures = 0
+				} else {
+					healthCheckFailures++
+					if healthCheckFailures >= healthCheckMaxFailures {
+						log.Error("container: health check failed. stopping container", "containerId", c.containerId[0:8],
+							"component", c.component.Name, "failures", healthCheckFailures)
+						go c.Stop("health check failed")
+						healthCheckFailures = 0
+					} else {
+						log.Warn("container: health check failed", "failures", healthCheckFailures,
+							"maxFailures", healthCheckMaxFailures)
+					}
 				}
 			case <-done:
 				log.Info("container: run loop exiting", "containerId", c.containerId[0:8], "component", c.component.Name)

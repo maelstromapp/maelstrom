@@ -153,6 +153,7 @@ type yamlComponent struct {
 	HttpHealthCheckPath         string
 	HttpStartHealthCheckSeconds int64
 	HttpHealthCheckSeconds      int64
+	HttpHealthCheckMaxFailures  int64
 	IdleTimeoutSeconds          int64
 	Ports                       []string
 	Volumes                     []v1.VolumeMount
@@ -213,6 +214,7 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 				HttpHealthCheckPath:         c.HttpHealthCheckPath,
 				HttpStartHealthCheckSeconds: c.HttpStartHealthCheckSeconds,
 				HttpHealthCheckSeconds:      c.HttpHealthCheckSeconds,
+				HttpHealthCheckMaxFailures:  c.HttpHealthCheckMaxFailures,
 				IdleTimeoutSeconds:          c.IdleTimeoutSeconds,
 				Ports:                       c.Ports,
 				Volumes:                     c.Volumes,
