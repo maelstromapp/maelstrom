@@ -1,5 +1,4 @@
 dist
-pkg/v1/v1.go
 *.iml
 pkg/v1/test.db
 tmp
