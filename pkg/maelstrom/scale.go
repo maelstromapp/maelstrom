@@ -213,10 +213,10 @@ func calcScaleTarget(input scaleTargetInput) scaleTargetOutput {
 	if sumConcurOut.currentInstances > 0 {
 		denom := float64(int64(sumConcurOut.currentInstances) * input.maxConcurrencyPerInst)
 		scaleDenom := float64(input.maxConcurrencyPerInst) * input.scaleUpConcurPct
-		pctLatestConcurrency := sumConcurOut.sumLatestConcurrency / denom
+		pctAvgConcurrency := sumConcurOut.sumAvgConcurrency / denom
 		pctMaxConcurrency := sumConcurOut.sumMaxConcurrency / denom
-		if pctLatestConcurrency > input.scaleUpConcurPct {
-			target = int64(math.Ceil(sumConcurOut.sumLatestConcurrency / scaleDenom))
+		if pctAvgConcurrency > input.scaleUpConcurPct {
+			target = int64(math.Ceil(sumConcurOut.sumAvgConcurrency / scaleDenom))
 		} else if pctMaxConcurrency < input.scaleDownConcurPct {
 			target = int64(math.Ceil(sumConcurOut.sumMaxConcurrency / scaleDenom))
 		}
