@@ -228,7 +228,6 @@ func (r *Router) getHandlerOrActivate(comp *v1.Component, preferLocal bool) (htt
 }
 
 func (r *Router) Route(rw http.ResponseWriter, req *http.Request, c v1.Component, publicGateway bool) {
-	var deadline time.Time
 	var deadlineNano int64
 	if !publicGateway {
 		deadlineStr := req.Header.Get("MAELSTROM-DEADLINE-NANO")
@@ -236,18 +235,9 @@ func (r *Router) Route(rw http.ResponseWriter, req *http.Request, c v1.Component
 			deadlineNano, _ = strconv.ParseInt(deadlineStr, 10, 64)
 		}
 	}
-	if deadlineNano == 0 {
-		maxDur := c.MaxDurationSeconds
-		if maxDur <= 0 {
-			maxDur = 300
-		}
-		startTime := time.Now()
-		deadline = startTime.Add(time.Duration(maxDur) * time.Second)
-	} else {
-		deadline = time.Unix(0, deadlineNano)
-	}
 
-	ctx, _ := context.WithDeadline(r.ctx, deadline)
+	deadline := componentReqDeadline(deadlineNano, c)
+	ctx, _ := context.WithDeadline(context.Background(), deadline)
 
 	preferLocal := req.Header.Get("MAELSTROM-RELAY-PATH") != ""
 
@@ -259,7 +249,9 @@ func (r *Router) Route(rw http.ResponseWriter, req *http.Request, c v1.Component
 		// No containers are running. We're waiting for activation on waitCh
 		select {
 		case <-ctx.Done():
-			respondText(rw, http.StatusGatewayTimeout, "Timeout getting handler for component: "+c.Name)
+			msg := "router: Timeout getting handler for component: " + c.Name
+			log.Warn(msg, "nodeId", r.myNodeId, "component", c.Name, "version", c.Version)
+			respondText(rw, http.StatusGatewayTimeout, msg)
 			return
 		case handler = <-waitCh:
 			// happy branch - container activated
@@ -288,8 +280,23 @@ func (r *Router) Route(rw http.ResponseWriter, req *http.Request, c v1.Component
 		case <-done:
 			return
 		case <-ctx.Done():
-			respondText(rw, http.StatusGatewayTimeout, "Timeout proxying component: "+c.Name)
+			msg := "router: Timeout proxying component: " + c.Name
+			log.Warn(msg, "nodeId", r.myNodeId, "component", c.Name, "version", c.Version)
+			respondText(rw, http.StatusGatewayTimeout, msg)
 			return
 		}
+	}
+}
+
+func componentReqDeadline(deadlineNanoFromHeader int64, component v1.Component) time.Time {
+	if deadlineNanoFromHeader == 0 {
+		maxDur := component.MaxDurationSeconds
+		if maxDur <= 0 {
+			maxDur = 300
+		}
+		startTime := time.Now()
+		return startTime.Add(time.Duration(maxDur) * time.Second)
+	} else {
+		return time.Unix(0, deadlineNanoFromHeader)
 	}
 }

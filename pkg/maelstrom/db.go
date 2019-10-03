@@ -14,6 +14,7 @@ type Db interface {
 	Migrate() error
 
 	AcquireOrRenewRole(roleId string, nodeId string, lockDur time.Duration) (bool, string, error)
+	ReleaseRole(roleId string, nodeId string) error
 	ReleaseAllRoles(nodeId string) error
 
 	ListProjects(input v1.ListProjectsInput) (v1.ListProjectsOutput, error)

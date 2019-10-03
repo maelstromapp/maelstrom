@@ -132,6 +132,9 @@ func main() {
 	// see: https://stackoverflow.com/questions/39813587/go-client-program-generates-a-lot-a-sockets-in-time-wait-state
 	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 500
 
+	// channel that accepts shutdown requests
+	shutdownCh := make(chan maelstrom.ShutdownFunc, 1)
+
 	outboundIp, err := common.GetOutboundIP()
 	if err != nil {
 		log.Error("maelstromd: cannot resolve outbound IP address", "err", err)
@@ -163,8 +166,13 @@ func main() {
 	dockerMonitor := common.NewDockerImageMonitor(dockerClient, handlerFactory, cancelCtx)
 	dockerMonitor.RunAsync(daemonWG)
 
+	awsSession, err := session.NewSession()
+	if err != nil {
+		log.Warn("maelstromd: unable to init aws session", "err", err.Error())
+	}
+
 	nodeSvcImpl, err := maelstrom.NewNodeServiceImplFromDocker(handlerFactory, db, dockerClient, peerUrl,
-		conf.TotalMemory)
+		conf.TotalMemory, conf.InstanceId, shutdownCh, awsSession, conf.TerminateCommand)
 	if err != nil {
 		log.Error("maelstromd: cannot create NodeService", "err", err)
 		os.Exit(2)
@@ -174,6 +182,13 @@ func main() {
 	daemonWG.Add(2)
 	go nodeSvcImpl.RunNodeStatusLoop(time.Second*30, cancelCtx, daemonWG)
 	go nodeSvcImpl.RunAutoscaleLoop(time.Minute, cancelCtx, daemonWG)
+	if conf.AwsTerminateQueueUrl != "" {
+		daemonWG.Add(1)
+		go nodeSvcImpl.RunAwsTerminatePollerLoop(conf.AwsTerminateQueueUrl, conf.AwsTerminateMaxAgeSeconds,
+			cancelCtx, daemonWG)
+		log.Info("maelstromd: started AWS termination poller", "queueUrl", conf.AwsTerminateQueueUrl,
+			"instanceId", conf.InstanceId)
+	}
 	log.Info("maelstromd: created NodeService", nodeSvcImpl.LogPairs()...)
 
 	publicSvr := maelstrom.NewGateway(resolver, router, true)
@@ -222,11 +237,6 @@ func main() {
 	go mustStart(privateSvr)
 	servers = append(servers, privateSvr)
 
-	awsSession, err := session.NewSession()
-	if awsSession != nil {
-		log.Info("maelstromd: aws session initialized")
-	}
-
 	log.Info("maelstromd: starting HTTP servers", "publicPort", conf.PublicPort, "privatePort", conf.PrivatePort)
 
 	cronSvc := maelstrom.NewCronService(db, privateGateway, cancelCtx, nodeSvcImpl.NodeId(),
@@ -239,7 +249,7 @@ func main() {
 	go evPoller.Run(daemonWG)
 
 	daemonWG.Add(1)
-	go HandleShutdownSignal(servers, cancelFx, daemonWG)
+	go HandleShutdownSignal(servers, handlerFactory, conf.ShutdownPauseSeconds, cancelFx, shutdownCh, daemonWG)
 
 	daemonWG.Wait()
 	err = db.ReleaseAllRoles(nodeSvcImpl.NodeId())
@@ -249,15 +259,36 @@ func main() {
 	log.Info("maelstromd: exiting")
 }
 
-func HandleShutdownSignal(svrs []*http.Server, cancelFx context.CancelFunc, wg *sync.WaitGroup) {
+func HandleShutdownSignal(svrs []*http.Server, handlerFactory *maelstrom.DockerHandlerFactory, pauseSeconds int,
+	cancelFx context.CancelFunc, shutdownCh chan maelstrom.ShutdownFunc, wg *sync.WaitGroup) {
 	defer wg.Done()
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
 
-	log.Info("maelstromd: received shutdown signal, stopping HTTP servers")
+	var onShutdownFx func()
+	select {
+	case <-sigCh:
+		break
+	case onShutdownFx = <-shutdownCh:
+		break
+	}
+
+	log.Info("maelstromd: received shutdown signal, stopping background goroutines")
 
 	cancelFx()
+
+	if pauseSeconds > 0 {
+		log.Info("maelstromd: pausing before stopping containers", "seconds", pauseSeconds)
+		time.Sleep(time.Second * time.Duration(pauseSeconds))
+	}
+
+	log.Info("maelstromd: stopping all containers")
+	handlerFactory.Shutdown()
+
+	if pauseSeconds > 0 {
+		log.Info("maelstromd: pausing before stopping HTTP servers", "seconds", pauseSeconds)
+		time.Sleep(time.Second * time.Duration(pauseSeconds))
+	}
 
 	for _, s := range svrs {
 		err := s.Shutdown(context.Background())
@@ -266,6 +297,11 @@ func HandleShutdownSignal(svrs []*http.Server, cancelFx context.CancelFunc, wg *
 		}
 	}
 	log.Info("maelstromd: HTTP servers shutdown gracefully")
+
+	if onShutdownFx != nil {
+		onShutdownFx()
+		log.Info("maelstromd: shutdown callback called successfully")
+	}
 }
 
 func initCertMagic() *cert.CertMagicWrapper {

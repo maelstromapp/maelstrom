@@ -108,19 +108,17 @@ func (c *Cluster) RemoveAndBroadcast() {
 }
 
 func (c *Cluster) RemoveNode(nodeId string) bool {
-	modified := false
 	c.lock.Lock()
-	_, ok := c.nodesById[nodeId]
-	if ok {
-		modified = true
+	oldNode, found := c.nodesById[nodeId]
+	if found {
 		delete(c.nodesById, nodeId)
 	}
 	c.lock.Unlock()
-	if modified {
-		log.Info("cluster: removed node", "nodeId", c.myNodeId, "remoteNode", nodeId)
+	if found {
+		log.Info("cluster: removed node", "nodeId", c.myNodeId, "remoteNode", nodeId, "peerUrl", oldNode.PeerUrl)
 		c.notifyAll()
 	}
-	return modified
+	return found
 }
 
 func (c *Cluster) GetNodes() []v1.NodeStatus {
@@ -217,6 +215,20 @@ func (c *Cluster) BroadcastDataChanged(input v1.NotifyDataChangedInput) {
 			_, err := s.NotifyDataChanged(input)
 			if err != nil {
 				log.Warn("cluster: error broadcasting data change", "err", err.Error())
+			}
+		}(svc)
+	}
+}
+
+func (c *Cluster) BroadcastTerminationEvent(input v1.TerminateNodeInput) {
+	for _, svc := range c.GetRemoteNodeServices() {
+		go func(s v1.NodeService) {
+			out, err := s.TerminateNode(input)
+			if err != nil {
+				log.Warn("cluster: error broadcasting termination event", "err", err.Error())
+			} else if out.AcceptedMessage {
+				log.Info("cluster: node accepted termination event", "instanceId", out.InstanceId,
+					"peerNodeId", out.NodeId)
 			}
 		}(svc)
 	}

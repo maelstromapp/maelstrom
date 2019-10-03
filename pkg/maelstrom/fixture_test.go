@@ -121,6 +121,7 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *SqlDb) *Fixtur
 	daemonWG := &sync.WaitGroup{}
 	ctx := context.Background()
 	resolver := NewDbResolver(sqlDb, nil, 0)
+	shutdownCh := make(chan ShutdownFunc)
 
 	outboundIp, err := common.GetOutboundIP()
 	if err != nil {
@@ -131,7 +132,8 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *SqlDb) *Fixtur
 	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, sqlDb, ctx, testGatewayPort)
 	assert.Nil(t, err, "NewDockerHandlerFactory err != nil: %v", err)
 
-	nodeSvcImpl, err := NewNodeServiceImplFromDocker(hFactory, sqlDb, dockerClient, "", -1)
+	nodeSvcImpl, err := NewNodeServiceImplFromDocker(hFactory, sqlDb, dockerClient, "", -1, "", shutdownCh, nil,
+		"")
 	assert.Nil(t, err, "NewNodeServiceImplFromDocker err != nil: %v", err)
 
 	router := NewRouter(nodeSvcImpl, hFactory, nodeSvcImpl.nodeId, outboundIp.String(), ctx)
@@ -153,6 +155,7 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *SqlDb) *Fixtur
 		component:      defaultComponent,
 		asyncReqWG:     &sync.WaitGroup{},
 		daemonWG:       daemonWG,
+		shutdownCh:     shutdownCh,
 	}
 }
 
@@ -170,6 +173,7 @@ type Fixture struct {
 	successfulReqs   *int64
 	asyncReqWG       *sync.WaitGroup
 	daemonWG         *sync.WaitGroup
+	shutdownCh       chan ShutdownFunc
 }
 
 func GivenNoMaelstromContainers(t *testing.T) *Fixture {

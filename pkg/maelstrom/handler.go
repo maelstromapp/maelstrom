@@ -17,6 +17,8 @@ import (
 	"github.com/pkg/errors"
 	"io"
 	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"strconv"
@@ -78,7 +80,7 @@ func NewDockerHandlerFactory(dockerClient *docker.Client, resolver ComponentReso
 						reqCh = make(chan *MaelRequest)
 						reqChanByComponent[name] = reqCh
 					}
-					containerWrap, err := StartContainer(reqCh, dockerClient, comp, c.ID, ctx)
+					containerWrap, err := StartContainer(reqCh, dockerClient, comp, c.ID)
 					if err == nil {
 						list := byComponentName[name]
 						byComponentName[name] = append(list, containerWrap)
@@ -229,7 +231,7 @@ func (f *DockerHandlerFactory) startContainer(component v1.Component, reqCh chan
 		return nil, containerId, err
 	}
 
-	c, err := StartContainer(reqCh, f.dockerClient, component, containerId, f.ctx)
+	c, err := StartContainer(reqCh, f.dockerClient, component, containerId)
 	if err != nil {
 		return nil, containerId, err
 	}
@@ -383,6 +385,88 @@ func (f *DockerHandlerFactory) stopContainersByComponent(componentName string, r
 	f.lock.Unlock()
 	for _, cont := range containers {
 		cont.Stop(reason)
+	}
+}
+
+func (f *DockerHandlerFactory) Shutdown() {
+	allContainers := make([]*Container, 0)
+	reqChanByCompCopy := make(map[string]chan *MaelRequest)
+	activeCompNames := make(map[string]bool)
+	f.lock.Lock()
+	f.version++
+	for componentName, containers := range f.byComponentName {
+		if len(containers) > 0 {
+			activeCompNames[componentName] = true
+			allContainers = append(allContainers, containers...)
+			f.byComponentName[componentName] = []*Container{}
+		}
+	}
+	for comp, ch := range f.reqChanByComponent {
+		reqChanByCompCopy[comp] = ch
+	}
+	f.reqChanByComponent = make(map[string]chan *MaelRequest)
+	f.lock.Unlock()
+
+	// drain off all queued requests
+	wg := &sync.WaitGroup{}
+	for compName, _ := range activeCompNames {
+		reqCh, ok := reqChanByCompCopy[compName]
+		if ok {
+			// send one last request into channel. this will go to the end of the request
+			// queue. when the request completes we'll know the channel has been consumed
+			f.sendHealthCheckAsync(compName, reqCh, wg)
+		} else {
+			log.Warn("handler: shutdown req channel not found", "component", compName)
+		}
+	}
+	// wait for clients to finish - at this point all active components should be drained
+	wg.Wait()
+
+	// stop all containers
+	for _, cont := range allContainers {
+		cont.Stop("shutting down")
+	}
+}
+
+func (f *DockerHandlerFactory) sendHealthCheckAsync(compName string, reqCh chan *MaelRequest, wg *sync.WaitGroup) {
+	comp, err := f.db.GetComponent(compName)
+	if err != nil {
+		log.Error("handler: shutdown GetComponent error", "component", compName, "err", err)
+	} else {
+		healthCheckPath := "/"
+		if comp.Docker != nil && comp.Docker.HttpHealthCheckPath != "" {
+			healthCheckPath = comp.Docker.HttpHealthCheckPath
+		}
+		rw := httptest.NewRecorder()
+		url := fmt.Sprintf("http://127.0.0.1%s", healthCheckPath)
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			log.Error("handler: shutdown NewRequest error", "component", compName, "url", url, "err", err)
+		} else {
+			req.Header.Set("Maelstrom-Component", compName)
+			mr := &MaelRequest{
+				complete:  make(chan bool, 1),
+				startTime: time.Now(),
+				rw:        rw,
+				req:       req,
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				log.Info("handler: shutdown waiting to drain component", "component", compName)
+				deadline := componentReqDeadline(0, comp)
+				deadlineCtx, _ := context.WithDeadline(context.Background(), deadline)
+				reqCh <- mr
+				select {
+				case <-deadlineCtx.Done():
+					log.Warn("handler: shutdown timeout draining component", "component", compName)
+					break
+				case <-mr.complete:
+					log.Info("handler: shutdown component drained successfully", "component", compName)
+					break
+				}
+			}()
+		}
 	}
 }
 

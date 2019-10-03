@@ -183,6 +183,13 @@ interface NodeService {
     // a component.  The receiving node should start or stop components as directed on the request.
     StartStopComponents(input StartStopComponentsInput) StartStopComponentsOutput
 
+    // TerminateNode tells a node in the cluster to stop
+    // This message is typically broadcast to all nodes and it is up to the receiving node
+    // to determine if the payload matches their instance id
+    //
+    // If the request matches the receiver's instance id, it should initiate a graceful
+    // shutdown and notify its peers
+    TerminateNode(input TerminateNodeInput) TerminateNodeOutput
 }
 
 struct Project {
@@ -754,6 +761,30 @@ struct StartStopComponentsOutput {
 
     // ComponentCount messages that resulted in errors are included here, or empty list if no errors
     errors           []ComponentDeltaError
+}
+
+struct TerminateNodeInput {
+    awsLifecycleHook    AwsLifecycleHook   [optional]
+}
+
+struct TerminateNodeOutput {
+    acceptedMessage     bool
+
+    // Node and Instance Id of receiving node
+    nodeId              string     [optional]
+    instanceId          string     [optional]
+}
+
+struct AwsLifecycleHook {
+    // Used to delete the message on the receiver
+    QueueUrl               string
+    MessageReceiptHandle   string
+
+    // Used to confirm that hook has been processed
+    AutoScalingGroupName   string
+    InstanceId             string
+    LifecycleActionToken   string
+    LifecycleHookName      string
 }
 
 struct ComponentDelta {

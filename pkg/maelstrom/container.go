@@ -19,14 +19,14 @@ import (
 )
 
 func StartContainer(reqCh chan *MaelRequest, dockerClient *docker.Client, component v1.Component,
-	containerId string, parentCtx context.Context) (*Container, error) {
+	containerId string) (*Container, error) {
 
 	proxy, healthCheckUrl, err := initReverseProxy(dockerClient, component, containerId)
 	if err != nil {
 		return nil, err
 	}
 
-	ctx, cancelFx := context.WithCancel(parentCtx)
+	ctx, cancelFx := context.WithCancel(context.Background())
 	handlerWg := &sync.WaitGroup{}
 	runWg := &sync.WaitGroup{}
 

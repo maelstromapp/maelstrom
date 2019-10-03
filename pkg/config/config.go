@@ -59,6 +59,11 @@ func FromEnv() (Config, error) {
 type Config struct {
 	// Server options
 
+	// Identifier for the host machine
+	// This should typically be set to the ID issued by the cloud provider creating the machine
+	// (e.g. the EC2 instance id if running in AWS)
+	InstanceId string
+
 	// Port used for public reverse proxying
 	PublicPort int `default:"80"`
 	// HTTPS Port used for public reverse proxying
@@ -77,6 +82,28 @@ type Config struct {
 	CpuProfileFilename string
 	// Memory (MiB) to make available to containers (if set to zero, maelstromd will simply act as a relay)
 	TotalMemory int64 `default:"-1"`
+
+	// Terminate command - if instance is told to terminate, run this command
+	// Default: "systemctl disable maelstromd"
+	TerminateCommand string `default:"systemctl disable maelstromd"`
+
+	// If > 0, will sleep for this number of seconds after stopping background jobs
+	// before shutting down HTTP listeners. In clustered environments this can be used
+	// to give peers time to remove node from routing table, minimizing the chance of
+	// dropping a request during shutdown
+	ShutdownPauseSeconds int
+
+	// AWS Options
+	//
+	// SQS Queue to poll for EC2 Auto Scaling Lifecycle Hooks
+	// See: https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html
+	// If this is non-empty, a SQS poller will listen for messages and will notify
+	// cluster peers that a node is scheduled for termination
+	AwsTerminateQueueUrl string
+
+	// AWS lifecycle hook messages older than this many seconds will be deleted immediately
+	// This avoids stuck messages in the queue
+	AwsTerminateMaxAgeSeconds int `default:"600"`
 
 	// Currently unsupported - will dust these off in the future
 	Cluster      ClusterOptions

@@ -140,6 +140,21 @@ func TestAcquireReleaseRole(t *testing.T) {
 	assert.False(t, acquired)
 	assert.Equal(t, node1, lockNode)
 
+	// release lock with wrong node id and try to acquire - DENY
+	err = db.ReleaseRole(r1, node2)
+	assert.Nil(t, err)
+	acquired, lockNode, err = db.AcquireOrRenewRole(r1, node2, time.Minute)
+	assert.Nil(t, err)
+	assert.False(t, acquired)
+
+	// release lock and acquire as node2 - OK
+	err = db.ReleaseRole(r1, node1)
+	assert.Nil(t, err)
+	acquired, lockNode, err = db.AcquireOrRenewRole(r1, node2, time.Minute)
+	assert.Nil(t, err)
+	assert.True(t, acquired)
+	assert.Equal(t, node2, lockNode)
+
 	// acquire role2 as node2 - OK
 	acquired, lockNode, err = db.AcquireOrRenewRole(r2, node2, time.Minute)
 	assert.Nil(t, err)

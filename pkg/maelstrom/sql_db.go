@@ -10,6 +10,7 @@ import (
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/mattn/go-sqlite3"
 	"github.com/mgutz/logxi/v1"
+	"github.com/pkg/errors"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -143,10 +144,19 @@ func (d *SqlDb) acquireOrRenewRoleOnce(roleId string, nodeId string, lockDur tim
 	}
 }
 
+func (d *SqlDb) ReleaseRole(roleId string, nodeId string) error {
+	_, err := squirrel.Delete("rolelock").Where(squirrel.Eq{"roleId": roleId}).
+		Where(squirrel.Eq{"nodeId": nodeId}).RunWith(d.db).Exec()
+	if err != nil {
+		err = errors.Wrap(err, "ReleaseRole failed for roleId: "+roleId+" nodeId: "+nodeId)
+	}
+	return err
+}
+
 func (d *SqlDb) ReleaseAllRoles(nodeId string) error {
 	_, err := squirrel.Delete("rolelock").Where(squirrel.Eq{"nodeId": nodeId}).RunWith(d.db).Exec()
 	if err != nil {
-		err = fmt.Errorf("delete rolelock by nodeId failed: err: %v", err)
+		err = errors.Wrap(err, "ReleaseAllRoles failed for nodeId: "+nodeId)
 	}
 	return err
 }

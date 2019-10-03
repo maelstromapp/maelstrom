@@ -8,8 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "fc696be8804c49391128483a07291149"
-const BarristerDateGenerated int64 = 1569939219910000000
+const BarristerChecksum string = "5d10804bd8bc31cbfc50572c0e5fd9c1"
+const BarristerDateGenerated int64 = 1570109862734000000
 
 type EventSourceType string
 
@@ -331,6 +331,25 @@ type StartStopComponentsOutput struct {
 	Errors                []ComponentDeltaError `json:"errors"`
 }
 
+type TerminateNodeInput struct {
+	AwsLifecycleHook *AwsLifecycleHook `json:"awsLifecycleHook,omitempty"`
+}
+
+type TerminateNodeOutput struct {
+	AcceptedMessage bool   `json:"acceptedMessage"`
+	NodeId          string `json:"nodeId,omitempty"`
+	InstanceId      string `json:"instanceId,omitempty"`
+}
+
+type AwsLifecycleHook struct {
+	QueueUrl             string `json:"QueueUrl"`
+	MessageReceiptHandle string `json:"MessageReceiptHandle"`
+	AutoScalingGroupName string `json:"AutoScalingGroupName"`
+	InstanceId           string `json:"InstanceId"`
+	LifecycleActionToken string `json:"LifecycleActionToken"`
+	LifecycleHookName    string `json:"LifecycleHookName"`
+}
+
 type ComponentDelta struct {
 	ComponentName     string `json:"componentName"`
 	Delta             int64  `json:"delta"`
@@ -612,6 +631,7 @@ type NodeService interface {
 	StatusChanged(input StatusChangedInput) (StatusChangedOutput, error)
 	PlaceComponent(input PlaceComponentInput) (PlaceComponentOutput, error)
 	StartStopComponents(input StartStopComponentsInput) (StartStopComponentsOutput, error)
+	TerminateNode(input TerminateNodeInput) (TerminateNodeOutput, error)
 }
 
 func NewNodeServiceProxy(c barrister.Client) NodeService {
@@ -711,6 +731,24 @@ func (_p NodeServiceProxy) StartStopComponents(input StartStopComponentsInput) (
 		return _cast, nil
 	}
 	return StartStopComponentsOutput{}, _err
+}
+
+func (_p NodeServiceProxy) TerminateNode(input TerminateNodeInput) (TerminateNodeOutput, error) {
+	_res, _err := _p.client.Call("NodeService.TerminateNode", input)
+	if _err == nil {
+		_retType := _p.idl.Method("NodeService.TerminateNode").Returns
+		_res, _err = barrister.Convert(_p.idl, &_retType, reflect.TypeOf(TerminateNodeOutput{}), _res, "")
+	}
+	if _err == nil {
+		_cast, _ok := _res.(TerminateNodeOutput)
+		if !_ok {
+			_t := reflect.TypeOf(_res)
+			_msg := fmt.Sprintf("NodeService.TerminateNode returned invalid type: %v", _t)
+			return TerminateNodeOutput{}, &barrister.JsonRpcError{Code: -32000, Message: _msg}
+		}
+		return _cast, nil
+	}
+	return TerminateNodeOutput{}, _err
 }
 
 func NewJSONServer(idl *barrister.Idl, forceASCII bool, maelstromservice MaelstromService, nodeservice NodeService) barrister.Server {
@@ -1129,6 +1167,26 @@ var IdlJsonRaw = `[
                 "returns": {
                     "name": "",
                     "type": "StartStopComponentsOutput",
+                    "optional": false,
+                    "is_array": false,
+                    "comment": ""
+                }
+            },
+            {
+                "name": "TerminateNode",
+                "comment": "TerminateNode tells a node in the cluster to stop\nThis message is typically broadcast to all nodes and it is up to the receiving node\nto determine if the payload matches their instance id\n\nIf the request matches the receiver's instance id, it should initiate a graceful\nshutdown and notify its peers",
+                "params": [
+                    {
+                        "name": "input",
+                        "type": "TerminateNodeInput",
+                        "optional": false,
+                        "is_array": false,
+                        "comment": ""
+                    }
+                ],
+                "returns": {
+                    "name": "",
+                    "type": "TerminateNodeOutput",
                     "optional": false,
                     "is_array": false,
                     "comment": ""
@@ -2994,6 +3052,118 @@ var IdlJsonRaw = `[
     },
     {
         "type": "struct",
+        "name": "TerminateNodeInput",
+        "comment": "",
+        "value": "",
+        "extends": "",
+        "fields": [
+            {
+                "name": "awsLifecycleHook",
+                "type": "AwsLifecycleHook",
+                "optional": true,
+                "is_array": false,
+                "comment": ""
+            }
+        ],
+        "values": null,
+        "functions": null,
+        "barrister_version": "",
+        "date_generated": 0,
+        "checksum": ""
+    },
+    {
+        "type": "struct",
+        "name": "TerminateNodeOutput",
+        "comment": "",
+        "value": "",
+        "extends": "",
+        "fields": [
+            {
+                "name": "acceptedMessage",
+                "type": "bool",
+                "optional": false,
+                "is_array": false,
+                "comment": ""
+            },
+            {
+                "name": "nodeId",
+                "type": "string",
+                "optional": true,
+                "is_array": false,
+                "comment": "Node and Instance Id of receiving node"
+            },
+            {
+                "name": "instanceId",
+                "type": "string",
+                "optional": true,
+                "is_array": false,
+                "comment": ""
+            }
+        ],
+        "values": null,
+        "functions": null,
+        "barrister_version": "",
+        "date_generated": 0,
+        "checksum": ""
+    },
+    {
+        "type": "struct",
+        "name": "AwsLifecycleHook",
+        "comment": "",
+        "value": "",
+        "extends": "",
+        "fields": [
+            {
+                "name": "QueueUrl",
+                "type": "string",
+                "optional": false,
+                "is_array": false,
+                "comment": "Used to delete the message on the receiver"
+            },
+            {
+                "name": "MessageReceiptHandle",
+                "type": "string",
+                "optional": false,
+                "is_array": false,
+                "comment": ""
+            },
+            {
+                "name": "AutoScalingGroupName",
+                "type": "string",
+                "optional": false,
+                "is_array": false,
+                "comment": "Used to confirm that hook has been processed"
+            },
+            {
+                "name": "InstanceId",
+                "type": "string",
+                "optional": false,
+                "is_array": false,
+                "comment": ""
+            },
+            {
+                "name": "LifecycleActionToken",
+                "type": "string",
+                "optional": false,
+                "is_array": false,
+                "comment": ""
+            },
+            {
+                "name": "LifecycleHookName",
+                "type": "string",
+                "optional": false,
+                "is_array": false,
+                "comment": ""
+            }
+        ],
+        "values": null,
+        "functions": null,
+        "barrister_version": "",
+        "date_generated": 0,
+        "checksum": ""
+    },
+    {
+        "type": "struct",
         "name": "ComponentDelta",
         "comment": "",
         "value": "",
@@ -3093,7 +3263,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1569939219910,
-        "checksum": "fc696be8804c49391128483a07291149"
+        "date_generated": 1570109862734,
+        "checksum": "5d10804bd8bc31cbfc50572c0e5fd9c1"
     }
 ]`
