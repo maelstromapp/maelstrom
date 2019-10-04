@@ -16,6 +16,8 @@
   * [AWS SQS](event_sources/aws_sqs.md)
 * [How it Works](how_works/README.md)
   * [Architecture](how_works/architecture.md)
+* [Running in Production](production/README.md)
+  * [Graceful Shutdown](production/shutdown.md)
 * [Appendixes](appendix/README.md)
   * [maelstromd Environment Variables](appendix/maelstromd_env_vars.md)
   * [Project YAML reference](appendix/project_yaml_ref.md)

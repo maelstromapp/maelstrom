@@ -52,6 +52,18 @@ that control the logging format. Please read the logxi docs for more details.
 |---------------------------|----------------------------------------------|-----------|-------------------------|
 | MAEL_TOTALMEMORY          | Memory (MiB) to make available to containers | No        | System total memory     |
 
+## System Management
+
+| Variable                       | Description                                             | Required? | Default                 
+|--------------------------------|---------------------------------------------------------|-----------|-----------
+| MAEL_INSTANCEID                | ID of instance with VM provider (e.g. EC2 instance id)  | No <sup>[1](#awslifecycle)</sup> | None
+| MAEL_SHUTDOWNPAUSESECONDS      | Seconds to pause before stopping containers at shutdown | No        | 0    
+| MAEL_TERMINATECOMMAND          | Command to run if instance terminated. Only invoked if AWS lifecycle termination runs, not if SIGTERM/SIGINT received.      | No        | `systemctl disable maelstromd`  
+| MAEL_AWSTERMINATEQUEUEURL      | SQS queue URL for lifecycle hook termination queue      | No <sup>[1](#awslifecycle)</sup> | None  
+| MAEL_AWSTERMINATEMAXAGESECONDS | SQS messages older than this many seconds will be automatically deleted. This prevents stale messages from getting stuck in the queue. | No        | 600  
+
+<a name="awslifecycle">1</a>: Required for AWS Auto Scale Lifecycle Hook support
+
 ## Debugging
 
 | Variable                        | Description                                  | Required? | Default |
