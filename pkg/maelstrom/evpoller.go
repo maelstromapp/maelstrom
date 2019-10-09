@@ -47,6 +47,7 @@ func (e *EvPoller) Run(daemonWG *sync.WaitGroup) {
 		select {
 		case roleId := <-e.pollerDone:
 			delete(e.activeRoles, roleId)
+			log.Info("evpoller: removed active role", "roleId", roleId)
 		case <-ticker:
 			e.reload()
 		case <-e.ctx.Done():
@@ -142,7 +143,7 @@ func (e *EvPoller) initSqsEventSource(es v1.EventSource, validRoleIds map[string
 			// lost lock or no queues defined - cancel poller
 			cancelFx := e.activeRoles[roleId]
 			if cancelFx != nil {
-				cancelFx()
+				go cancelFx()
 			}
 		}
 	}
@@ -176,7 +177,7 @@ func (e *EvPoller) reload() {
 	for roleId, cancelFx := range e.activeRoles {
 		_, ok := validRoleIds[roleId]
 		if !ok {
-			cancelFx()
+			go cancelFx()
 		}
 	}
 }
