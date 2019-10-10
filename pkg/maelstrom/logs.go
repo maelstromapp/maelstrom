@@ -57,7 +57,7 @@ func (h *LogsHandler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	logCh := make(chan common.LogMsg, 10)
 	pingTicker := time.NewTicker(time.Second)
 
-	containers, err := listContainers(h.dockerClient)
+	containers, err := common.ListMaelstromContainers(h.dockerClient)
 	if err != nil {
 		log.Error("logs: listContainers failed", "err", err)
 		rw.WriteHeader(http.StatusInternalServerError)

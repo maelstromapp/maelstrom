@@ -470,6 +470,7 @@ struct NodeStatus {
 
 struct ComponentInfo {
     componentName      string
+    componentVersion   int
     maxConcurrency     int
     memoryReservedMiB  int
     lastRequestTime    int

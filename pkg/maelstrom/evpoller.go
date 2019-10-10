@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sqs"
+	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	log "github.com/mgutz/logxi/v1"
 	"math"
@@ -14,13 +15,13 @@ import (
 	"time"
 )
 
-func NewEvPoller(myNodeId string, ctx context.Context, db Db, router *Router,
+func NewEvPoller(myNodeId string, ctx context.Context, db Db, dispatcher *component.Dispatcher,
 	awsSession *session.Session) *EvPoller {
 	return &EvPoller{
 		myNodeId:    myNodeId,
 		ctx:         ctx,
 		db:          db,
-		router:      router,
+		dispatcher:  dispatcher,
 		awsSession:  awsSession,
 		activeRoles: make(map[string]context.CancelFunc),
 		pollerDone:  make(chan string),
@@ -32,7 +33,7 @@ type EvPoller struct {
 	myNodeId    string
 	ctx         context.Context
 	db          Db
-	router      *Router
+	dispatcher  *component.Dispatcher
 	awsSession  *session.Session
 	activeRoles map[string]context.CancelFunc
 	pollerDone  chan string
@@ -102,7 +103,7 @@ func (e *EvPoller) initSqsEventSource(es v1.EventSource, validRoleIds map[string
 		log.Error("evpoller: Unable to load component", "component", es.ComponentName, "err", err)
 		return
 	}
-	instancesRunning := e.router.InstanceCountForComponent(es.ComponentName)
+	instancesRunning := e.dispatcher.InstanceCountForComponent(comp)
 	roleIdConcurs := sqsRoleIdConcurrency(es, int(comp.MaxConcurrency), instancesRunning)
 	for _, rc := range roleIdConcurs {
 		roleId := rc.roleId
@@ -122,7 +123,7 @@ func (e *EvPoller) initSqsEventSource(es v1.EventSource, validRoleIds map[string
 				} else if len(queueUrls) > 0 {
 					ctx, cancelFunc := context.WithCancel(e.ctx)
 					e.activeRoles[roleId] = cancelFunc
-					sqsPoller := NewSqsPoller(roleId, e.db, e.router, es, sqsClient, queueUrls,
+					sqsPoller := NewSqsPoller(roleId, e.db, e.dispatcher, es, sqsClient, queueUrls,
 						ctx, e.pollerWg)
 					e.pollerWg.Add(1)
 					go sqsPoller.Run(rc.concurrency)

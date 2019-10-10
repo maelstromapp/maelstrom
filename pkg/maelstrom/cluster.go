@@ -1,7 +1,9 @@
 package maelstrom
 
 import (
+	"fmt"
 	"github.com/coopernurse/barrister-go"
+	"github.com/coopernurse/maelstrom/pkg/common"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	log "github.com/mgutz/logxi/v1"
 	"net/http"
@@ -20,6 +22,8 @@ func NewCluster(myNodeId string, localNodeService v1.NodeService) *Cluster {
 		observers:        []ClusterObserver{},
 		nodesById:        map[string]v1.NodeStatus{},
 		lock:             &sync.Mutex{},
+		barristerLock:    &sync.Mutex{},
+		barristerClients: make(map[string]barrister.Client),
 	}
 }
 
@@ -30,6 +34,8 @@ type Cluster struct {
 	observers             []ClusterObserver
 	nodesById             map[string]v1.NodeStatus
 	lock                  *sync.Mutex
+	barristerLock         *sync.Mutex
+	barristerClients      map[string]barrister.Client
 }
 
 func (c *Cluster) AddObserver(observer ClusterObserver) {
@@ -52,12 +58,13 @@ func (c *Cluster) SetNode(node v1.NodeStatus) bool {
 	}
 	c.lock.Unlock()
 	if !ok {
-		log.Info("cluster: added node", "nodeId", c.myNodeId, "remoteNode", node.NodeId)
+		log.Info("cluster: added node", "nodeId", common.TruncNodeId(c.myNodeId),
+			"remoteNode", common.TruncNodeId(node.NodeId))
 	}
 	if modified {
 		if log.IsDebug() {
-			log.Debug("cluster: SetNode modified", "myNode", c.myNodeId, "peerNode", node.NodeId,
-				"version", node.Version)
+			log.Debug("cluster: SetNode modified", "myNode", common.TruncNodeId(c.myNodeId),
+				"peerNode", common.TruncNodeId(node.NodeId), "version", node.Version)
 		}
 		c.notifyAll()
 	}
@@ -115,7 +122,8 @@ func (c *Cluster) RemoveNode(nodeId string) bool {
 	}
 	c.lock.Unlock()
 	if found {
-		log.Info("cluster: removed node", "nodeId", c.myNodeId, "remoteNode", nodeId, "peerUrl", oldNode.PeerUrl)
+		log.Info("cluster: removed node", "nodeId", common.TruncNodeId(c.myNodeId),
+			"remoteNode", common.TruncNodeId(nodeId), "peerUrl", oldNode.PeerUrl)
 		c.notifyAll()
 	}
 	return found
@@ -157,12 +165,7 @@ func (c *Cluster) GetNodeServiceWithTimeout(node v1.NodeStatus, timeout time.Dur
 	if node.NodeId == c.myNodeId {
 		return c.localNodeService
 	}
-	transport := &barrister.HttpTransport{Url: node.PeerUrl + "/_mael/v1"}
-	if timeout > 0 {
-		transport.Client = &http.Client{Timeout: timeout}
-	}
-	client := barrister.NewRemoteClient(transport, false)
-	return v1.NewNodeServiceProxy(client)
+	return v1.NewNodeServiceProxy(c.getBarristerClient(node.PeerUrl, timeout))
 }
 
 func (c *Cluster) GetNodeService(node v1.NodeStatus) v1.NodeService {
@@ -173,12 +176,26 @@ func (c *Cluster) GetMaelstromServiceWithTimeout(node v1.NodeStatus, timeout tim
 	if node.NodeId == c.myNodeId {
 		return c.localMaelstromService
 	}
-	transport := &barrister.HttpTransport{Url: node.PeerUrl + "/_mael/v1"}
+	return v1.NewMaelstromServiceProxy(c.getBarristerClient(node.PeerUrl, timeout))
+}
+
+func (c *Cluster) getBarristerClient(peerUrl string, timeout time.Duration) barrister.Client {
+	cacheKey := fmt.Sprintf("%s|%d", peerUrl, timeout.Nanoseconds())
+
+	c.barristerLock.Lock()
+	defer c.barristerLock.Unlock()
+
+	client, ok := c.barristerClients[cacheKey]
+	if ok {
+		return client
+	}
+	transport := &barrister.HttpTransport{Url: peerUrl + "/_mael/v1"}
 	if timeout > 0 {
 		transport.Client = &http.Client{Timeout: timeout}
 	}
-	client := barrister.NewRemoteClient(transport, false)
-	return v1.NewMaelstromServiceProxy(client)
+	client = barrister.NewRemoteClient(transport, false)
+	c.barristerClients[cacheKey] = client
+	return client
 }
 
 func (c *Cluster) GetMaelstromService(node v1.NodeStatus) v1.MaelstromService {
@@ -228,7 +245,7 @@ func (c *Cluster) BroadcastTerminationEvent(input v1.TerminateNodeInput) {
 				log.Warn("cluster: error broadcasting termination event", "err", err.Error())
 			} else if out.AcceptedMessage {
 				log.Info("cluster: node accepted termination event", "instanceId", out.InstanceId,
-					"peerNodeId", out.NodeId)
+					"peerNodeId", common.TruncNodeId(out.NodeId))
 			}
 		}(svc)
 	}

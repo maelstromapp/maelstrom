@@ -10,6 +10,7 @@ import (
 	"github.com/coopernurse/maelstrom/pkg/common"
 	"github.com/coopernurse/maelstrom/pkg/config"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom"
+	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	docker "github.com/docker/docker/client"
 	"github.com/mgutz/logxi/v1"
@@ -157,28 +158,20 @@ func main() {
 	daemonWG := &sync.WaitGroup{}
 
 	resolver := maelstrom.NewDbResolver(db, certWrapper, time.Second)
-	handlerFactory, err := maelstrom.NewDockerHandlerFactory(dockerClient, resolver, db, cancelCtx, conf.PrivatePort)
-	if err != nil {
-		log.Error("maelstromd: cannot create handler factory", "err", err)
-		os.Exit(2)
-	}
-
-	dockerMonitor := common.NewDockerImageMonitor(dockerClient, handlerFactory, cancelCtx)
-	dockerMonitor.RunAsync(daemonWG)
 
 	awsSession, err := session.NewSession()
 	if err != nil {
 		log.Warn("maelstromd: unable to init aws session", "err", err.Error())
 	}
 
-	nodeSvcImpl, err := maelstrom.NewNodeServiceImplFromDocker(handlerFactory, db, dockerClient, peerUrl,
+	nodeSvcImpl, err := maelstrom.NewNodeServiceImplFromDocker(db, dockerClient, conf.PrivatePort, peerUrl,
 		conf.TotalMemory, conf.InstanceId, shutdownCh, awsSession, conf.TerminateCommand)
 	if err != nil {
 		log.Error("maelstromd: cannot create NodeService", "err", err)
 		os.Exit(2)
 	}
-	router := maelstrom.NewRouter(nodeSvcImpl, handlerFactory, nodeSvcImpl.NodeId(), outboundIp.String(), cancelCtx)
-	nodeSvcImpl.Cluster().AddObserver(router)
+	dispatcher := nodeSvcImpl.Dispatcher()
+
 	daemonWG.Add(2)
 	go nodeSvcImpl.RunNodeStatusLoop(time.Second*30, cancelCtx, daemonWG)
 	go nodeSvcImpl.RunAutoscaleLoop(time.Minute, cancelCtx, daemonWG)
@@ -191,9 +184,12 @@ func main() {
 	}
 	log.Info("maelstromd: created NodeService", nodeSvcImpl.LogPairs()...)
 
-	publicSvr := maelstrom.NewGateway(resolver, router, true)
+	dockerMonitor := common.NewDockerImageMonitor(dockerClient, dispatcher, cancelCtx)
+	dockerMonitor.RunAsync(daemonWG)
 
-	componentSubscribers := []maelstrom.ComponentSubscriber{handlerFactory, resolver}
+	publicSvr := maelstrom.NewGateway(resolver, dispatcher, true, outboundIp.String())
+
+	componentSubscribers := []maelstrom.ComponentSubscriber{dispatcher, resolver}
 
 	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
 	v1Impl := maelstrom.NewMaelServiceImpl(db, componentSubscribers, certWrapper, nodeSvcImpl.NodeId(),
@@ -203,7 +199,7 @@ func main() {
 
 	nodeSvcImpl.Cluster().SetLocalMaelstromService(v1Impl)
 
-	privateGateway := maelstrom.NewGateway(resolver, router, false)
+	privateGateway := maelstrom.NewGateway(resolver, dispatcher, false, outboundIp.String())
 	privateSvrMux := http.NewServeMux()
 	privateSvrMux.Handle("/_mael/v1", &v1Server)
 	privateSvrMux.Handle("/_mael/logs", logsHandler)
@@ -244,12 +240,12 @@ func main() {
 	daemonWG.Add(1)
 	go cronSvc.Run(daemonWG)
 
-	evPoller := maelstrom.NewEvPoller(nodeSvcImpl.NodeId(), cancelCtx, db, router, awsSession)
+	evPoller := maelstrom.NewEvPoller(nodeSvcImpl.NodeId(), cancelCtx, db, dispatcher, awsSession)
 	daemonWG.Add(1)
 	go evPoller.Run(daemonWG)
 
 	daemonWG.Add(1)
-	go HandleShutdownSignal(servers, handlerFactory, conf.ShutdownPauseSeconds, cancelFx, shutdownCh, daemonWG)
+	go HandleShutdownSignal(servers, dispatcher, conf.ShutdownPauseSeconds, cancelFx, shutdownCh, daemonWG)
 
 	daemonWG.Wait()
 	err = db.ReleaseAllRoles(nodeSvcImpl.NodeId())
@@ -259,7 +255,7 @@ func main() {
 	log.Info("maelstromd: exiting")
 }
 
-func HandleShutdownSignal(svrs []*http.Server, handlerFactory *maelstrom.DockerHandlerFactory, pauseSeconds int,
+func HandleShutdownSignal(svrs []*http.Server, dispatcher *component.Dispatcher, pauseSeconds int,
 	cancelFx context.CancelFunc, shutdownCh chan maelstrom.ShutdownFunc, wg *sync.WaitGroup) {
 	defer wg.Done()
 	sigCh := make(chan os.Signal, 1)
@@ -278,14 +274,6 @@ func HandleShutdownSignal(svrs []*http.Server, handlerFactory *maelstrom.DockerH
 	cancelFx()
 
 	if pauseSeconds > 0 {
-		log.Info("maelstromd: pausing before stopping containers", "seconds", pauseSeconds)
-		time.Sleep(time.Second * time.Duration(pauseSeconds))
-	}
-
-	log.Info("maelstromd: stopping all containers")
-	handlerFactory.Shutdown()
-
-	if pauseSeconds > 0 {
 		log.Info("maelstromd: pausing before stopping HTTP servers", "seconds", pauseSeconds)
 		time.Sleep(time.Second * time.Duration(pauseSeconds))
 	}
@@ -297,6 +285,14 @@ func HandleShutdownSignal(svrs []*http.Server, handlerFactory *maelstrom.DockerH
 		}
 	}
 	log.Info("maelstromd: HTTP servers shutdown gracefully")
+
+	if pauseSeconds > 0 {
+		log.Info("maelstromd: pausing before stopping containers", "seconds", pauseSeconds)
+		time.Sleep(time.Second * time.Duration(pauseSeconds))
+	}
+
+	log.Info("maelstromd: stopping dispatcher and containers")
+	dispatcher.Shutdown()
 
 	if onShutdownFx != nil {
 		onShutdownFx()

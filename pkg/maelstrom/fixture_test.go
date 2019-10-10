@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
@@ -28,7 +29,6 @@ import (
 // See: https://github.com/coopernurse/go-hello-http
 const testImageName = "docker.io/coopernurse/go-hello-http:latest"
 const testGatewayUrl = "http://127.0.0.1:8000"
-const testGatewayPort = 8000
 
 var defaultComponent v1.Component
 var cronService *CronService
@@ -71,8 +71,9 @@ func wrapTest(t *testing.T, test func()) {
 
 func resetDefaults() {
 	defaultComponent = v1.Component{
-		Version: 0,
-		Name:    "maeltest",
+		Version:        0,
+		Name:           "maeltest",
+		MaxConcurrency: 5,
 		Docker: &v1.DockerComponent{
 			HttpPort:                    8080,
 			Image:                       testImageName,
@@ -91,15 +92,8 @@ func stopCronService() {
 }
 
 func stopMaelstromContainers(t *testing.T) {
-	containers, err := listContainers(dockerClient)
-	assert.Nil(t, err, "listContainers err != nil: %v", err)
-
-	for _, c := range containers {
-		err = stopContainer(dockerClient, c.ID, "", "", "fixture stopMaelstromContainers")
-		if err != nil {
-			log.Error("fixture_test: stopContainer failed", "container", c.ID, "err", err)
-		}
-	}
+	_, err := common.RemoveMaelstromContainers(dockerClient, "stopping all maelstrom containers")
+	assert.Nil(t, err, "RemoveMaelstromContainers err != nil: %v", err)
 }
 
 func newDb(t *testing.T) *SqlDb {
@@ -119,7 +113,6 @@ func newDb(t *testing.T) *SqlDb {
 func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *SqlDb) *Fixture {
 	successfulReqs := int64(0)
 	daemonWG := &sync.WaitGroup{}
-	ctx := context.Background()
 	resolver := NewDbResolver(sqlDb, nil, 0)
 	shutdownCh := make(chan ShutdownFunc)
 
@@ -129,17 +122,11 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *SqlDb) *Fixtur
 		os.Exit(2)
 	}
 
-	hFactory, err := NewDockerHandlerFactory(dockerClient, resolver, sqlDb, ctx, testGatewayPort)
-	assert.Nil(t, err, "NewDockerHandlerFactory err != nil: %v", err)
-
-	nodeSvcImpl, err := NewNodeServiceImplFromDocker(hFactory, sqlDb, dockerClient, "", -1, "", shutdownCh, nil,
+	nodeSvcImpl, err := NewNodeServiceImplFromDocker(sqlDb, dockerClient, 8374, "", -1, "", shutdownCh, nil,
 		"")
 	assert.Nil(t, err, "NewNodeServiceImplFromDocker err != nil: %v", err)
 
-	router := NewRouter(nodeSvcImpl, hFactory, nodeSvcImpl.nodeId, outboundIp.String(), ctx)
-	nodeSvcImpl.Cluster().AddObserver(router)
-
-	gateway := NewGateway(resolver, router, false)
+	gateway := NewGateway(resolver, nodeSvcImpl.Dispatcher(), false, outboundIp.String())
 	cancelCtx, cancelFx := context.WithCancel(context.Background())
 	contextCancelFx = cancelFx
 	cronService = NewCronService(sqlDb, gateway, cancelCtx, "testnode", time.Second)
@@ -150,8 +137,6 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *SqlDb) *Fixtur
 		successfulReqs: &successfulReqs,
 		v1Impl:         NewMaelServiceImpl(sqlDb, nil, nil, nodeSvcImpl.nodeId, nodeSvcImpl.Cluster()),
 		nodeSvcImpl:    nodeSvcImpl,
-		hFactory:       hFactory,
-		router:         router,
 		component:      defaultComponent,
 		asyncReqWG:     &sync.WaitGroup{},
 		daemonWG:       daemonWG,
@@ -163,8 +148,6 @@ type Fixture struct {
 	t                *testing.T
 	dockerClient     *docker.Client
 	component        v1.Component
-	hFactory         *DockerHandlerFactory
-	router           *Router
 	v1Impl           *MaelServiceImpl
 	nodeSvcImpl      *NodeServiceImpl
 	cronService      *CronService
@@ -184,7 +167,7 @@ func GivenNoMaelstromContainers(t *testing.T) *Fixture {
 
 func GivenExistingContainer(t *testing.T) *Fixture {
 	sqlDb := newDb(t)
-	containerId, err := startContainer(dockerClient, defaultComponent, testGatewayUrl)
+	containerId, err := common.StartContainer(dockerClient, &defaultComponent, testGatewayUrl)
 
 	fmt.Printf("GivenExistingContainer startContainer: %s\n", containerId)
 
@@ -192,7 +175,7 @@ func GivenExistingContainer(t *testing.T) *Fixture {
 	assert.Nil(t, err, "startContainer err != nil: %v", err)
 	f.nextContainerId = containerId
 
-	containers, err := listContainers(dockerClient)
+	containers, err := common.ListMaelstromContainers(dockerClient)
 	assert.Nil(t, err, "listContainers err != nil: %v", err)
 	f.beforeContainers = containers
 
@@ -214,8 +197,13 @@ func (f *Fixture) makeHttpRequest(url string) *httptest.ResponseRecorder {
 	req, err := http.NewRequest("GET", url, nil)
 	rw := httptest.NewRecorder()
 	assert.Nil(f.t, err, "http.NewRequest err != nil: %v", err)
-	f.router.Route(rw, req, f.component, false)
+	f.nodeSvcImpl.Dispatcher().Route(rw, req, &f.component, false)
 	return rw
+}
+
+func (f *Fixture) WhenSystemIsStarted() *Fixture {
+	// no-op
+	return f
 }
 
 func (f *Fixture) WhenCronServiceStarted() *Fixture {
@@ -290,7 +278,17 @@ func (f *Fixture) WhenNLongRunningRequestsMade(n int) *Fixture {
 }
 
 func (f *Fixture) WhenStopRequestReceived() *Fixture {
-	f.hFactory.stopContainersByComponent(f.component.Name, "fixture WhenStopRequestReceived")
+	info := f.nodeSvcImpl.Dispatcher().ComponentInfo()
+	f.nodeSvcImpl.Dispatcher().Scale(&component.ScaleInput{
+		TargetVersion: info.Version,
+		TargetCounts: []component.ScaleTarget{
+			{
+				Component:         &f.component,
+				Delta:             -1,
+				RequiredMemoryMiB: 0,
+			},
+		},
+	})
 	return f
 }
 
@@ -310,7 +308,7 @@ func (f *Fixture) WhenAutoscaleRuns() *Fixture {
 }
 
 func (f *Fixture) WhenComponentIsUpdated() *Fixture {
-	f.hFactory.OnComponentNotification(v1.DataChangedUnion{
+	f.nodeSvcImpl.Dispatcher().OnComponentNotification(v1.DataChangedUnion{
 		PutComponent: &v1.PutComponentOutput{
 			Name:    f.component.Name,
 			Version: f.component.Version + 1,
@@ -360,7 +358,7 @@ func (f *Fixture) ThenContainerIsStopped() *Fixture {
 }
 
 func (f *Fixture) ThenNoNewContainerStarted() *Fixture {
-	containers, err := listContainers(f.dockerClient)
+	containers, err := common.ListMaelstromContainers(f.dockerClient)
 	assert.Nil(f.t, err, "listContainers err != nil: %v", err)
 	f.scrubContainers(f.beforeContainers)
 	f.scrubContainers(containers)
@@ -383,7 +381,7 @@ func (f *Fixture) scrubContainers(containers []types.Container) {
 }
 
 func (f *Fixture) testImageContainerExists() bool {
-	containers, err := listContainers(f.dockerClient)
+	containers, err := common.ListMaelstromContainers(f.dockerClient)
 	assert.Nil(f.t, err, "listContainers err != nil: %v", err)
 
 	for _, c := range containers {
@@ -395,7 +393,7 @@ func (f *Fixture) testImageContainerExists() bool {
 }
 
 func (f *Fixture) componentContainerExists() bool {
-	containers, err := listContainers(f.dockerClient)
+	containers, err := common.ListMaelstromContainers(f.dockerClient)
 	assert.Nil(f.t, err, "listContainers err != nil: %v", err)
 
 	compVer := strconv.Itoa(int(f.component.Version))

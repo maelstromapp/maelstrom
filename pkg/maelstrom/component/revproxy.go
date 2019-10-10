@@ -1,4 +1,4 @@
-package maelstrom
+package component
 
 import (
 	"context"
@@ -8,20 +8,23 @@ import (
 	"time"
 )
 
-func localRevProxy(reqCh <-chan *MaelRequest, statCh chan<- time.Duration, proxy *httputil.ReverseProxy,
+func localRevProxy(reqCh <-chan *RequestInput, statCh chan<- time.Duration, proxy *httputil.ReverseProxy,
 	ctx context.Context, wg *sync.WaitGroup) {
 	revProxyLoop(reqCh, statCh, proxy, ctx, wg, "", "")
 }
 
-func revProxyLoop(reqCh <-chan *MaelRequest, statCh chan<- time.Duration,
-	proxy *httputil.ReverseProxy, ctx context.Context,
-	wg *sync.WaitGroup, myNodeId string, componentName string) {
+func revProxyLoop(reqCh <-chan *RequestInput, statCh chan<- time.Duration,
+	proxy *httputil.ReverseProxy, ctx context.Context, wg *sync.WaitGroup, myNodeId string, componentName string) {
 
 	defer wg.Done()
 
 	for {
 		select {
 		case mr := <-reqCh:
+			if mr == nil {
+				// reqCh closed and drained - all rev proxy loops for this component can exit
+				return
+			}
 			handleReq(mr, myNodeId, componentName, proxy, statCh)
 		case <-ctx.Done():
 			return
@@ -29,12 +32,8 @@ func revProxyLoop(reqCh <-chan *MaelRequest, statCh chan<- time.Duration,
 	}
 }
 
-func handleReq(mr *MaelRequest, myNodeId string, componentName string, proxy *httputil.ReverseProxy,
+func handleReq(req *RequestInput, myNodeId string, componentName string, proxy *httputil.ReverseProxy,
 	statCh chan<- time.Duration) {
-	// stop loop if request channel closed
-	if mr == nil {
-		return
-	}
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -43,22 +42,22 @@ func handleReq(mr *MaelRequest, myNodeId string, componentName string, proxy *ht
 	}()
 
 	if myNodeId != "" {
-		relayPath := mr.req.Header.Get("MAELSTROM-RELAY-PATH")
+		relayPath := req.Req.Header.Get("MAELSTROM-RELAY-PATH")
 		if relayPath == "" {
 			relayPath = myNodeId
 		} else {
 			relayPath = relayPath + "|" + myNodeId
 		}
-		mr.req.Header.Set("MAELSTROM-COMPONENT", componentName)
-		mr.req.Header.Set("MAELSTROM-RELAY-PATH", relayPath)
+		req.Req.Header.Set("MAELSTROM-COMPONENT", componentName)
+		req.Req.Header.Set("MAELSTROM-RELAY-PATH", relayPath)
 
 		// TODO: need to set a header with time of request deadline
 		// so that receiving node can set the request deadline appropriately to account for time already spent
 	}
 
-	proxy.ServeHTTP(mr.rw, mr.req)
-	mr.complete <- true
+	proxy.ServeHTTP(req.Resp, req.Req)
+	req.Done <- true
 	if statCh != nil {
-		statCh <- time.Now().Sub(mr.startTime)
+		statCh <- time.Now().Sub(req.StartTime)
 	}
 }

@@ -12,11 +12,11 @@ func TestHandlerStartsContainerOnFirstRequest(t *testing.T) {
 	})
 }
 
-func TestHandlerUsesExistingContainerIfAlreadyStarted(t *testing.T) {
+func TestRemovesExistingContainersAtStartup(t *testing.T) {
 	wrapTest(t, func() {
 		GivenExistingContainer(t).
-			WhenHTTPRequestReceived().
-			ThenNoNewContainerStarted()
+			WhenSystemIsStarted().
+			ThenContainerIsStopped()
 	})
 }
 

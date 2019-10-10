@@ -52,3 +52,14 @@ func InterpolateWithMap(input string, vars map[string]string) string {
 	out.WriteString(input[pos:])
 	return out.String()
 }
+
+func StrTruncate(s string, maxlen int) string {
+	if len(s) > maxlen {
+		return s[0:maxlen]
+	}
+	return s
+}
+
+func TruncNodeId(id string) string {
+	return StrTruncate(id, 14)
+}

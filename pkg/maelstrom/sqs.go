@@ -5,6 +5,7 @@ import (
 	"context"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/sqs"
+	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	log "github.com/mgutz/logxi/v1"
 	"net/http"
@@ -19,31 +20,31 @@ type sqsMessage struct {
 	component *v1.Component
 }
 
-func NewSqsPoller(roleId string, db Db, router *Router, es v1.EventSource, sqsClient *sqs.SQS,
+func NewSqsPoller(roleId string, db Db, dispatcher *component.Dispatcher, es v1.EventSource, sqsClient *sqs.SQS,
 	queueUrls []*string, ctx context.Context, parentWg *sync.WaitGroup) *SqsPoller {
 	return &SqsPoller{
-		roleId:    roleId,
-		sqs:       sqsClient,
-		db:        db,
-		router:    router,
-		es:        es,
-		queueUrls: queueUrls,
-		ctx:       ctx,
-		parentWg:  parentWg,
-		doneCh:    make(chan string, 1),
+		roleId:     roleId,
+		sqs:        sqsClient,
+		db:         db,
+		dispatcher: dispatcher,
+		es:         es,
+		queueUrls:  queueUrls,
+		ctx:        ctx,
+		parentWg:   parentWg,
+		doneCh:     make(chan string, 1),
 	}
 }
 
 type SqsPoller struct {
-	roleId    string
-	sqs       *sqs.SQS
-	db        Db
-	router    *Router
-	es        v1.EventSource
-	queueUrls []*string
-	ctx       context.Context
-	parentWg  *sync.WaitGroup
-	doneCh    chan string
+	roleId     string
+	sqs        *sqs.SQS
+	db         Db
+	dispatcher *component.Dispatcher
+	es         v1.EventSource
+	queueUrls  []*string
+	ctx        context.Context
+	parentWg   *sync.WaitGroup
+	doneCh     chan string
 }
 
 func (s *SqsPoller) Run(concurrency int) {
@@ -53,7 +54,7 @@ func (s *SqsPoller) Run(concurrency int) {
 	resetIdxTicker := time.Tick(15 * time.Second)
 	idx := 0
 
-	component, err := s.db.GetComponent(s.es.ComponentName)
+	comp, err := s.db.GetComponent(s.es.ComponentName)
 	if err != nil {
 		log.Error("sqs: startup error in db.GetComponent", "err", err, "component", s.es.ComponentName)
 		return
@@ -74,7 +75,7 @@ func (s *SqsPoller) Run(concurrency int) {
 					log.Error("sqs: error creating http req", "err", err, "queueUrl", m.queueUrl)
 				} else {
 					rw := httptest.NewRecorder()
-					s.router.Route(rw, req, *m.component, false)
+					s.dispatcher.Route(rw, req, m.component, false)
 					if rw.Code == 200 {
 						if log.IsDebug() {
 							log.Debug("sqs: deleting message", "queueUrl", m.queueUrl)
@@ -104,7 +105,7 @@ func (s *SqsPoller) Run(concurrency int) {
 			if err != nil {
 				log.Error("sqs: reload error in db.GetComponent", "err", err, "component", s.es.ComponentName)
 			} else {
-				component = c
+				comp = c
 			}
 		case <-s.ctx.Done():
 			close(reqCh)
@@ -126,7 +127,7 @@ func (s *SqsPoller) Run(concurrency int) {
 						reqCh <- &sqsMessage{
 							msg:       msg,
 							queueUrl:  queueUrl,
-							component: &component,
+							component: &comp,
 						}
 					}
 				}

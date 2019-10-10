@@ -74,9 +74,9 @@ func clusterNodes(args docopt.Opts, nodeSvc v1.NodeService) {
 	checkErr(err, "ListNodeStatus failed")
 	for x, node := range out.Nodes {
 		if x == 0 {
-			fmt.Printf("%-20s  %-15s  %-15s  %-15s  %-10s  %-15s  %-4s\n", "Node ID", "IP Addr", "Started", "Ver", "Free RAM",
+			fmt.Printf("%-14s  %-15s  %-15s  %-15s  %-10s  %-15s  %-4s\n", "Node ID", "IP Addr", "Started", "Ver", "Free RAM",
 				"Load Avg", "# Containers")
-			fmt.Printf("------------------------------------------------------------------------------------------------------------------\n")
+			fmt.Printf("-----------------------------------------------------------------------------------------------------------------\n")
 		}
 		started := humanize.Time(time.Unix(0, node.StartedAt*1e6))
 		urlParse, err := url.Parse(node.PeerUrl)
@@ -84,7 +84,7 @@ func clusterNodes(args docopt.Opts, nodeSvc v1.NodeService) {
 		if err == nil {
 			ipAddr = urlParse.Hostname()
 		}
-		fmt.Printf("%-20s  %-15s  %-15s  %-15d  %-10d  %-3.2f %-3.2f %-3.2f   %-4d\n", trunc(node.NodeId, 19),
+		fmt.Printf("%-14s  %-15s  %-15s  %-15d  %-10d  %-3.2f %-3.2f %-3.2f   %-4d\n", trunc(node.NodeId, 14),
 			ipAddr, started, node.Version, node.FreeMemoryMiB, node.LoadAvg1m, node.LoadAvg5m, node.LoadAvg15m,
 			len(node.RunningComponents))
 	}
@@ -99,18 +99,25 @@ func clusterPs(args docopt.Opts, nodeSvc v1.NodeService) {
 		if len(node.RunningComponents) > 0 {
 			if first {
 				first = false
-				fmt.Printf("%-30s  %-20s  %-7s  %-15s  %-11s  %-6s  %-5s\n", "Component", "Node ID", "Max RAM", "Last Request", "# Requests", "Concur", "Max Concur")
-				fmt.Printf("---------------------------------------------------------------------------------------------------------------\n")
+				fmt.Printf("%-30s  %-5s  %-14s  %-7s  %-15s  %-11s  %-6s  %-5s\n", "Component", "Ver", "Node ID", "Max RAM", "Last Request", "# Requests", "Concur", "Max Concur")
+				fmt.Printf("-----------------------------------------------------------------------------------------------------------------\n")
 			}
 			for _, rc := range node.RunningComponents {
-				lastReqAt := humanize.Time(time.Unix(0, rc.LastRequestTime*1e6))
-				var concur float64
-				if len(rc.Activity) > 0 {
-					concur = rc.Activity[0].Concurrency
+				lastReqAt := "Never"
+				if rc.LastRequestTime > 0 {
+					lastReqAt = humanize.Time(time.Unix(0, rc.LastRequestTime*1e6))
 				}
-				fmt.Printf("%-30s  %-20s  %-7d  %-15s  %-11d  %-6.2f  %-5d\n", trunc(rc.ComponentName, 20),
-					trunc(node.NodeId, 19), rc.MemoryReservedMiB, lastReqAt, rc.TotalRequests, concur,
-					rc.MaxConcurrency)
+				avgConcur := 0.0
+				if len(rc.Activity) > 0 {
+					sumConcur := 0.0
+					for _, act := range rc.Activity {
+						sumConcur += act.Concurrency
+					}
+					avgConcur = sumConcur / float64(len(rc.Activity))
+				}
+				fmt.Printf("%-30s  %-5d  %-14s  %-7d  %-15s  %-11d  %-6.2f  %-5d\n", trunc(rc.ComponentName, 30),
+					rc.ComponentVersion, trunc(node.NodeId, 14), rc.MemoryReservedMiB, lastReqAt, rc.TotalRequests,
+					avgConcur, rc.MaxConcurrency)
 			}
 		}
 	}
