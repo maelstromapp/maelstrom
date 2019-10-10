@@ -217,7 +217,7 @@ func StartContainer(dockerClient *docker.Client, c *v1.Component, maelstromUrl s
 		return "", fmt.Errorf("containerCreate error for: %s - %v", c.Name, err)
 	}
 
-	log.Info("handler: starting container", "component", c.Name, "ver", c.Version, "containerId", resp.ID[0:8],
+	log.Info("common: starting container", "component", c.Name, "ver", c.Version, "containerId", resp.ID[0:8],
 		"image", config.Image, "command", config.Cmd, "entrypoint", config.Entrypoint)
 
 	err = dockerClient.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})

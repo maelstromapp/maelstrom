@@ -8,8 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "2841bd178563401bde1baadba8760162"
-const BarristerDateGenerated int64 = 1570718314011000000
+const BarristerChecksum string = "664d2fd5d7c3448db18e7f6e779a9211"
+const BarristerDateGenerated int64 = 1570746804595000000
 
 type EventSourceType string
 
@@ -134,6 +134,7 @@ type ComponentInfo struct {
 	ComponentVersion  int64               `json:"componentVersion"`
 	MaxConcurrency    int64               `json:"maxConcurrency"`
 	MemoryReservedMiB int64               `json:"memoryReservedMiB"`
+	StartTime         int64               `json:"startTime"`
 	LastRequestTime   int64               `json:"lastRequestTime"`
 	TotalRequests     int64               `json:"totalRequests"`
 	Activity          []ComponentActivity `json:"activity"`
@@ -1953,6 +1954,13 @@ var IdlJsonRaw = `[
                 "comment": ""
             },
             {
+                "name": "startTime",
+                "type": "int",
+                "optional": false,
+                "is_array": false,
+                "comment": ""
+            },
+            {
                 "name": "lastRequestTime",
                 "type": "int",
                 "optional": false,
@@ -3271,7 +3279,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1570718314011,
-        "checksum": "2841bd178563401bde1baadba8760162"
+        "date_generated": 1570746804595,
+        "checksum": "664d2fd5d7c3448db18e7f6e779a9211"
     }
 ]`

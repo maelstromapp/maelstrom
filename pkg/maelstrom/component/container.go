@@ -52,6 +52,7 @@ func NewContainer(dockerClient *docker.Client, component *v1.Component, maelstro
 		statLock:               &sync.Mutex{},
 		component:              component,
 		maelstromUrl:           maelstromUrl,
+		startTime:              time.Now(),
 		lastReqTime:            time.Time{},
 		totalRequests:          0,
 		activity:               make([]v1.ComponentActivity, 0),
@@ -95,6 +96,7 @@ type Container struct {
 	statLock *sync.Mutex
 
 	// activity stats
+	startTime     time.Time
 	lastReqTime   time.Time
 	totalRequests int64
 	activity      []v1.ComponentActivity
@@ -112,6 +114,7 @@ func (c *Container) ComponentInfo() v1.ComponentInfo {
 		ComponentVersion:  c.component.Version,
 		MaxConcurrency:    c.component.MaxConcurrency,
 		MemoryReservedMiB: c.component.Docker.ReserveMemoryMiB,
+		StartTime:         common.TimeToMillis(c.startTime),
 		LastRequestTime:   common.TimeToMillis(c.lastReqTime),
 		TotalRequests:     c.totalRequests,
 		Activity:          c.activity,

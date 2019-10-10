@@ -473,6 +473,7 @@ struct ComponentInfo {
     componentVersion   int
     maxConcurrency     int
     memoryReservedMiB  int
+    startTime          int
     lastRequestTime    int
     totalRequests      int
     activity           []ComponentActivity

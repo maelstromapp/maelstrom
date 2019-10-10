@@ -108,9 +108,8 @@ func toComponentConcurrency(nodes []v1.NodeStatus, componentsByName map[string]v
 		for _, compInfo := range node.RunningComponents {
 			arr := compInfoByComponent[compInfo.ComponentName]
 			compInfoByComponent[compInfo.ComponentName] = append(arr, compInfo)
-			if compInfo.LastRequestTime > lastReqTimeByComponent[compInfo.ComponentName] {
-				lastReqTimeByComponent[compInfo.ComponentName] = compInfo.LastRequestTime
-			}
+			lastReqTimeByComponent[compInfo.ComponentName] = common.MaxInt64(compInfo.LastRequestTime,
+				compInfo.StartTime, lastReqTimeByComponent[compInfo.ComponentName])
 		}
 	}
 
