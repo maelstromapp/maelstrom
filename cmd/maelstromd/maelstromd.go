@@ -177,10 +177,16 @@ func main() {
 	go nodeSvcImpl.RunAutoscaleLoop(time.Minute, cancelCtx, daemonWG)
 	if conf.AwsTerminateQueueUrl != "" {
 		daemonWG.Add(1)
-		go nodeSvcImpl.RunAwsTerminatePollerLoop(conf.AwsTerminateQueueUrl, conf.AwsTerminateMaxAgeSeconds,
+		go nodeSvcImpl.RunAwsAutoScaleTerminatePollerLoop(conf.AwsTerminateQueueUrl, conf.AwsTerminateMaxAgeSeconds,
 			cancelCtx, daemonWG)
-		log.Info("maelstromd: started AWS termination poller", "queueUrl", conf.AwsTerminateQueueUrl,
+		log.Info("maelstromd: started AWS autoscale termination poller", "queueUrl", conf.AwsTerminateQueueUrl,
 			"instanceId", conf.InstanceId)
+	}
+	if conf.AwsSpotTerminatePollSeconds > 0 {
+		daemonWG.Add(1)
+		interval := time.Second * time.Duration(conf.AwsSpotTerminatePollSeconds)
+		go nodeSvcImpl.RunAwsSpotTerminatePollerLoop(interval, cancelCtx, daemonWG)
+		log.Info("maelstromd: started AWS spot termination poller", "interval", interval.String())
 	}
 	log.Info("maelstromd: created NodeService", nodeSvcImpl.LogPairs()...)
 

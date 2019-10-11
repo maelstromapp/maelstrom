@@ -573,23 +573,29 @@ func (n NodeServiceImpl) terminateSelfViaAwsHook(hook v1.AwsLifecycleHook) {
 			LifecycleHookName:     aws.String(hook.LifecycleHookName),
 			LifecycleActionResult: aws.String("CONTINUE"),
 		})
-		if err == nil {
-			// Run post-terminate command (typically "systemctl disable maelstromd")
-			// This is useful to prevent systemd from re-spawning maelstrom after we exit
-			if n.terminateCommand != "" {
-				parts := strings.Split(n.terminateCommand, " ")
-				cmd := exec.Command(parts[0], parts[1:]...)
-				log.Info("nodesvc: running post-terminate command", "command", n.terminateCommand)
-				err = cmd.Run()
-			}
-		}
 		if err != nil {
 			log.Error("nodesvc: CompleteAutoscalingLifecycleAction error", "err", err)
+		}
+		// continue running post-terminate command regardless of error since we're at point of no return
+		n.runPostTerminateCommand()
+	}
+}
+
+func (n NodeServiceImpl) runPostTerminateCommand() {
+	// Run post-terminate command (typically "systemctl disable maelstromd")
+	// This is useful to prevent systemd from re-spawning maelstrom after we exit
+	if n.terminateCommand != "" {
+		parts := strings.Split(n.terminateCommand, " ")
+		cmd := exec.Command(parts[0], parts[1:]...)
+		log.Info("nodesvc: running post-terminate command", "command", n.terminateCommand)
+		err := cmd.Run()
+		if err != nil {
+			log.Error("nodesvc: post-terminate error", "err", err)
 		}
 	}
 }
 
-func (n *NodeServiceImpl) RunAwsTerminatePollerLoop(queueUrl string, maxAgeSeconds int,
+func (n *NodeServiceImpl) RunAwsAutoScaleTerminatePollerLoop(queueUrl string, maxAgeSeconds int,
 	ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	ticker := time.Tick(30 * time.Second)
@@ -614,14 +620,35 @@ func (n *NodeServiceImpl) RunAwsTerminatePollerLoop(queueUrl string, maxAgeSecon
 				}
 			}
 			if err != nil {
-				log.Error("nodesvc: aws terminate poller failed", "err", err, "nodeId", n.nodeId, "queueUrl",
+				log.Error("nodesvc: aws autoscale terminate poller failed", "err", err, "nodeId", n.nodeId, "queueUrl",
 					queueUrl)
 			}
 		case <-ctx.Done():
-			log.Info("nodesvc: aws terminate poller loop shutdown gracefully")
+			log.Info("nodesvc: aws autoscale terminate poller loop shutdown gracefully")
 			return
 		}
 	}
+}
+
+func (n *NodeServiceImpl) RunAwsSpotTerminatePollerLoop(interval time.Duration, ctx context.Context,
+	wg *sync.WaitGroup) {
+	defer wg.Done()
+	ticker := time.Tick(interval)
+	running := true
+	for running {
+		select {
+		case <-ticker:
+			if awsSpotInstanceTerminate() {
+				log.Info("nodesvc: spot terminate received - shutting down", "instanceId", n.instanceId,
+					"nodeId", n.nodeId)
+				n.shutdownCh <- n.runPostTerminateCommand
+				running = false
+			}
+		case <-ctx.Done():
+			running = false
+		}
+	}
+	log.Info("nodesvc: aws spot terminate poller loop shutdown gracefully")
 }
 
 func (n *NodeServiceImpl) sendAwsTerminateMessages(hookMsgs []*AwsLifecycleHookMessage) error {

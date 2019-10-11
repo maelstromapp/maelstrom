@@ -105,6 +105,12 @@ type Config struct {
 	// This avoids stuck messages in the queue
 	AwsTerminateMaxAgeSeconds int `default:"600"`
 
+	// If > 0, poll the EC2 spot/instance-action metadata endpoint every x seconds looking
+	// for a 'stop' or 'terminate' message. If found, initiate a graceful shutdown
+	// This setting should be enabled on any server running via a spot instance request,
+	// although it's safe to use on any EC2 host
+	AwsSpotTerminatePollSeconds int
+
 	// Currently unsupported - will dust these off in the future
 	Cluster      ClusterOptions
 	DigitalOcean *DigitalOceanOptions `envconfig:"DO"`

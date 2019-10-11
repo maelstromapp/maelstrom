@@ -9,7 +9,7 @@ import (
 
 const BarristerVersion string = "0.1.6"
 const BarristerChecksum string = "664d2fd5d7c3448db18e7f6e779a9211"
-const BarristerDateGenerated int64 = 1570746804595000000
+const BarristerDateGenerated int64 = 1570751325586000000
 
 type EventSourceType string
 
@@ -3279,7 +3279,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1570746804595,
+        "date_generated": 1570751325586,
         "checksum": "664d2fd5d7c3448db18e7f6e779a9211"
     }
 ]`

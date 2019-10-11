@@ -60,7 +60,8 @@ that control the logging format. Please read the logxi docs for more details.
 | MAEL_SHUTDOWNPAUSESECONDS      | Seconds to pause before stopping containers at shutdown | No        | 0    
 | MAEL_TERMINATECOMMAND          | Command to run if instance terminated. Only invoked if AWS lifecycle termination runs, not if SIGTERM/SIGINT received.      | No        | `systemctl disable maelstromd`  
 | MAEL_AWSTERMINATEQUEUEURL      | SQS queue URL for lifecycle hook termination queue      | No <sup>[1](#awslifecycle)</sup> | None  
-| MAEL_AWSTERMINATEMAXAGESECONDS | SQS messages older than this many seconds will be automatically deleted. This prevents stale messages from getting stuck in the queue. | No        | 600  
+| MAEL_AWSTERMINATEMAXAGESECONDS   | SQS messages older than this many seconds will be automatically deleted. This prevents stale messages from getting stuck in the queue. | No        | 600  
+| MAEL_AWSSPOTTERMINATEPOLLSECONDS | If > 0, maelstromd will poll EC2 metadata endpoint checking for spot termination requests. If action=stop or terminate, maelstromd will shutdown gracefully. Value of setting sets the polling interval in seconds. | No        | 0  
 
 <a name="awslifecycle">1</a>: Required for AWS Auto Scale Lifecycle Hook support
 
