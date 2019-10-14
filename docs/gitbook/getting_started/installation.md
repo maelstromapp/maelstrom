@@ -21,9 +21,9 @@ lines.
 Create a file called `mael.env` with the following content:
 
 ```
-MAEL_SQLDRIVER=sqlite3
-MAEL_SQLDSN=maelstrom.db?cache=shared&_journal_mode=MEMORY
-MAEL_PUBLICPORT=8008
+MAEL_SQL_DRIVER=sqlite3
+MAEL_SQL_DSN=maelstrom.db?cache=shared&_journal_mode=MEMORY
+MAEL_PUBLIC_PORT=8008
 ```
 
 ## Start maelstromd

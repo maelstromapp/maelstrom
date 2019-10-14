@@ -18,7 +18,6 @@ require (
 	github.com/go-yaml/yaml v2.1.0+incompatible
 	github.com/google/go-querystring v1.0.0 // indirect
 	github.com/google/gofuzz v0.0.0-20170612174753-24818f796faf
-	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
 	github.com/lib/pq v1.2.0
@@ -29,6 +28,7 @@ require (
 	github.com/mgutz/logxi v0.0.0-20161027140823-aebf8a7d67ab
 	github.com/mholt/certmagic v0.5.1
 	github.com/namedotcom/go v0.0.0-20180403034216-08470befbe04 // indirect
+	github.com/ndrewnee/envconfig v0.0.0-20190406231007-7e84fd1358a1
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/pkg/errors v0.8.0
 	github.com/robfig/cron v0.0.0-20180505203441-b41be1df6967

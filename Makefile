@@ -2,13 +2,13 @@
 .EXPORT_ALL_VARIABLES:
 
 GO111MODULE = on
-MAEL_SQLDRIVER = sqlite3
-MAEL_SQLDSN = ./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY
-#MAEL_SQLDRIVER = postgres
-#MAEL_SQLDSN = postgres://postgres:test@localhost:5432/mael?sslmode=disable
-MAEL_PUBLICPORT = 8008
+MAEL_SQL_DRIVER = sqlite3
+MAEL_SQL_DSN = ./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY
+#MAEL_SQL_DRIVER = postgres
+#MAEL_SQL_DSN = postgres://postgres:test@localhost:5432/mael?sslmode=disable
+MAEL_PUBLIC_PORT = 8008
 
-BUILD_VER = 0.0.1
+BUILD_VER = unreleased
 BUILD_DATE := $(shell date +%FT%T%z)
 BUILD_GITSHA := $(shell git rev-parse --short HEAD)
 LD_FLAGS = -ldflags "-X main.version=$(BUILD_VER) -X main.builddate=$(BUILD_DATE) -X main.gitsha=$(BUILD_GITSHA)"
@@ -24,8 +24,9 @@ watch-test:
 
 cover:
 	mkdir -p tmp
-	go test -coverprofile=tmp/cover.out github.com/coopernurse/maelstrom/pkg/gateway \
-	    github.com/coopernurse/maelstrom/pkg/v1
+	go test -coverprofile=tmp/cover.out github.com/coopernurse/maelstrom/pkg/maelstrom \
+	    github.com/coopernurse/maelstrom/pkg/maelstrom/component \
+	    github.com/coopernurse/maelstrom/pkg/common
 	go tool cover -html=tmp/cover.out
 
 maelctl:
@@ -45,9 +46,9 @@ docker-run-maelstromd:
 	mkdir -p tmp
 	docker run -d --name maelstromd -p 8374:8374 -p 8008:8008 -v `pwd`/tmp:/data --privileged \
 	  -v /var/run/docker.sock:/var/run/docker.sock \
-	  -e MAEL_SQLDRIVER="sqlite3" \
-	  -e MAEL_PUBLICPORT=8008 \
-	  -e MAEL_SQLDSN="/data/maelstrom.db?cache=shared&_journal_mode=MEMORY"  \
+	  -e MAEL_SQL_DRIVER="sqlite3" \
+	  -e MAEL_PUBLIC_PORT=8008 \
+	  -e MAEL_SQL_DSN="/data/maelstrom.db?cache=shared&_journal_mode=MEMORY"  \
 	  coopernurse/maelstrom maelstromd
 
 docker-push-image:

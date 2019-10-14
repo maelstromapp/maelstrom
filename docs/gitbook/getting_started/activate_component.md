@@ -32,7 +32,7 @@ run the command above.
 
 ## Make a request
 
-`maelstromd` is running on port 8008 (because of `MAEL_PUBLICPORT=8008` in `mael.env`).
+`maelstromd` is running on port 8008 (because of `MAEL_PUBLIC_PORT=8008` in `mael.env`).
 If we make a request to `hello.localhost:8008` then we should get a container.
 
 Let's try it:

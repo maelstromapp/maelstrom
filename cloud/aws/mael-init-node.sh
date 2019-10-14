@@ -15,12 +15,12 @@ After=docker.service
 TimeoutStartSec=0
 Restart=always
 RestartSec=5
-Environment=MAEL_SQLDRIVER=${dbDriver}
-Environment=MAEL_SQLDSN=${dbDSN}
 Environment=AWS_REGION=${EC2_REGION}
-Environment=MAEL_INSTANCEID=${EC2_INSTANCE_ID}
-Environment=MAEL_AWSTERMINATEQUEUEURL=${MAEL_AWSTERMINATEQUEUEURL}
-Environment=MAEL_SHUTDOWNPAUSESECONDS=5
+Environment=MAEL_INSTANCE_ID=${EC2_INSTANCE_ID}
+Environment=MAEL_SQL_DRIVER=${MAEL_SQL_DRIVER}
+Environment=MAEL_SQL_DSN=${MAEL_SQL_DSN}
+Environment=MAEL_AWS_TERMINATE_QUEUE_URL=${MAEL_AWS_TERMINATE_QUEUE_URL}
+Environment=MAEL_SHUTDOWN_PAUSE_SECONDS=5
 ExecStartPre=/bin/mkdir -p /var/maelstrom
 ExecStartPre=/bin/chmod 700 /var/maelstrom
 ExecStart=/usr/bin/maelstromd

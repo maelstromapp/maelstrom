@@ -95,16 +95,16 @@ func main() {
 		os.Exit(2)
 	}
 
-	if conf.SqlDriver == "" || conf.SqlDSN == "" {
-		log.Error("maelstromd: MAEL_SQLDRIVER and MAEL_PUBLICPORT env vars are required")
+	if conf.SqlDriver == "" || conf.SqlDsn == "" {
+		log.Error("maelstromd: MAEL_SQL_DRIVER and MAEL_SQL_DSN env vars are required")
 		os.Exit(2)
 	}
 
-	if conf.LogGCSeconds > 0 {
+	if conf.LogGcSeconds > 0 {
 		go func() {
 			var stats debug.GCStats
 			for {
-				time.Sleep(time.Duration(conf.LogGCSeconds) * time.Second)
+				time.Sleep(time.Duration(conf.LogGcSeconds) * time.Second)
 				debug.ReadGCStats(&stats)
 				log.Info("stats", "last", stats.LastGC, "num", stats.NumGC, "pause", stats.PauseTotal.String())
 			}
@@ -143,7 +143,7 @@ func main() {
 	}
 	peerUrl := fmt.Sprintf("http://%s:%d", outboundIp, conf.PrivatePort)
 
-	db := initDb(conf.SqlDriver, conf.SqlDSN)
+	db := initDb(conf.SqlDriver, conf.SqlDsn)
 	dockerClient, err := docker.NewEnvClient()
 	if err != nil {
 		log.Error("maelstromd: cannot create docker client", "err", err)

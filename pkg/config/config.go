@@ -4,7 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/coopernurse/maelstrom/pkg/common"
-	"github.com/kelseyhightower/envconfig"
+	"github.com/ndrewnee/envconfig"
+	"io"
 	"os"
 	"strings"
 )
@@ -15,8 +16,15 @@ func FileToEnv(fname string) error {
 		return fmt.Errorf("config: error opening env file: %s - %v", fname, err)
 	}
 	defer common.CheckClose(file, &err)
+	err = ReaderToEnv(file)
+	if err != nil {
+		return fmt.Errorf("config: error scanning env file: %s - %v", fname, err)
+	}
+	return nil
+}
 
-	scanner := bufio.NewScanner(file)
+func ReaderToEnv(r io.Reader) error {
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		pos := strings.Index(line, "=")
@@ -24,19 +32,14 @@ func FileToEnv(fname string) error {
 			key := strings.TrimSpace(line[0:pos])
 			val := strings.TrimSpace(line[pos+1:])
 			if key != "" {
-				err = os.Setenv(key, val)
+				err := os.Setenv(key, val)
 				if err != nil {
 					return fmt.Errorf("config: unable to set env var: %s - %v", key, err)
 				}
 			}
 		}
 	}
-
-	err = scanner.Err()
-	if err != nil {
-		return fmt.Errorf("config: error scanning env file: %s - %v", fname, err)
-	}
-	return nil
+	return scanner.Err()
 }
 
 func FromEnvFile(fname string) (Config, error) {
@@ -49,7 +52,7 @@ func FromEnvFile(fname string) (Config, error) {
 
 func FromEnv() (Config, error) {
 	var c Config
-	err := envconfig.Process("mael", &c)
+	err := envconfig.ProcessX(&c, envconfig.Options{Prefix: "mael", SplitWords: true})
 	if err != nil {
 		return Config{}, err
 	}
@@ -67,17 +70,17 @@ type Config struct {
 	// Port used for public reverse proxying
 	PublicPort int `default:"80"`
 	// HTTPS Port used for public reverse proxying
-	PublicHTTPSPort int `default:"443"`
+	PublicHTTPSPort int `default:"443" envconfig:"PUBLIC_HTTPS_PORT"`
 	// Port used for private routing and management operations
 	PrivatePort int `default:"8374"`
 	// database/sql driver to use
 	SqlDriver string
 	// DSN for sql database - format is specific to each particular database driver
-	SqlDSN string
+	SqlDsn string
 	// Interval to refresh cron rules from db
 	CronRefreshSeconds int `default:"60"`
 	// If > 0, print gc stats every x seconds
-	LogGCSeconds int
+	LogGcSeconds int
 	// If set, log profile data to this filename
 	CpuProfileFilename string
 	// Memory (MiB) to make available to containers (if set to zero, maelstromd will simply act as a relay)
