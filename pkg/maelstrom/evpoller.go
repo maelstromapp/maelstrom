@@ -103,7 +103,11 @@ func (e *EvPoller) initSqsEventSource(es v1.EventSource, validRoleIds map[string
 		log.Error("evpoller: Unable to load component", "component", es.ComponentName, "err", err)
 		return
 	}
-	instancesRunning := e.dispatcher.InstanceCountForComponent(comp)
+	instancesRunning, err := e.dispatcher.InstanceCountForComponent(comp)
+	if err != nil {
+		log.Error("evpoller: Unable to get instance count for component", "component", es.ComponentName, "err", err)
+		return
+	}
 	roleIdConcurs := sqsRoleIdConcurrency(es, int(comp.MaxConcurrency), instancesRunning)
 	for _, rc := range roleIdConcurs {
 		roleId := rc.roleId

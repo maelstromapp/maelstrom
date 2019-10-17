@@ -48,6 +48,8 @@ func NewComponent(id maelComponentId, dispatcher *Dispatcher, nodeSvc v1.NodeSer
 	remoteCounts remoteNodeCounts) *Component {
 
 	ctx, ctxCancel := context.WithCancel(context.Background())
+	localCtx, localCtxCancel := context.WithCancel(context.Background())
+
 	c := &Component{
 		id:                     id,
 		status:                 componentStatusActive,
@@ -66,6 +68,8 @@ func NewComponent(id maelComponentId, dispatcher *Dispatcher, nodeSvc v1.NodeSer
 		waitingReqs:            make([]*RequestInput, 0),
 		localReqCh:             make(chan *RequestInput),
 		localReqWg:             &sync.WaitGroup{},
+		localCtx:               localCtx,
+		localCtxCancel:         localCtxCancel,
 		maelContainerIdCounter: maelContainerId(0),
 	}
 	go c.run()
@@ -91,6 +95,8 @@ type Component struct {
 	waitingReqs            []*RequestInput
 	localReqCh             chan *RequestInput
 	localReqWg             *sync.WaitGroup
+	localCtx               context.Context
+	localCtxCancel         context.CancelFunc
 	lastPlacedReq          time.Time
 	maelContainerIdCounter maelContainerId
 }
@@ -274,7 +280,12 @@ func (c *Component) setRemoteNodes(req *remoteNodesRequest) {
 
 func (c *Component) handleReq(req *RequestInput) {
 	c.localReqWg.Add(1)
-	c.localReqCh <- req
+	select {
+	case c.localReqCh <- req:
+	// request sent
+	case <-c.localCtx.Done():
+		log.Warn("component: handleReq unable to send req to localReqCh", "component", c.component.Name)
+	}
 	c.localReqWg.Done()
 }
 
@@ -296,6 +307,7 @@ func (c *Component) shutdown() {
 
 	// notify containers to exit by closing input channel
 	if c.localReqCh != nil {
+		c.localCtxCancel()
 		c.localReqWg.Wait()
 		close(c.localReqCh)
 		c.localReqCh = nil

@@ -2,6 +2,7 @@ package component
 
 import (
 	"context"
+	"fmt"
 	"github.com/coopernurse/maelstrom/pkg/common"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	docker "github.com/docker/docker/client"
@@ -156,13 +157,21 @@ func (d *Dispatcher) ComponentInfo() InfoResponse {
 	return <-req.resp
 }
 
-func (d *Dispatcher) InstanceCountForComponent(comp v1.Component) int {
+func (d *Dispatcher) InstanceCountForComponent(comp v1.Component) (int, error) {
 	req := &instanceCountRequest{
 		Component: &comp,
 		Output:    make(chan int),
 	}
-	d.trySend(dispatcherMsg{instanceCountReq: req})
-	return <-req.Output
+	if d.trySend(dispatcherMsg{instanceCountReq: req}) {
+		select {
+		case count := <-req.Output:
+			return count, nil
+		case <-d.ctx.Done():
+			log.Warn("dispatcher: InstanceCountForComponent not delivered, dispatcher canceled")
+		}
+	}
+	return 0, fmt.Errorf("dispatcher: InstanceCountForComponent unable to send message to dispatcher loop")
+
 }
 
 func (d *Dispatcher) SetComponentStatus(req *componentStatusRequest) {
@@ -186,13 +195,15 @@ func (d *Dispatcher) Shutdown() {
 	d.wg.Wait()
 }
 
-func (d *Dispatcher) trySend(msg dispatcherMsg) {
+func (d *Dispatcher) trySend(msg dispatcherMsg) bool {
 	select {
 	case d.inbox <- msg:
 		// ok - sent
+		return true
 	case <-d.ctx.Done():
 		log.Warn("dispatcher: message not delivered, dispatcher canceled", "msg", msg)
 	}
+	return false
 }
 
 func (d *Dispatcher) run() {
