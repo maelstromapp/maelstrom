@@ -120,6 +120,12 @@ components:
     cpushares: 250
     reservememory: 1024
     limitmemory: 2048
+    crontab: |
+       # comment should be ignored
+       1 2 * * *   /cron/one
+       5   6 */2  ?  9   /cron/two?a=b
+       # another comment..
+       @every 1h   /cron/three
     eventsources:
       messages:
         sqs:
@@ -168,6 +174,42 @@ components:
 							VisibilityTimeout: 300,
 							MaxConcurrency:    10,
 							Path:              "/message",
+						},
+					},
+					{
+						Name:          "detector-cron-0",
+						ComponentName: "detector",
+						ProjectName:   "demo-object-detector",
+						Cron: &v1.CronEventSource{
+							Schedule: "1 2 * * *",
+							Http: v1.CronHttpRequest{
+								Method: "GET",
+								Path:   "/cron/one",
+							},
+						},
+					},
+					{
+						Name:          "detector-cron-1",
+						ComponentName: "detector",
+						ProjectName:   "demo-object-detector",
+						Cron: &v1.CronEventSource{
+							Schedule: "5 6 */2 ? 9",
+							Http: v1.CronHttpRequest{
+								Method: "GET",
+								Path:   "/cron/two?a=b",
+							},
+						},
+					},
+					{
+						Name:          "detector-cron-2",
+						ComponentName: "detector",
+						ProjectName:   "demo-object-detector",
+						Cron: &v1.CronEventSource{
+							Schedule: "@every 1h",
+							Http: v1.CronHttpRequest{
+								Method: "GET",
+								Path:   "/cron/three",
+							},
 						},
 					},
 				},

@@ -161,6 +161,7 @@ type yamlComponent struct {
 	LogDriver                   string
 	LogDriverOptions            map[string]string
 	EventSources                map[string]v1.EventSource
+	Crontab                     string
 	CpuShares                   int64
 	ReserveMemory               int64
 	LimitMemory                 int64
@@ -195,6 +196,34 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 		ev.ProjectName = projectName
 		eventSources = append(eventSources, ev)
 	}
+
+	if c.Crontab != "" {
+		lines := strings.Split(c.Crontab, "\n")
+		counter := 0
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "#") {
+				cols := strings.Fields(line)
+				if len(cols) > 1 && strings.HasPrefix(cols[len(cols)-1], "/") {
+					ev := v1.EventSource{
+						Name:          fmt.Sprintf("%s-cron-%d", name, counter),
+						ComponentName: name,
+						ProjectName:   projectName,
+						Cron: &v1.CronEventSource{
+							Schedule: strings.Join(cols[0:len(cols)-1], " "),
+							Http: v1.CronHttpRequest{
+								Method: "GET",
+								Path:   cols[len(cols)-1],
+							},
+						},
+					}
+					eventSources = append(eventSources, ev)
+					counter++
+				}
+			}
+		}
+	}
+
 	return v1.ComponentWithEventSources{
 		Component: v1.Component{
 			Name:                    name,
