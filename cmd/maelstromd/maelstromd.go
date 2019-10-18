@@ -244,7 +244,7 @@ func main() {
 	cronSvc := maelstrom.NewCronService(db, privateGateway, cancelCtx, nodeSvcImpl.NodeId(),
 		time.Second*time.Duration(conf.CronRefreshSeconds))
 	daemonWG.Add(1)
-	go cronSvc.Run(daemonWG)
+	go cronSvc.Run(daemonWG, false)
 
 	evPoller := maelstrom.NewEvPoller(nodeSvcImpl.NodeId(), cancelCtx, db, dispatcher, awsSession)
 	daemonWG.Add(1)

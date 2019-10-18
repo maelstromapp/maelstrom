@@ -9,7 +9,7 @@ func TestCronStartsContainerWhenTriggered(t *testing.T) {
 	wrapTest(t, func() {
 		GivenNoMaelstromContainers(t).
 			WhenCronEventSourceRegistered("* * * * * *").
-			WhenCronServiceStarted().
+			WhenCronServiceStartedWithSeconds().
 			ThenContainerStartsWithin(15 * time.Second)
 	})
 }

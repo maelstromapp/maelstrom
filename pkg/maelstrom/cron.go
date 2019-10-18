@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/mgutz/logxi/v1"
-	"github.com/robfig/cron"
+	"github.com/robfig/cron/v3"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -38,12 +38,12 @@ type CronService struct {
 	eventSources []v1.EventSource
 }
 
-func (c *CronService) Run(wg *sync.WaitGroup) {
+func (c *CronService) Run(wg *sync.WaitGroup, withSeconds bool) {
 	defer wg.Done()
 	log.Info("cron: starting cron service", "refreshRate", c.refreshRate.String())
 	lockTicker := time.Tick(15 * time.Second)
 	reloadTicker := time.Tick(c.refreshRate)
-	c.reloadRulesAndStartCron(c.acquireRoleOrStop())
+	c.reloadRulesAndStartCron(c.acquireRoleOrStop(), withSeconds)
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -57,7 +57,7 @@ func (c *CronService) Run(wg *sync.WaitGroup) {
 			c.acquireRoleOrStop()
 
 		case <-reloadTicker:
-			c.reloadRulesAndStartCron(c.acquireRoleOrStop())
+			c.reloadRulesAndStartCron(c.acquireRoleOrStop(), withSeconds)
 		}
 	}
 }
@@ -119,7 +119,7 @@ func (c *CronService) stopCron() {
 	}
 }
 
-func (c *CronService) reloadRulesAndStartCron(hasRoleLock bool) {
+func (c *CronService) reloadRulesAndStartCron(hasRoleLock bool, withSeconds bool) {
 	if !hasRoleLock {
 		return
 	}
@@ -130,10 +130,14 @@ func (c *CronService) reloadRulesAndStartCron(hasRoleLock bool) {
 			var newCron *cron.Cron
 			if len(eventSources) > 0 {
 				log.Info("cron: creating new cron scheduler", "eventSourceCount", len(eventSources))
-				newCron = cron.New()
+				if withSeconds {
+					newCron = cron.New(cron.WithSeconds())
+				} else {
+					newCron = cron.New()
+				}
 				for _, es := range eventSources {
 					if es.Cron != nil {
-						err = newCron.AddFunc(es.Cron.Schedule, c.createCronInvoker(es))
+						_, err = newCron.AddFunc(es.Cron.Schedule, c.createCronInvoker(es))
 						if err != nil {
 							log.Error("cron: error adding cron", "err", err, "schedule", es.Cron.Schedule)
 						}

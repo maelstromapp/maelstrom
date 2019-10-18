@@ -206,9 +206,9 @@ func (f *Fixture) WhenSystemIsStarted() *Fixture {
 	return f
 }
 
-func (f *Fixture) WhenCronServiceStarted() *Fixture {
+func (f *Fixture) WhenCronServiceStartedWithSeconds() *Fixture {
 	f.daemonWG.Add(1)
-	go cronService.Run(f.daemonWG)
+	go cronService.Run(f.daemonWG, true)
 	return f
 }
 
