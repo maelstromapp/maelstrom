@@ -238,6 +238,7 @@ func toContainerConfig(c *v1.Component, maelstromUrl string) *container.Config {
 	env = append(env, fmt.Sprintf("MAELSTROM_PRIVATE_URL=%s", maelstromUrl))
 	env = append(env, fmt.Sprintf("MAELSTROM_COMPONENT_NAME=%s", c.Name))
 	env = append(env, fmt.Sprintf("MAELSTROM_COMPONENT_VERSION=%d", c.Version))
+	env = append(env, fmt.Sprintf("MAELSTROM_PROJECT_NAME=%s", c.ProjectName))
 
 	return &container.Config{
 		Image:      c.Docker.Image,
