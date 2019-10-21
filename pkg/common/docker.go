@@ -212,6 +212,13 @@ func StartContainer(dockerClient *docker.Client, c *v1.Component, maelstromUrl s
 	if err != nil {
 		return "", err
 	}
+
+	// add any manually exposed port binding to the exposed ports map so they're
+	// available on the host
+	for port, _ := range hostConfig.PortBindings {
+		config.ExposedPorts[port] = struct{}{}
+	}
+
 	resp, err := dockerClient.ContainerCreate(ctx, config, hostConfig, nil, "")
 	if err != nil {
 		return "", fmt.Errorf("containerCreate error for: %s - %v", c.Name, err)
