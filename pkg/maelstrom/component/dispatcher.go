@@ -50,7 +50,7 @@ type clusterUpdatedRequest struct {
 }
 
 func NewDispatcher(nodeSvc v1.NodeService, dockerClient *docker.Client, maelstromUrl string,
-	myNodeId string) (*Dispatcher, error) {
+	myNodeId string, pullState *PullState) (*Dispatcher, error) {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	d := &Dispatcher{
 		nodeSvc:                 nodeSvc,
@@ -66,6 +66,7 @@ func NewDispatcher(nodeSvc v1.NodeService, dockerClient *docker.Client, maelstro
 		maelComponentIdCounter:  maelComponentId(0),
 		targetCountByComponent:  make(map[string]int),
 		remoteCountsByComponent: make(map[string]remoteNodeCounts),
+		pullState:               pullState,
 	}
 
 	rmCount, err := common.RemoveMaelstromContainers(dockerClient, "removing stale containers")
@@ -94,6 +95,7 @@ type Dispatcher struct {
 	maelComponentIdCounter  maelComponentId
 	targetCountByComponent  map[string]int
 	remoteCountsByComponent map[string]remoteNodeCounts
+	pullState               *PullState
 }
 
 func (d *Dispatcher) Route(rw http.ResponseWriter, req *http.Request, comp *v1.Component, publicGateway bool) {
@@ -253,7 +255,7 @@ func (d *Dispatcher) startComponent(dbComp *v1.Component) *Component {
 	dbComp.Docker.Image = common.NormalizeImageName(dbComp.Docker.Image)
 	d.maelComponentIdCounter++
 	c := NewComponent(d.maelComponentIdCounter, d, d.nodeSvc, d.dockerClient, dbComp, d.maelstromUrl, d.myNodeId,
-		d.targetCountByComponent[dbComp.Name], d.remoteCountsByComponent[dbComp.Name])
+		d.targetCountByComponent[dbComp.Name], d.remoteCountsByComponent[dbComp.Name], d.pullState)
 	d.componentsByName[dbComp.Name] = c
 	return c
 }

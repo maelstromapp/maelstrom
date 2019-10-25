@@ -115,10 +115,32 @@ components:
 By default docker images are pulled without authentication. Each component may optionally specify registry auth
 credentials or provide a completely custom command to run on the host to pull the image.
 
+#### Floating tags
+
+If you use a floating tag (e.g. "latest") you should set `pullimageonstart: true` or `pullimageonput: true` to
+ensure that changes to the image are pulled. Otherwise maelstrom may continue to start containers with
+a stale version of the image.
+
+#### Pull before each start
+
+Images are always pulled if they do not exist locally, but are not pulled if the image already exists.
+If you want maelstrom to pull the image before starting any container for the component,
+set `pullimageonstart: true`.
+
+```yaml
+
+---
+name: myproject
+components:
+  component_name_1:
+    pullimageonstart: true
+```
+
 #### Pull after component put
 
-Images are always pulled before starting a container. To pull an image immediately after a component put operation,
-set `pullimageonput: true`.  This will pull the image immediately any time the component is modified.
+To pull an image immediately after a component put operation,
+set `pullimageonput: true`.  This will pull the image immediately any time the component is modified, including
+during a `project put` call that modifies the component.
 
 ```yaml
 

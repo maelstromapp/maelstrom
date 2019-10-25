@@ -8,7 +8,7 @@ MAEL_SQL_DSN = ./tmp/maelstrom.db?cache=shared&_journal_mode=MEMORY
 #MAEL_SQL_DSN = postgres://postgres:test@localhost:5432/mael?sslmode=disable
 MAEL_PUBLIC_PORT = 8008
 
-BUILD_VER = unreleased
+BUILD_VER = 0.0.0
 BUILD_DATE := $(shell date +%FT%T%z)
 BUILD_GITSHA := $(shell git rev-parse --short HEAD)
 LD_FLAGS = -ldflags "-X main.version=$(BUILD_VER) -X main.builddate=$(BUILD_DATE) -X main.gitsha=$(BUILD_GITSHA)"

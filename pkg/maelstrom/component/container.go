@@ -124,7 +124,7 @@ func (c *Container) ComponentInfo() v1.ComponentInfo {
 }
 
 func (c *Container) CancelAndStop(reason string) {
-	log.Info("container: shutting down: "+reason, "containerId", c.containerId[0:8])
+	log.Info("container: shutting down: "+reason, "containerId", common.StrTruncate(c.containerId, 8))
 
 	// cancel context - this will cause rev proxies and run loop to exit
 	// note that rev proxies may not fully drain reqCh - so this should only
@@ -240,12 +240,6 @@ func (c *Container) appendActivity(previousTotal int64, rolloverStartTime time.T
 }
 
 func (c *Container) startContainer() error {
-	err := pullImage(c.dockerClient, *c.component)
-	if err != nil {
-		log.Warn("component: unable to pull image", "err", err.Error(), "component", c.component.Name,
-			"image", c.component.Docker.Image)
-	}
-
 	containerId, err := common.StartContainer(c.dockerClient, c.component, c.maelstromUrl)
 	c.containerId = containerId
 	return err
@@ -267,7 +261,8 @@ func (c *Container) runHealthCheck() {
 	} else {
 		c.healthCheckFailures++
 		if c.healthCheckFailures >= c.healthCheckMaxFailures {
-			log.Error("container: health check failed. stopping container", "containerId", c.containerId[0:8],
+			log.Error("container: health check failed. stopping container",
+				"containerId", common.StrTruncate(c.containerId, 8),
 				"component", c.component.Name, "failures", c.healthCheckFailures)
 			go c.CancelAndStop("health check failed")
 			c.healthCheckFailures = 0
@@ -334,7 +329,7 @@ func (c *Container) initReverseProxy() error {
 	}
 
 	log.Info("container: active for component", "component", c.component.Name, "ver", c.component.Version,
-		"containerId", cont.ID[0:8], "url", target.String())
+		"containerId", common.StrTruncate(cont.ID, 8), "url", target.String())
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Transport = &http.Transport{
 		Proxy: http.ProxyFromEnvironment,

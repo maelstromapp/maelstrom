@@ -26,6 +26,7 @@ type componentMsg struct {
 	containerStatusReq *containerStatusRequest
 	dockerEventReq     *dockerEventRequest
 	remoteNotesReq     *remoteNodesRequest
+	pullState          *PullState
 	shutdown           bool
 }
 
@@ -45,7 +46,7 @@ type remoteNodesRequest struct {
 
 func NewComponent(id maelComponentId, dispatcher *Dispatcher, nodeSvc v1.NodeService, dockerClient *docker.Client,
 	comp *v1.Component, maelstromUrl string, myNodeId string, targetContainers int,
-	remoteCounts remoteNodeCounts) *Component {
+	remoteCounts remoteNodeCounts, pullState *PullState) *Component {
 
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	localCtx, localCtxCancel := context.WithCancel(context.Background())
@@ -70,6 +71,7 @@ func NewComponent(id maelComponentId, dispatcher *Dispatcher, nodeSvc v1.NodeSer
 		localReqWg:             &sync.WaitGroup{},
 		localCtx:               localCtx,
 		localCtxCancel:         localCtxCancel,
+		pullState:              pullState,
 		maelContainerIdCounter: maelContainerId(0),
 	}
 	go c.run()
@@ -98,6 +100,7 @@ type Component struct {
 	localCtx               context.Context
 	localCtxCancel         context.CancelFunc
 	lastPlacedReq          time.Time
+	pullState              *PullState
 	maelContainerIdCounter maelContainerId
 }
 
@@ -344,6 +347,27 @@ func (c *Component) scaleUp(num int) {
 	if c.localReqCh == nil {
 		c.localReqCh = make(chan *RequestInput)
 	}
+
+	if num > 0 {
+		pull := c.component.Docker.PullImageOnStart || c.component.Docker.PullImageOnPut
+		force := c.component.Docker.PullImageOnStart
+		if !force {
+			exists, err := common.ImageExistsLocally(c.dockerClient, c.component.Docker.Image)
+			if err == nil {
+				// if image isn't present locally, pull it now
+				if !exists {
+					pull = true
+					force = true
+				}
+			} else {
+				log.Error("component: unable to list image", "err", err, "component", c.component.Name)
+			}
+		}
+		if pull {
+			c.pullState.Pull(*c.component, force)
+		}
+	}
+
 	for i := 0; i < num; i++ {
 		c.maelContainerIdCounter++
 		c.containers = append(c.containers, NewContainer(c.dockerClient, c.component, c.maelstromUrl, c.localReqCh,

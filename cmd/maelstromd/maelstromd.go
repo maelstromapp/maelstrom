@@ -164,8 +164,11 @@ func main() {
 		log.Warn("maelstromd: unable to init aws session", "err", err.Error())
 	}
 
+	pullState := component.NewPullState(dockerClient)
+	imagePuller := maelstrom.NewImagePuller(dockerClient, db, pullState)
+
 	nodeSvcImpl, err := maelstrom.NewNodeServiceImplFromDocker(db, dockerClient, conf.PrivatePort, peerUrl,
-		conf.TotalMemory, conf.InstanceId, shutdownCh, awsSession, conf.TerminateCommand)
+		conf.TotalMemory, conf.InstanceId, shutdownCh, awsSession, conf.TerminateCommand, pullState)
 	if err != nil {
 		log.Error("maelstromd: cannot create NodeService", "err", err)
 		os.Exit(2)
@@ -195,7 +198,7 @@ func main() {
 
 	publicSvr := maelstrom.NewGateway(resolver, dispatcher, true, outboundIp.String())
 
-	componentSubscribers := []maelstrom.ComponentSubscriber{dispatcher, resolver}
+	componentSubscribers := []maelstrom.ComponentSubscriber{dispatcher, resolver, imagePuller}
 
 	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
 	v1Impl := maelstrom.NewMaelServiceImpl(db, componentSubscribers, certWrapper, nodeSvcImpl.NodeId(),

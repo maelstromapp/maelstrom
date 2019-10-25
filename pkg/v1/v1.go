@@ -8,8 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "664d2fd5d7c3448db18e7f6e779a9211"
-const BarristerDateGenerated int64 = 1571086745325000000
+const BarristerChecksum string = "2d0e7b734c1013983a76cd82f1ae655e"
+const BarristerDateGenerated int64 = 1572039194918000000
 
 type EventSourceType string
 
@@ -66,6 +66,7 @@ type DockerComponent struct {
 	PullUsername                string        `json:"pullUsername,omitempty"`
 	PullPassword                string        `json:"pullPassword,omitempty"`
 	PullImageOnPut              bool          `json:"pullImageOnPut,omitempty"`
+	PullImageOnStart            bool          `json:"pullImageOnStart,omitempty"`
 }
 
 type VolumeMount struct {
@@ -1505,7 +1506,14 @@ var IdlJsonRaw = `[
                 "type": "bool",
                 "optional": true,
                 "is_array": false,
-                "comment": "If true, image will be pulled after each PutComponent call even if no containers\nfor this component are running. (default=false)\nImages are always pulled for a component when starting a container."
+                "comment": "If true, image will be pulled after each PutComponent call even if no containers\nfor this component are running. (default=false)"
+            },
+            {
+                "name": "pullImageOnStart",
+                "type": "bool",
+                "optional": true,
+                "is_array": false,
+                "comment": "If true, image will be pulled before starting a container. If false, image will\nbe pulled before starting a container only if no image is present locally. (default=false)"
             }
         ],
         "values": null,
@@ -3279,7 +3287,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1571086745325,
-        "checksum": "664d2fd5d7c3448db18e7f6e779a9211"
+        "date_generated": 1572039194918,
+        "checksum": "2d0e7b734c1013983a76cd82f1ae655e"
     }
 ]`

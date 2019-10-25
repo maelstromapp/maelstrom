@@ -37,7 +37,7 @@ type placeComponentResult struct {
 
 func NewNodeServiceImplFromDocker(db Db, dockerClient *docker.Client, privatePort int,
 	peerUrl string, totalMemAllowed int64, instanceId string, shutdownCh chan ShutdownFunc,
-	awsSession *session.Session, terminateCommand string) (*NodeServiceImpl, error) {
+	awsSession *session.Session, terminateCommand string, pullState *component.PullState) (*NodeServiceImpl, error) {
 
 	maelstromHost, err := common.ResolveMaelstromHost(dockerClient)
 	if err != nil {
@@ -69,7 +69,7 @@ func NewNodeServiceImplFromDocker(db Db, dockerClient *docker.Client, privatePor
 	}
 
 	log.Info("maelstromd: creating dispatcher", "maelstromUrl", maelstromUrl)
-	dispatcher, err := component.NewDispatcher(nodeSvc, dockerClient, maelstromUrl, nodeId)
+	dispatcher, err := component.NewDispatcher(nodeSvc, dockerClient, maelstromUrl, nodeId, pullState)
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +321,7 @@ func (n *NodeServiceImpl) placeComponentInternal(input v1.PlaceComponentInput) (
 	for time.Now().Before(deadline) {
 		placedNode, retry := n.placeComponentTryOnce(input.ComponentName, requiredRAM)
 		if placedNode != nil {
-			log.Info("nodesvc: PlaceComponent successful", "elapsedMillis", time.Now().Sub(startTime)/1e6,
+			log.Info("nodesvc: PlaceComponent successful", "elapsed", time.Now().Sub(startTime),
 				"component", input.ComponentName, "clientNode", common.TruncNodeId(n.nodeId),
 				"placedNode", common.TruncNodeId(placedNode.NodeId))
 			return v1.PlaceComponentOutput{

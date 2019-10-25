@@ -123,7 +123,7 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *SqlDb) *Fixtur
 	}
 
 	nodeSvcImpl, err := NewNodeServiceImplFromDocker(sqlDb, dockerClient, 8374, "", -1, "", shutdownCh, nil,
-		"")
+		"", component.NewPullState(dockerClient))
 	assert.Nil(t, err, "NewNodeServiceImplFromDocker err != nil: %v", err)
 
 	gateway := NewGateway(resolver, nodeSvcImpl.Dispatcher(), false, outboundIp.String())

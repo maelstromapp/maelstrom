@@ -326,8 +326,11 @@ struct DockerComponent {
 
     // If true, image will be pulled after each PutComponent call even if no containers
     // for this component are running. (default=false)
-    // Images are always pulled for a component when starting a container.
     pullImageOnPut      bool  [optional]
+
+    // If true, image will be pulled before starting a container. If false, image will
+    // be pulled before starting a container only if no image is present locally. (default=false)
+    pullImageOnStart    bool  [optional]
 }
 
 struct VolumeMount {

@@ -141,6 +141,19 @@ func ResolveMaelstromHost(dockerClient *docker.Client) (string, error) {
 	return host, nil
 }
 
+func ImageExistsLocally(dockerClient *docker.Client, imageName string) (bool, error) {
+	filt := filters.NewArgs()
+	filt.Add("reference", NormalizeImageName(imageName))
+	images, err := dockerClient.ImageList(context.Background(), types.ImageListOptions{
+		All:     false,
+		Filters: filt,
+	})
+	if err != nil {
+		return false, err
+	}
+	return len(images) > 0, nil
+}
+
 func ListMaelstromContainers(dockerClient *docker.Client) ([]types.Container, error) {
 	filter := filters.NewArgs()
 	filter.Add("label", "maelstrom=true")
