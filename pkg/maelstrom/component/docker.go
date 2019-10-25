@@ -1,6 +1,7 @@
 package component
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -42,8 +43,16 @@ func pullImage(dockerClient *docker.Client, c v1.Component) error {
 		}
 
 		// run command
+		var outbuf, errbuf bytes.Buffer
 		cmd := exec.Command(c.Docker.PullCommand[0], c.Docker.PullCommand[1:]...)
-		return cmd.Run()
+		cmd.Stdout = &outbuf
+		cmd.Stderr = &errbuf
+		err := cmd.Run()
+		if err != nil {
+			return fmt.Errorf("component: error running pull command: '%v' err=%v stdout=%s stderr=%s",
+				c.Docker.PullCommand, err, outbuf.String(), errbuf.String())
+		}
+		return nil
 	}
 }
 
