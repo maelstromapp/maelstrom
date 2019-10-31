@@ -201,6 +201,8 @@ components:
 
 ### Other options
 
+These are all optional properties.
+
 ```yaml
 
 ---
@@ -219,6 +221,9 @@ components:
         type: bind
         # Whether volume is read only. Default = false
         readonly: false
+      # add more volumes using a list
+      - source: /some/other/path
+        target: /otherpath
     # Expose ports from container to host
     # Probably only useful during local development (e.g. for debugger ports)
     # Note that if you statically bind a port here and maxinstances > 1
@@ -230,4 +235,19 @@ components:
     # This is sometimes useful when developing locally and you wish to access 
     # resources from a docker-compose stack that are placed on a non-default network.
     networkname: mynet
+    #
+    # DNS options - this allows you to override the DNS server to use in the container
+    # See docs: https://docs.docker.com/v17.09/engine/userguide/networking/default_network/configure-dns/
+    #
+    # equivalent to docker run --dns
+    dns:
+      - 8.8.8.8
+    # equivalent to docker run --dns-opt 
+    dnsoptions:
+      - "option 1"
+      - "option 2"
+    # equivalent to docker run --dns-search
+    dnssearch:
+      - example.com
+      - example.org
 ```

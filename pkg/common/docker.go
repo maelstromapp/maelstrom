@@ -320,6 +320,17 @@ func toContainerHostConfig(c *v1.Component) (*container.HostConfig, error) {
 		}
 	}
 
+	// DNS
+	if len(c.Docker.Dns) > 0 {
+		hc.DNS = c.Docker.Dns
+	}
+	if len(c.Docker.DnsSearch) > 0 {
+		hc.DNSSearch = c.Docker.DnsSearch
+	}
+	if len(c.Docker.DnsOptions) > 0 {
+		hc.DNSOptions = c.Docker.DnsOptions
+	}
+
 	// Port mappings
 	if len(c.Docker.Ports) > 0 {
 		if hc.PortBindings == nil {

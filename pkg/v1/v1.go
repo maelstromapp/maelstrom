@@ -8,8 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "2d0e7b734c1013983a76cd82f1ae655e"
-const BarristerDateGenerated int64 = 1572039194918000000
+const BarristerChecksum string = "194135bc8fc1ab6f8da7c82522525a3f"
+const BarristerDateGenerated int64 = 1572540328279000000
 
 type EventSourceType string
 
@@ -67,6 +67,9 @@ type DockerComponent struct {
 	PullPassword                string        `json:"pullPassword,omitempty"`
 	PullImageOnPut              bool          `json:"pullImageOnPut,omitempty"`
 	PullImageOnStart            bool          `json:"pullImageOnStart,omitempty"`
+	Dns                         []string      `json:"dns,omitempty"`
+	DnsOptions                  []string      `json:"dnsOptions,omitempty"`
+	DnsSearch                   []string      `json:"dnsSearch,omitempty"`
 }
 
 type VolumeMount struct {
@@ -1514,6 +1517,27 @@ var IdlJsonRaw = `[
                 "optional": true,
                 "is_array": false,
                 "comment": "If true, image will be pulled before starting a container. If false, image will\nbe pulled before starting a container only if no image is present locally. (default=false)"
+            },
+            {
+                "name": "dns",
+                "type": "string",
+                "optional": true,
+                "is_array": true,
+                "comment": "DNS servers, options, and search to set on container\nSee: https://docs.docker.com/v17.09/engine/userguide/networking/default_network/configure-dns/"
+            },
+            {
+                "name": "dnsOptions",
+                "type": "string",
+                "optional": true,
+                "is_array": true,
+                "comment": ""
+            },
+            {
+                "name": "dnsSearch",
+                "type": "string",
+                "optional": true,
+                "is_array": true,
+                "comment": ""
             }
         ],
         "values": null,
@@ -3287,7 +3311,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1572039194918,
-        "checksum": "2d0e7b734c1013983a76cd82f1ae655e"
+        "date_generated": 1572540328279,
+        "checksum": "194135bc8fc1ab6f8da7c82522525a3f"
     }
 ]`

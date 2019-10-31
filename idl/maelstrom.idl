@@ -331,6 +331,12 @@ struct DockerComponent {
     // If true, image will be pulled before starting a container. If false, image will
     // be pulled before starting a container only if no image is present locally. (default=false)
     pullImageOnStart    bool  [optional]
+
+    // DNS servers, options, and search to set on container
+    // See: https://docs.docker.com/v17.09/engine/userguide/networking/default_network/configure-dns/
+    dns                         []string    [optional]
+    dnsOptions                  []string    [optional]
+    dnsSearch                   []string    [optional]
 }
 
 struct VolumeMount {

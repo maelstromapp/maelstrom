@@ -158,6 +158,9 @@ type yamlComponent struct {
 	Ports                       []string
 	Volumes                     []v1.VolumeMount
 	NetworkName                 string
+	DNS                         []string
+	DNSOptions                  []string
+	DNSSearch                   []string
 	LogDriver                   string
 	LogDriverOptions            map[string]string
 	EventSources                map[string]v1.EventSource
@@ -259,6 +262,9 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 				PullPassword:                c.PullPassword,
 				PullImageOnPut:              c.PullImageOnPut,
 				PullImageOnStart:            c.PullImageOnStart,
+				Dns:                         c.DNS,
+				DnsOptions:                  c.DNSOptions,
+				DnsSearch:                   c.DNSSearch,
 			},
 		},
 		EventSources: eventSources,
