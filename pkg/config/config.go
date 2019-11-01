@@ -96,6 +96,23 @@ type Config struct {
 	// dropping a request during shutdown
 	ShutdownPauseSeconds int
 
+	// If > 0, will prune exited containers and untagged images every x minutes
+	// Similar to the "docker system prune" command
+	DockerPruneMinutes int
+
+	// If DockerPruneMinutes > 0 and this is true, when prune operation runs
+	// maelstrom will load the list of components and remove any image that is
+	// not registered to a maelstrom component. This is useful if your system
+	// uses version tags. Set this option to true to remove old versions of images
+	// no longer referenced by a component.
+	DockerPruneUnregImages bool
+
+	// Comma separated list of image tags to keep. Only relevant if
+	// DockerPruneUnregImages=true and DockerPruneMinutes > 0
+	// Supports * globs, so "myorg/*" would match "myorg/image1" and "myorg/image2" but
+	// not "otherorg/myorg"
+	DockerPruneUnregKeep string
+
 	// AWS Options
 	//
 	// SQS Queue to poll for EC2 Auto Scaling Lifecycle Hooks

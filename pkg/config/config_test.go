@@ -29,6 +29,10 @@ MAEL_AWS_SPOT_TERMINATE_POLL_SECONDS=55
 MAEL_LOG_GC_SECONDS=66
 MAEL_CPU_PROFILE_FILENAME=somefile
 
+MAEL_DOCKER_PRUNE_MINUTES=123
+MAEL_DOCKER_PRUNE_UNREG_IMAGES=true
+MAEL_DOCKER_PRUNE_UNREG_KEEP=acme.org/*,hello-world
+
 `
 
 	expected := Config{
@@ -47,6 +51,9 @@ MAEL_CPU_PROFILE_FILENAME=somefile
 		AwsTerminateQueueUrl:        "q1",
 		AwsTerminateMaxAgeSeconds:   44,
 		AwsSpotTerminatePollSeconds: 55,
+		DockerPruneUnregImages:      true,
+		DockerPruneMinutes:          123,
+		DockerPruneUnregKeep:        "acme.org/*,hello-world",
 		Cluster: ClusterOptions{
 			Name:    "",
 			MinSize: 1,

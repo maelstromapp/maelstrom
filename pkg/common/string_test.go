@@ -25,3 +25,32 @@ func TestInterpolate(t *testing.T) {
 	assert.Equal(t, "test defaultVal", InterpolateWithMap("test ${D:defaultVal}", m))
 	assert.Equal(t, "test ", InterpolateWithMap("test ${D:}", m))
 }
+
+func TestGlobMatches(t *testing.T) {
+	// glob = "*" - matches everything
+	assert.True(t, GlobMatches("*", "foo"))
+	assert.True(t, GlobMatches("*", ""))
+
+	// glob is string - only exact match
+	assert.True(t, GlobMatches("cat", "cat"))
+	assert.False(t, GlobMatches("cat", "Cat"))
+	assert.False(t, GlobMatches("cat", "cat1"))
+	assert.False(t, GlobMatches("cat", "1cat"))
+
+	// glob on both sides - substring match
+	assert.True(t, GlobMatches("*cat*", "cat"))
+	assert.True(t, GlobMatches("*cat*", "1cat"))
+	assert.True(t, GlobMatches("*cat*", "1cat1"))
+	assert.True(t, GlobMatches("*cat*", "cat1"))
+	assert.False(t, GlobMatches("*cat*", "cdat1"))
+
+	// prefix glob
+	assert.True(t, GlobMatches("*cat", "cat"))
+	assert.True(t, GlobMatches("*cat", "foocat"))
+	assert.False(t, GlobMatches("*cat", "catfoo"))
+
+	// suffix glob
+	assert.True(t, GlobMatches("cat*", "cat"))
+	assert.False(t, GlobMatches("cat*", "foocat"))
+	assert.True(t, GlobMatches("cat*", "catfoo"))
+}

@@ -63,3 +63,20 @@ func StrTruncate(s string, maxlen int) string {
 func TruncNodeId(id string) string {
 	return StrTruncate(id, 14)
 }
+
+func GlobMatches(globOrStr string, target string) bool {
+	if globOrStr == "*" || globOrStr == target {
+		return true
+	}
+
+	if strings.HasPrefix(globOrStr, "*") && strings.HasSuffix(globOrStr, "*") {
+		return strings.Contains(target, globOrStr[1:len(globOrStr)-1])
+	}
+	if strings.HasPrefix(globOrStr, "*") {
+		return strings.HasSuffix(target, globOrStr[1:])
+	}
+	if strings.HasSuffix(globOrStr, "*") {
+		return strings.HasPrefix(target, globOrStr[:len(globOrStr)-1])
+	}
+	return false
+}

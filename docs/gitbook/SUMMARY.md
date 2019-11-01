@@ -17,6 +17,7 @@
 * [How it Works](how_works/README.md)
   * [Architecture](how_works/architecture.md)
 * [Running in Production](production/README.md)
+  * [Pruning Images](production/prune.md)
   * [Graceful Shutdown](production/shutdown.md)
 * [Appendixes](appendix/README.md)
   * [maelstromd Environment Variables](appendix/maelstromd_env_vars.md)

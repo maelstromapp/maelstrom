@@ -48,9 +48,14 @@ that control the logging format. Please read the logxi docs for more details.
 
 ## System Resources
 
-| Variable                  | Description                                  | Required? | Default                 |
-|---------------------------|----------------------------------------------|-----------|-------------------------|
-| MAEL_TOTAL_MEMORY         | Memory (MiB) to make available to containers | No        | System total memory     |
+| Variable                        | Description                                           | Required? | Default          
+|---------------------------------|-------------------------------------------------------|-----------|---------------------
+| MAEL_TOTAL_MEMORY               | Memory (MiB) to make available to containers          | No        | System total memory 
+| MAEL_DOCKER_PRUNE_MINUTES       | Interval to run the docker image pruner               | No        | 0 (off) 
+| MAEL_DOCKER_PRUNE_UNREG_IMAGES  | If true, remove images not associated with components | No        | false  
+| MAEL_DOCKER_PRUNE_UNREG_KEEP    | Comma separated list of image tags to never delete    | No        | None  
+
+Read more about [Docker image pruning](../production/prune.html)
 
 ## System Management
 

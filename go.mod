@@ -10,7 +10,7 @@ require (
 	github.com/docker/distribution v2.7.0+incompatible // indirect
 	github.com/docker/docker v1.13.1
 	github.com/docker/go-connections v0.4.0
-	github.com/docker/go-units v0.3.3 // indirect
+	github.com/docker/go-units v0.3.3
 	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
 	github.com/dustin/go-humanize v1.0.0
 	github.com/go-acme/lego v2.5.0+incompatible

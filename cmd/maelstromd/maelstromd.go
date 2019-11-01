@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -174,6 +175,13 @@ func main() {
 		os.Exit(2)
 	}
 	dispatcher := nodeSvcImpl.Dispatcher()
+
+	if conf.DockerPruneMinutes > 0 {
+		dockerPruner := maelstrom.NewDockerPruner(dockerClient, db, cancelCtx, conf.DockerPruneUnregImages,
+			strings.Split(conf.DockerPruneUnregKeep, ","))
+		daemonWG.Add(1)
+		go dockerPruner.Run(time.Minute*time.Duration(conf.DockerPruneMinutes), daemonWG)
+	}
 
 	daemonWG.Add(2)
 	go nodeSvcImpl.RunNodeStatusLoop(time.Second*30, cancelCtx, daemonWG)
