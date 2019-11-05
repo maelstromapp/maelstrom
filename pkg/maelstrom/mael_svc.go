@@ -112,10 +112,10 @@ func (v *MaelServiceImpl) PutProject(input v1.PutProjectInput) (v1.PutProjectOut
 	namePrefix := strings.TrimSpace(input.Project.Name) + "_"
 	for x, c := range input.Project.Components {
 		c.Component.Name = ensureStartsWith(namePrefix, strings.ToLower(c.Component.Name))
-		for y, es := range c.EventSources {
-			es.Name = ensureStartsWith(namePrefix, strings.ToLower(es.Name))
-			es.ComponentName = c.Component.Name
-			c.EventSources[y] = es
+		for y, ess := range c.EventSources {
+			ess.EventSource.Name = ensureStartsWith(namePrefix, strings.ToLower(ess.EventSource.Name))
+			ess.EventSource.ComponentName = c.Component.Name
+			c.EventSources[y] = ess
 		}
 		input.Project.Components[x] = c
 	}
@@ -375,6 +375,52 @@ func (v *MaelServiceImpl) RemoveEventSource(input v1.RemoveEventSourceInput) (v1
 	}, err
 }
 
+func (v *MaelServiceImpl) ToggleEventSources(input v1.ToggleEventSourcesInput) (v1.ToggleEventSourcesOutput, error) {
+	eventSourceNames := make([]string, 0)
+
+	nextToken := ""
+	loop := true
+	for loop {
+		listOut, err := v.ListEventSources(v1.ListEventSourcesInput{
+			NamePrefix:      input.NamePrefix,
+			ComponentName:   input.ComponentName,
+			ProjectName:     input.ProjectName,
+			EventSourceType: input.EventSourceType,
+			Limit:           1000,
+			NextToken:       nextToken,
+		})
+		if err != nil {
+			return v1.ToggleEventSourcesOutput{}, v.onError(DbError, "v1.server: db.ListEventSources error", err)
+		}
+
+		batchNames := make([]string, 0)
+		for _, ess := range listOut.EventSources {
+			es := ess.EventSource
+			if ess.Enabled != input.Enabled {
+				batchNames = append(batchNames, es.Name)
+			}
+		}
+		if len(batchNames) > 0 {
+			_, err = v.db.SetEventSourcesEnabled(batchNames, input.Enabled)
+			if err != nil {
+				return v1.ToggleEventSourcesOutput{},
+					v.onError(DbError, "v1.server: db.SetEventSourceDisabled error", err)
+			}
+			eventSourceNames = append(eventSourceNames, batchNames...)
+		}
+
+		nextToken = listOut.NextToken
+		if nextToken == "" {
+			loop = false
+		}
+	}
+
+	return v1.ToggleEventSourcesOutput{
+		Enabled:          input.Enabled,
+		EventSourceNames: eventSourceNames,
+	}, nil
+}
+
 func (v *MaelServiceImpl) ListEventSources(input v1.ListEventSourcesInput) (v1.ListEventSourcesOutput, error) {
 	input.NamePrefix = strings.ToLower(input.NamePrefix)
 	input.ComponentName = strings.ToLower(input.ComponentName)
@@ -484,7 +530,7 @@ func validateProject(errPrefix string, project v1.Project) (string, error) {
 		}
 		for y, es := range c.EventSources {
 			errPrefixES := fmt.Sprintf("%s.components[%d].eventSources[%d]", errPrefix, x, y)
-			_, err = validateEventSource(errPrefixES, es)
+			_, err = validateEventSource(errPrefixES, es.EventSource)
 			if err != nil {
 				return "", err
 			}

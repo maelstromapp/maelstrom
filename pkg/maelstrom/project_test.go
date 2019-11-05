@@ -16,13 +16,16 @@ func newComponent(name string, image string, command ...string) v1.Component {
 	}
 }
 
-func newEventSource(name string, componentName string, cronSchedule string) v1.EventSource {
-	return v1.EventSource{
-		Name:          name,
-		ComponentName: componentName,
-		Cron: &v1.CronEventSource{
-			Schedule: cronSchedule,
+func newEventSource(name string, componentName string, cronSchedule string) v1.EventSourceWithStatus {
+	return v1.EventSourceWithStatus{
+		EventSource: v1.EventSource{
+			Name:          name,
+			ComponentName: componentName,
+			Cron: &v1.CronEventSource{
+				Schedule: cronSchedule,
+			},
 		},
+		Enabled: true,
 	}
 }
 
@@ -31,19 +34,19 @@ func TestDiffProject(t *testing.T) {
 		Components: []v1.ComponentWithEventSources{
 			{
 				Component: newComponent("component-a", "image1", "cmd1"),
-				EventSources: []v1.EventSource{
+				EventSources: []v1.EventSourceWithStatus{
 					newEventSource("a-es1", "component-a", "*"),
 				},
 			},
 			{
 				Component: newComponent("component-b", "image1", "cmd1"),
-				EventSources: []v1.EventSource{
+				EventSources: []v1.EventSourceWithStatus{
 					newEventSource("b-es1", "component-b", "*"),
 				},
 			},
 			{
 				Component: newComponent("component-c", "image1", "cmd1"),
-				EventSources: []v1.EventSource{
+				EventSources: []v1.EventSourceWithStatus{
 					newEventSource("c-es1", "component-c", "*"),
 					newEventSource("c-es2", "component-c", "*"),
 				},
@@ -54,20 +57,20 @@ func TestDiffProject(t *testing.T) {
 		Components: []v1.ComponentWithEventSources{
 			{
 				Component: newComponent("component-a", "image1", "cmd1"),
-				EventSources: []v1.EventSource{
+				EventSources: []v1.EventSourceWithStatus{
 					newEventSource("a-es1", "component-a", "* *"),
 				},
 			},
 			{
 				Component: newComponent("component-c", "image2", "cmd1"),
-				EventSources: []v1.EventSource{
+				EventSources: []v1.EventSourceWithStatus{
 					newEventSource("c-es1", "component-c", "*"),
 					newEventSource("c-es3", "component-c", "*"),
 				},
 			},
 			{
 				Component:    newComponent("component-d", "image1", "cmd1"),
-				EventSources: []v1.EventSource{},
+				EventSources: []v1.EventSourceWithStatus{},
 			},
 		},
 	}
@@ -79,8 +82,8 @@ func TestDiffProject(t *testing.T) {
 		},
 		ComponentRemove: []string{"component-b"},
 		EventSourcePut: []v1.EventSource{
-			newProject.Components[0].EventSources[0],
-			newProject.Components[1].EventSources[1],
+			newProject.Components[0].EventSources[0].EventSource,
+			newProject.Components[1].EventSources[1].EventSource,
 		},
 		EventSourceRemove: []string{"b-es1", "c-es2"},
 	}
@@ -163,54 +166,66 @@ components:
 						ReserveMemoryMiB: 1024,
 					},
 				},
-				EventSources: []v1.EventSource{
+				EventSources: []v1.EventSourceWithStatus{
 					{
-						Name:          "messages",
-						ComponentName: "detector",
-						ProjectName:   "demo-object-detector",
-						Sqs: &v1.SqsEventSource{
-							QueueName:         "${ENV}_images",
-							NameAsPrefix:      true,
-							VisibilityTimeout: 300,
-							MaxConcurrency:    10,
-							Path:              "/message",
-						},
-					},
-					{
-						Name:          "detector-cron-0",
-						ComponentName: "detector",
-						ProjectName:   "demo-object-detector",
-						Cron: &v1.CronEventSource{
-							Schedule: "1 2 * * *",
-							Http: v1.CronHttpRequest{
-								Method: "GET",
-								Path:   "/cron/one",
+						EventSource: v1.EventSource{
+							Name:          "messages",
+							ComponentName: "detector",
+							ProjectName:   "demo-object-detector",
+							Sqs: &v1.SqsEventSource{
+								QueueName:         "${ENV}_images",
+								NameAsPrefix:      true,
+								VisibilityTimeout: 300,
+								MaxConcurrency:    10,
+								Path:              "/message",
 							},
 						},
+						Enabled: true,
 					},
 					{
-						Name:          "detector-cron-1",
-						ComponentName: "detector",
-						ProjectName:   "demo-object-detector",
-						Cron: &v1.CronEventSource{
-							Schedule: "5 6 */2 ? 9",
-							Http: v1.CronHttpRequest{
-								Method: "GET",
-								Path:   "/cron/two?a=b",
+						EventSource: v1.EventSource{
+							Name:          "detector-cron-0",
+							ComponentName: "detector",
+							ProjectName:   "demo-object-detector",
+							Cron: &v1.CronEventSource{
+								Schedule: "1 2 * * *",
+								Http: v1.CronHttpRequest{
+									Method: "GET",
+									Path:   "/cron/one",
+								},
 							},
 						},
+						Enabled: true,
 					},
 					{
-						Name:          "detector-cron-2",
-						ComponentName: "detector",
-						ProjectName:   "demo-object-detector",
-						Cron: &v1.CronEventSource{
-							Schedule: "@every 1h",
-							Http: v1.CronHttpRequest{
-								Method: "GET",
-								Path:   "/cron/three",
+						EventSource: v1.EventSource{
+							Name:          "detector-cron-1",
+							ComponentName: "detector",
+							ProjectName:   "demo-object-detector",
+							Cron: &v1.CronEventSource{
+								Schedule: "5 6 */2 ? 9",
+								Http: v1.CronHttpRequest{
+									Method: "GET",
+									Path:   "/cron/two?a=b",
+								},
 							},
 						},
+						Enabled: true,
+					},
+					{
+						EventSource: v1.EventSource{
+							Name:          "detector-cron-2",
+							ComponentName: "detector",
+							ProjectName:   "demo-object-detector",
+							Cron: &v1.CronEventSource{
+								Schedule: "@every 1h",
+								Http: v1.CronHttpRequest{
+									Method: "GET",
+									Path:   "/cron/three",
+								},
+							},
+						},
+						Enabled: true,
 					},
 				},
 			},
@@ -233,7 +248,7 @@ components:
 					MaxConcurrency:     3,
 					MaxDurationSeconds: 30,
 				},
-				EventSources: []v1.EventSource{},
+				EventSources: []v1.EventSourceWithStatus{},
 			},
 		},
 	}

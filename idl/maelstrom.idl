@@ -117,9 +117,9 @@ interface MaelstromService {
     //
     GetEventSource(input GetEventSourceInput) GetEventSourceOutput
 
-    // RemoveComponent deletes a component with the given name
+    // RemoveEventSource deletes an event source with the given name
     //
-    // If no component is found with that name no error is raised
+    // If no event source is found with that name no error is raised
     // and the call silently no-ops.
     //
     // Error Codes:
@@ -127,6 +127,17 @@ interface MaelstromService {
     // * 1001 - input.name is invalid
     //
     RemoveEventSource(input RemoveEventSourceInput) RemoveEventSourceOutput
+
+    // ToggleEventSources enables or disables one or more event sources
+    //
+    // If no event source is found with that name no error is raised
+    // and the call silently no-ops.
+    //
+    // Error Codes:
+    //
+    // * 1001 - input.name is invalid
+    //
+    ToggleEventSources(input ToggleEventSourcesInput) ToggleEventSourcesOutput
 
     // ListEventSources returns a paginated list of event sources registered in the system
     // optionally filtered by name prefix, component name, or type.
@@ -201,7 +212,7 @@ struct Project {
 
 struct ComponentWithEventSources {
     component     Component
-    eventSources  []EventSource
+    eventSources  []EventSourceWithStatus
 }
 
 struct Component {
@@ -352,6 +363,11 @@ struct VolumeMount {
 
     // default=false
     readOnly      bool    [optional]
+}
+
+struct EventSourceWithStatus {
+    eventSource    EventSource
+    enabled        bool
 }
 
 struct EventSource {
@@ -659,6 +675,31 @@ struct RemoveEventSourceOutput {
     found   bool
 }
 
+struct ToggleEventSourcesInput {
+    // If true, matching event sources will be enabled. Otherwise they will be disabled.
+    enabled          bool
+
+    // If specified only event sources matching this name prefix will be updated.
+    namePrefix       string            [optional]
+
+    // If specified only event sources matching this component name will be updated
+    componentName    string            [optional]
+
+    // If specified only event sources belonging to components with this project name will be updated
+    projectName      string            [optional]
+
+    // If specified only event sources matching this type will be updated
+    eventSourceType  EventSourceType   [optional]
+}
+
+struct ToggleEventSourcesOutput {
+    // Echoed from the input
+    enabled          bool
+
+    // Names of event sources updated
+    eventSourceNames []string
+}
+
 struct ListEventSourcesInput {
     // If specified only event sources matching this name prefix will be returned.
     namePrefix       string            [optional]
@@ -683,7 +724,7 @@ struct ListEventSourcesInput {
 struct ListEventSourcesOutput {
     // Event sources in current page of output or an empty list if
     // no additional results exist
-    eventSources    []EventSource
+    eventSources    []EventSourceWithStatus
 
     // If set there are additional results.
     // Client may make another ListEventSources() request setting this

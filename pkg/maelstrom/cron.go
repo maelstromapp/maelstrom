@@ -35,7 +35,7 @@ type CronService struct {
 	acquiredRole bool
 	refreshRate  time.Duration
 	cron         *cron.Cron
-	eventSources []v1.EventSource
+	eventSources []v1.EventSourceWithStatus
 }
 
 func (c *CronService) Run(wg *sync.WaitGroup, withSeconds bool) {
@@ -135,8 +135,9 @@ func (c *CronService) reloadRulesAndStartCron(hasRoleLock bool, withSeconds bool
 				} else {
 					newCron = cron.New()
 				}
-				for _, es := range eventSources {
-					if es.Cron != nil {
+				for _, ess := range eventSources {
+					es := ess.EventSource
+					if es.Cron != nil && ess.Enabled {
 						_, err = newCron.AddFunc(es.Cron.Schedule, c.createCronInvoker(es))
 						if err != nil {
 							log.Error("cron: error adding cron", "err", err, "schedule", es.Cron.Schedule)
@@ -158,8 +159,8 @@ func (c *CronService) reloadRulesAndStartCron(hasRoleLock bool, withSeconds bool
 	}
 }
 
-func (c *CronService) loadAllCronEventSources() ([]v1.EventSource, error) {
-	eventSources := make([]v1.EventSource, 0)
+func (c *CronService) loadAllCronEventSources() ([]v1.EventSourceWithStatus, error) {
+	eventSources := make([]v1.EventSourceWithStatus, 0)
 	nextToken := ""
 	for {
 		out, err := c.db.ListEventSources(v1.ListEventSourcesInput{

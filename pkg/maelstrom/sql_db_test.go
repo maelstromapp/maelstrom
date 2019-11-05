@@ -229,3 +229,50 @@ func TestAcquireReleaseRoleConcurrency(t *testing.T) {
 		assert.Equal(t, roles[i], acquiredRoles[i])
 	}
 }
+
+func TestToggleEventSourceEnabled(t *testing.T) {
+	db := createTestSqlDb()
+	out, err := db.ListEventSources(v1.ListEventSourcesInput{})
+	assert.Nil(t, err)
+	assert.Equal(t, []v1.EventSourceWithStatus{}, out.EventSources)
+
+	es := validPutEventSourceInput("es1", "c1").EventSource
+	_, err = db.PutEventSource(es)
+	assert.Nil(t, err)
+
+	es2 := validPutEventSourceInput("es2", "c1").EventSource
+	_, err = db.PutEventSource(es2)
+	assert.Nil(t, err)
+
+	out, err = db.ListEventSources(v1.ListEventSourcesInput{})
+	assert.Nil(t, err)
+	sanitizeEventSources(out.EventSources)
+	assert.Equal(t, []v1.EventSourceWithStatus{
+		{
+			EventSource: es,
+			Enabled:     true,
+		},
+		{
+			EventSource: es2,
+			Enabled:     true,
+		},
+	}, out.EventSources)
+
+	num, err := db.SetEventSourcesEnabled([]string{"es1"}, false)
+	assert.Nil(t, err)
+	assert.Equal(t, int64(1), num)
+
+	out, err = db.ListEventSources(v1.ListEventSourcesInput{})
+	assert.Nil(t, err)
+	sanitizeEventSources(out.EventSources)
+	assert.Equal(t, []v1.EventSourceWithStatus{
+		{
+			EventSource: es,
+			Enabled:     false,
+		},
+		{
+			EventSource: es2,
+			Enabled:     true,
+		},
+	}, out.EventSources)
+}

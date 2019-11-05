@@ -14,6 +14,7 @@
   * [HTTP](event_sources/http.md)
   * [Cron](event_sources/cron.md)
   * [AWS SQS](event_sources/aws_sqs.md)
+  * [Toggle On/Off](event_sources/toggle.md)
 * [How it Works](how_works/README.md)
   * [Architecture](how_works/architecture.md)
 * [Running in Production](production/README.md)

@@ -77,7 +77,7 @@ func (r *DbComponentResolver) ByName(componentName string) (comp v1.Component, e
 	return
 }
 
-func (r *DbComponentResolver) allHttpEventSources() (sources []v1.EventSource, err error) {
+func (r *DbComponentResolver) allEnabledHttpEventSources() (sources []v1.EventSource, err error) {
 	r.lock.Lock()
 	now := time.Now()
 	if now.After(r.eventSourcesExpires) {
@@ -88,7 +88,7 @@ func (r *DbComponentResolver) allHttpEventSources() (sources []v1.EventSource, e
 	}
 
 	if r.eventSources == nil {
-		sources, err = allHttpEventSources(r.db, r.certWrapper)
+		sources, err = allEnabledHttpEventSources(r.db, r.certWrapper)
 		if err == nil {
 			r.eventSources = sources
 		}
@@ -108,7 +108,7 @@ func (r *DbComponentResolver) ByHTTPRequest(req *http.Request, public bool) (v1.
 		}
 	}
 
-	httpEventSources, err := r.allHttpEventSources()
+	httpEventSources, err := r.allEnabledHttpEventSources()
 	if err != nil {
 		return v1.Component{}, err
 	}
@@ -145,7 +145,7 @@ func httpEventSourceMatches(es v1.EventSource, hostname string, path string) boo
 		(es.Http.PathPrefix == "" || strings.HasPrefix(path, es.Http.PathPrefix))
 }
 
-func allHttpEventSources(db Db, certWrapper *cert.CertMagicWrapper) ([]v1.EventSource, error) {
+func allEnabledHttpEventSources(db Db, certWrapper *cert.CertMagicWrapper) ([]v1.EventSource, error) {
 	nextToken := ""
 	input := v1.ListEventSourcesInput{EventSourceType: v1.EventSourceTypeHttp}
 	allSources := make([]v1.EventSource, 0)
@@ -156,9 +156,11 @@ func allHttpEventSources(db Db, certWrapper *cert.CertMagicWrapper) ([]v1.EventS
 			return nil, fmt.Errorf("resolver ListEventSources error: %v", err)
 		}
 		for _, es := range output.EventSources {
-			allSources = append(allSources, es)
-			if certWrapper != nil && es.Http != nil && es.Http.Hostname != "" {
-				certWrapper.AddHost(es.Http.Hostname)
+			if es.Enabled {
+				allSources = append(allSources, es.EventSource)
+				if certWrapper != nil && es.EventSource.Http != nil && es.EventSource.Http.Hostname != "" {
+					certWrapper.AddHost(es.EventSource.Http.Hostname)
+				}
 			}
 		}
 		nextToken = output.NextToken

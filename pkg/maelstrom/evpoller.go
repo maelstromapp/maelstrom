@@ -168,9 +168,12 @@ func (e *EvPoller) reload() {
 		}
 
 		// init pollers for event sources found
-		for _, es := range output.EventSources {
-			if es.Sqs != nil && es.Sqs.QueueName != "" {
-				e.initSqsEventSource(setSqsDefaults(es), validRoleIds)
+		for _, ess := range output.EventSources {
+			if ess.Enabled {
+				es := ess.EventSource
+				if es.Sqs != nil && es.Sqs.QueueName != "" {
+					e.initSqsEventSource(setSqsDefaults(es), validRoleIds)
+				}
 			}
 		}
 

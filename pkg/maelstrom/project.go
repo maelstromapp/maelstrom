@@ -31,20 +31,20 @@ func DiffProject(oldProject v1.Project, newProject v1.Project) ProjectDiff {
 
 	oldCompByName := make(map[string]v1.Component)
 	newCompByName := make(map[string]v1.Component)
-	oldESByName := make(map[string]v1.EventSource)
-	newESByName := make(map[string]v1.EventSource)
+	oldESByName := make(map[string]v1.EventSourceWithStatus)
+	newESByName := make(map[string]v1.EventSourceWithStatus)
 
 	for _, c := range oldProject.Components {
 		oldCompByName[c.Component.Name] = c.Component
-		for _, es := range c.EventSources {
-			oldESByName[es.Name] = es
+		for _, ess := range c.EventSources {
+			oldESByName[ess.EventSource.Name] = ess
 		}
 	}
 
 	for _, c := range newProject.Components {
 		newCompByName[c.Component.Name] = c.Component
-		for _, es := range c.EventSources {
-			newESByName[es.Name] = es
+		for _, ess := range c.EventSources {
+			newESByName[ess.EventSource.Name] = ess
 		}
 
 		oldComp, ok := oldCompByName[c.Component.Name]
@@ -58,12 +58,13 @@ func DiffProject(oldProject v1.Project, newProject v1.Project) ProjectDiff {
 			}
 
 			for _, newES := range c.EventSources {
-				oldES, ok := oldESByName[newES.Name]
-				newES.Version = oldES.Version
-				newES.ModifiedAt = oldES.ModifiedAt
+				oldES, ok := oldESByName[newES.EventSource.Name]
+				newES.EventSource.Version = oldES.EventSource.Version
+				newES.EventSource.ModifiedAt = oldES.EventSource.ModifiedAt
+
 				// put any event source not in old, or which is modified
 				if !ok || !reflect.DeepEqual(oldES, newES) {
-					esPut = append(esPut, newES)
+					esPut = append(esPut, newES.EventSource)
 				}
 			}
 		} else {
@@ -71,7 +72,7 @@ func DiffProject(oldProject v1.Project, newProject v1.Project) ProjectDiff {
 			compPut = append(compPut, c.Component)
 			// put all event sources for this component
 			for _, es := range c.EventSources {
-				esPut = append(esPut, es)
+				esPut = append(esPut, es.EventSource)
 			}
 		}
 	}
@@ -193,12 +194,15 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 	}
 	sort.Sort(nameValueByName(environment))
 
-	eventSources := make([]v1.EventSource, 0)
+	eventSources := make([]v1.EventSourceWithStatus, 0)
 	for evName, ev := range c.EventSources {
 		ev.Name = evName
 		ev.ComponentName = name
 		ev.ProjectName = projectName
-		eventSources = append(eventSources, ev)
+		eventSources = append(eventSources, v1.EventSourceWithStatus{
+			EventSource: ev,
+			Enabled:     true,
+		})
 	}
 
 	if c.Crontab != "" {
@@ -221,7 +225,10 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 							},
 						},
 					}
-					eventSources = append(eventSources, ev)
+					eventSources = append(eventSources, v1.EventSourceWithStatus{
+						EventSource: ev,
+						Enabled:     true,
+					})
 					counter++
 				}
 			}

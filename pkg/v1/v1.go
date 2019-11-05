@@ -8,8 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "194135bc8fc1ab6f8da7c82522525a3f"
-const BarristerDateGenerated int64 = 1572560733543000000
+const BarristerChecksum string = "463c8e20734b64b8787d39a6ec267f41"
+const BarristerDateGenerated int64 = 1572963956619000000
 
 type EventSourceType string
 
@@ -25,8 +25,8 @@ type Project struct {
 }
 
 type ComponentWithEventSources struct {
-	Component    Component     `json:"component"`
-	EventSources []EventSource `json:"eventSources"`
+	Component    Component               `json:"component"`
+	EventSources []EventSourceWithStatus `json:"eventSources"`
 }
 
 type Component struct {
@@ -77,6 +77,11 @@ type VolumeMount struct {
 	Source   string `json:"source"`
 	Target   string `json:"target"`
 	ReadOnly bool   `json:"readOnly,omitempty"`
+}
+
+type EventSourceWithStatus struct {
+	EventSource EventSource `json:"eventSource"`
+	Enabled     bool        `json:"enabled"`
 }
 
 type EventSource struct {
@@ -272,6 +277,19 @@ type RemoveEventSourceOutput struct {
 	Found bool   `json:"found"`
 }
 
+type ToggleEventSourcesInput struct {
+	Enabled         bool            `json:"enabled"`
+	NamePrefix      string          `json:"namePrefix,omitempty"`
+	ComponentName   string          `json:"componentName,omitempty"`
+	ProjectName     string          `json:"projectName,omitempty"`
+	EventSourceType EventSourceType `json:"eventSourceType,omitempty"`
+}
+
+type ToggleEventSourcesOutput struct {
+	Enabled          bool     `json:"enabled"`
+	EventSourceNames []string `json:"eventSourceNames"`
+}
+
 type ListEventSourcesInput struct {
 	NamePrefix      string          `json:"namePrefix,omitempty"`
 	ComponentName   string          `json:"componentName,omitempty"`
@@ -282,8 +300,8 @@ type ListEventSourcesInput struct {
 }
 
 type ListEventSourcesOutput struct {
-	EventSources []EventSource `json:"eventSources"`
-	NextToken    string        `json:"nextToken,omitempty"`
+	EventSources []EventSourceWithStatus `json:"eventSources"`
+	NextToken    string                  `json:"nextToken,omitempty"`
 }
 
 type ListNodeStatusInput struct {
@@ -384,6 +402,7 @@ type MaelstromService interface {
 	PutEventSource(input PutEventSourceInput) (PutEventSourceOutput, error)
 	GetEventSource(input GetEventSourceInput) (GetEventSourceOutput, error)
 	RemoveEventSource(input RemoveEventSourceInput) (RemoveEventSourceOutput, error)
+	ToggleEventSources(input ToggleEventSourcesInput) (ToggleEventSourcesOutput, error)
 	ListEventSources(input ListEventSourcesInput) (ListEventSourcesOutput, error)
 	NotifyDataChanged(input NotifyDataChangedInput) (NotifyDataChangedOutput, error)
 }
@@ -593,6 +612,24 @@ func (_p MaelstromServiceProxy) RemoveEventSource(input RemoveEventSourceInput) 
 		return _cast, nil
 	}
 	return RemoveEventSourceOutput{}, _err
+}
+
+func (_p MaelstromServiceProxy) ToggleEventSources(input ToggleEventSourcesInput) (ToggleEventSourcesOutput, error) {
+	_res, _err := _p.client.Call("MaelstromService.ToggleEventSources", input)
+	if _err == nil {
+		_retType := _p.idl.Method("MaelstromService.ToggleEventSources").Returns
+		_res, _err = barrister.Convert(_p.idl, &_retType, reflect.TypeOf(ToggleEventSourcesOutput{}), _res, "")
+	}
+	if _err == nil {
+		_cast, _ok := _res.(ToggleEventSourcesOutput)
+		if !_ok {
+			_t := reflect.TypeOf(_res)
+			_msg := fmt.Sprintf("MaelstromService.ToggleEventSources returned invalid type: %v", _t)
+			return ToggleEventSourcesOutput{}, &barrister.JsonRpcError{Code: -32000, Message: _msg}
+		}
+		return _cast, nil
+	}
+	return ToggleEventSourcesOutput{}, _err
 }
 
 func (_p MaelstromServiceProxy) ListEventSources(input ListEventSourcesInput) (ListEventSourcesOutput, error) {
@@ -1006,7 +1043,7 @@ var IdlJsonRaw = `[
             },
             {
                 "name": "RemoveEventSource",
-                "comment": "RemoveComponent deletes a component with the given name\n\nIf no component is found with that name no error is raised\nand the call silently no-ops.\n\nError Codes:\n\n* 1001 - input.name is invalid\n",
+                "comment": "RemoveEventSource deletes an event source with the given name\n\nIf no event source is found with that name no error is raised\nand the call silently no-ops.\n\nError Codes:\n\n* 1001 - input.name is invalid\n",
                 "params": [
                     {
                         "name": "input",
@@ -1019,6 +1056,26 @@ var IdlJsonRaw = `[
                 "returns": {
                     "name": "",
                     "type": "RemoveEventSourceOutput",
+                    "optional": false,
+                    "is_array": false,
+                    "comment": ""
+                }
+            },
+            {
+                "name": "ToggleEventSources",
+                "comment": "ToggleEventSources enables or disables one or more event sources\n\nIf no event source is found with that name no error is raised\nand the call silently no-ops.\n\nError Codes:\n\n* 1001 - input.name is invalid\n",
+                "params": [
+                    {
+                        "name": "input",
+                        "type": "ToggleEventSourcesInput",
+                        "optional": false,
+                        "is_array": false,
+                        "comment": ""
+                    }
+                ],
+                "returns": {
+                    "name": "",
+                    "type": "ToggleEventSourcesOutput",
                     "optional": false,
                     "is_array": false,
                     "comment": ""
@@ -1247,7 +1304,7 @@ var IdlJsonRaw = `[
             },
             {
                 "name": "eventSources",
-                "type": "EventSource",
+                "type": "EventSourceWithStatus",
                 "optional": false,
                 "is_array": true,
                 "comment": ""
@@ -1580,6 +1637,34 @@ var IdlJsonRaw = `[
                 "optional": true,
                 "is_array": false,
                 "comment": "default=false"
+            }
+        ],
+        "values": null,
+        "functions": null,
+        "barrister_version": "",
+        "date_generated": 0,
+        "checksum": ""
+    },
+    {
+        "type": "struct",
+        "name": "EventSourceWithStatus",
+        "comment": "",
+        "value": "",
+        "extends": "",
+        "fields": [
+            {
+                "name": "eventSource",
+                "type": "EventSource",
+                "optional": false,
+                "is_array": false,
+                "comment": ""
+            },
+            {
+                "name": "enabled",
+                "type": "bool",
+                "optional": false,
+                "is_array": false,
+                "comment": ""
             }
         ],
         "values": null,
@@ -2729,6 +2814,83 @@ var IdlJsonRaw = `[
     },
     {
         "type": "struct",
+        "name": "ToggleEventSourcesInput",
+        "comment": "",
+        "value": "",
+        "extends": "",
+        "fields": [
+            {
+                "name": "enabled",
+                "type": "bool",
+                "optional": false,
+                "is_array": false,
+                "comment": "If true, matching event sources will be enabled. Otherwise they will be disabled."
+            },
+            {
+                "name": "namePrefix",
+                "type": "string",
+                "optional": true,
+                "is_array": false,
+                "comment": "If specified only event sources matching this name prefix will be updated."
+            },
+            {
+                "name": "componentName",
+                "type": "string",
+                "optional": true,
+                "is_array": false,
+                "comment": "If specified only event sources matching this component name will be updated"
+            },
+            {
+                "name": "projectName",
+                "type": "string",
+                "optional": true,
+                "is_array": false,
+                "comment": "If specified only event sources belonging to components with this project name will be updated"
+            },
+            {
+                "name": "eventSourceType",
+                "type": "EventSourceType",
+                "optional": true,
+                "is_array": false,
+                "comment": "If specified only event sources matching this type will be updated"
+            }
+        ],
+        "values": null,
+        "functions": null,
+        "barrister_version": "",
+        "date_generated": 0,
+        "checksum": ""
+    },
+    {
+        "type": "struct",
+        "name": "ToggleEventSourcesOutput",
+        "comment": "",
+        "value": "",
+        "extends": "",
+        "fields": [
+            {
+                "name": "enabled",
+                "type": "bool",
+                "optional": false,
+                "is_array": false,
+                "comment": "Echoed from the input"
+            },
+            {
+                "name": "eventSourceNames",
+                "type": "string",
+                "optional": false,
+                "is_array": true,
+                "comment": "Names of event sources updated"
+            }
+        ],
+        "values": null,
+        "functions": null,
+        "barrister_version": "",
+        "date_generated": 0,
+        "checksum": ""
+    },
+    {
+        "type": "struct",
         "name": "ListEventSourcesInput",
         "comment": "",
         "value": "",
@@ -2792,7 +2954,7 @@ var IdlJsonRaw = `[
         "fields": [
             {
                 "name": "eventSources",
-                "type": "EventSource",
+                "type": "EventSourceWithStatus",
                 "optional": false,
                 "is_array": true,
                 "comment": "Event sources in current page of output or an empty list if\nno additional results exist"
@@ -3311,7 +3473,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1572560733543,
-        "checksum": "194135bc8fc1ab6f8da7c82522525a3f"
+        "date_generated": 1572963956619,
+        "checksum": "463c8e20734b64b8787d39a6ec267f41"
     }
 ]`

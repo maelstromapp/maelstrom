@@ -28,6 +28,7 @@ type Db interface {
 	GetEventSource(eventSourceName string) (v1.EventSource, error)
 	ListEventSources(input v1.ListEventSourcesInput) (v1.ListEventSourcesOutput, error)
 	RemoveEventSource(eventSourceName string) (bool, error)
+	SetEventSourcesEnabled(eventSourceNames []string, enabled bool) (int64, error)
 
 	PutNodeStatus(status v1.NodeStatus) error
 	ListNodeStatus() ([]v1.NodeStatus, error)

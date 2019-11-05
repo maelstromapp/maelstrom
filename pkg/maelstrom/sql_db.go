@@ -368,8 +368,21 @@ func (d *SqlDb) RemoveEventSource(eventSourceName string) (bool, error) {
 	return d.removeRow("eventsource", eventSourceName)
 }
 
+func (d *SqlDb) SetEventSourcesEnabled(eventSourceNames []string, enabled bool) (int64, error) {
+	q := squirrel.Update("eventsource").
+		SetMap(map[string]interface{}{
+			"enabled": boolToInt(enabled),
+		}).Where(squirrel.Eq{"name": eventSourceNames})
+
+	result, err := q.RunWith(d.db).Exec()
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 func (d *SqlDb) ListEventSources(input v1.ListEventSourcesInput) (v1.ListEventSourcesOutput, error) {
-	q := squirrel.Select("json").From("eventsource").OrderBy("name")
+	q := squirrel.Select("json", "enabled").From("eventsource").OrderBy("name")
 	if input.NamePrefix != "" {
 		q = q.Where(squirrel.Like{"name": input.NamePrefix + "%"})
 	}
@@ -383,14 +396,20 @@ func (d *SqlDb) ListEventSources(input v1.ListEventSourcesInput) (v1.ListEventSo
 		q = q.Where(squirrel.Eq{"type": string(input.EventSourceType)})
 	}
 
-	eventSources := make([]v1.EventSource, 0)
+	eventSources := make([]v1.EventSourceWithStatus, 0)
 	nextToken, err := d.selectPaginated(q, input.NextToken, input.Limit, func(rows *sql.Rows) error {
 		var es v1.EventSource
-		err := d.scanJSON(rows, &es)
+		var enabled bool
+		var jsonVal []byte
+		err := rows.Scan(&jsonVal, &enabled)
 		if err != nil {
-			return fmt.Errorf("ListEventSources: %v", err)
+			return fmt.Errorf("ListEventSources: err in rows.scan: %v", err)
 		}
-		eventSources = append(eventSources, es)
+		err = json.Unmarshal(jsonVal, &es)
+		if err != nil {
+			return fmt.Errorf("ListEventSources: err in unmarshal: %v", err)
+		}
+		eventSources = append(eventSources, v1.EventSourceWithStatus{EventSource: es, Enabled: enabled})
 		return nil
 	})
 	if err != nil {
@@ -606,6 +625,11 @@ func (d *SqlDb) Migrate() error {
                         expiresAt      bigint not null
                      )`,
 		},
+		{
+			Version:     5,
+			Description: "Add eventsource.enabled column",
+			Script:      `alter table eventsource add column enabled int not null default 1`,
+		},
 	}
 	darwinDriver := darwin.NewGenericDriver(d.db, migrationDialect(d.driver))
 	m := darwin.New(darwinDriver, migrations, nil)
@@ -633,4 +657,11 @@ func sqliteErr(err error, num sqlite3.ErrNo) bool {
 		}
 	}
 	return false
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

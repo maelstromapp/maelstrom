@@ -350,6 +350,49 @@ func eventSourcePut(args docopt.Opts, svc v1.MaelstromService) {
 	fmt.Printf("Success event source: %s updated to version: %d\n", out.Name, out.Version)
 }
 
+func eventSourceToggle(enabled bool, args docopt.Opts, svc v1.MaelstromService) {
+	prefix := strings.TrimSpace(argStr(args, "--prefix"))
+	component := strings.TrimSpace(argStr(args, "--component"))
+	project := strings.TrimSpace(argStr(args, "--project"))
+	esType := strings.TrimSpace(argStr(args, "--type"))
+
+	newStatus := "Disabled"
+	if enabled {
+		newStatus = "Enabled"
+	}
+
+	if prefix == "" && component == "" && project == "" && esType == "" {
+		fmt.Printf("Toggling ALL event sources to %s\n\n", newStatus)
+	}
+
+	var esTypeConv v1.EventSourceType
+	var err error
+	if esType != "" {
+		esTypeConv, err = maelstrom.StrToEventSourceType(esType)
+		checkErr(err, "Invalid --type")
+	}
+
+	var out v1.ToggleEventSourcesOutput
+	out, err = svc.ToggleEventSources(v1.ToggleEventSourcesInput{
+		Enabled:         enabled,
+		NamePrefix:      prefix,
+		ComponentName:   component,
+		ProjectName:     project,
+		EventSourceType: esTypeConv,
+	})
+	checkErr(err, "ToggleEventSources failed")
+	for i, esName := range out.EventSourceNames {
+		if i == 0 {
+			fmt.Printf("%-40s  %-15s\n", "Event Source", "Status")
+			fmt.Printf("--------------------------------------------------------------------------\n")
+		}
+		fmt.Printf("%-40s  %-15s\n", trunc(esName, 40), newStatus)
+	}
+	if len(out.EventSourceNames) == 0 {
+		fmt.Println("No event sources updated")
+	}
+}
+
 func eventSourceLs(args docopt.Opts, svc v1.MaelstromService) {
 	input := v1.ListEventSourcesInput{
 		NamePrefix:    strings.TrimSpace(argStr(args, "--prefix")),
@@ -367,12 +410,13 @@ func eventSourceLs(args docopt.Opts, svc v1.MaelstromService) {
 		input.NextToken = nextToken
 		output, err := svc.ListEventSources(input)
 		checkErr(err, "ListEventSources failed")
-		for _, es := range output.EventSources {
+		for _, ess := range output.EventSources {
+			es := ess.EventSource
 			if first {
 				first = false
-				fmt.Printf("%-20s  %-20s  %-5s  %-30s  %-5s  %-10s\n",
-					"Event Source", "Component", "Type", "Description", "Ver", "Last Modified")
-				fmt.Printf("--------------------------------------------------------------------------------------------------------\n")
+				fmt.Printf("%-20s  %-20s  %-5s  %-30s  %-5s  %-13s  %-8s\n",
+					"Event Source", "Component", "Type", "Description", "Ver", "Last Modified", "Status")
+				fmt.Printf("-----------------------------------------------------------------------------------------------------------------\n")
 			}
 			mod := humanize.Time(time.Unix(0, es.ModifiedAt*1e6))
 			esType := "??"
@@ -397,8 +441,12 @@ func eventSourceLs(args docopt.Opts, svc v1.MaelstromService) {
 					description += "*"
 				}
 			}
-			fmt.Printf("%-20s  %-20s  %-5s  %-30s  %-5d  %-13s\n", trunc(es.Name, 20),
-				trunc(es.ComponentName, 20), esType, trunc(description, 30), es.Version, mod)
+			status := "Disabled"
+			if ess.Enabled {
+				status = "Enabled"
+			}
+			fmt.Printf("%-20s  %-20s  %-5s  %-30s  %-5d  %-13s  %-8s\n", trunc(es.Name, 20),
+				trunc(es.ComponentName, 20), esType, trunc(description, 30), es.Version, mod, status)
 		}
 		nextToken = output.NextToken
 		if output.NextToken == "" {
@@ -506,6 +554,8 @@ Usage:
   maelctl cluster ps [--refresh]
   maelctl comp ls [--prefix=<prefix>]
   maelctl es ls [--prefix=<prefix>] [--component=<component>] [--type=<type>]
+  maelctl es enable [--prefix=<prefix>] [--project=<project>] [--component=<component>] [--type=<type>]
+  maelctl es disable [--prefix=<prefix>] [--project=<project>] [--component=<component>] [--type=<type>]
   maelctl logs [--components=<components>] [--since=<since>]
   maelctl project ls [--prefix=<prefix>]
   maelctl project put [--file=<file>] [--env=<envfile>]
@@ -534,6 +584,10 @@ Usage:
 		componentLs(args, svc)
 	} else if argBool(args, "es") && argBool(args, "ls") {
 		eventSourceLs(args, svc)
+	} else if argBool(args, "es") && argBool(args, "enable") {
+		eventSourceToggle(true, args, svc)
+	} else if argBool(args, "es") && argBool(args, "disable") {
+		eventSourceToggle(false, args, svc)
 	} else if argBool(args, "logs") {
 		logsGet(args, baseUrl)
 	} else if argBool(args, "project") && argBool(args, "ls") {

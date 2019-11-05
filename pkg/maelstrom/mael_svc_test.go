@@ -299,8 +299,8 @@ func TestEventSourceList(t *testing.T) {
 	assert.Equal(t, len(eventSources), len(out.EventSources))
 	assert.Equal(t, "", out.NextToken)
 	for x, cname := range eventSources {
-		assert.Equal(t, cname, out.EventSources[x].Name)
-		assert.Equal(t, int64(1), out.EventSources[x].Version)
+		assert.Equal(t, cname, out.EventSources[x].EventSource.Name)
+		assert.Equal(t, int64(1), out.EventSources[x].EventSource.Version)
 	}
 
 	// Optionally filters by name prefix
@@ -342,7 +342,7 @@ func TestEventSourceList(t *testing.T) {
 
 	// Returns an empty list if no components exist
 	out = listEventSourcesOK(t, svc, v1.ListEventSourcesInput{NamePrefix: "bogusprefix"}, []string{})
-	assert.Equal(t, []v1.EventSource{}, out.EventSources)
+	assert.Equal(t, []v1.EventSourceWithStatus{}, out.EventSources)
 	assert.Equal(t, "", out.NextToken)
 
 	// Sets nextToken if there are more results to return
@@ -429,9 +429,11 @@ func TestProjectValidation(t *testing.T) {
 				Components: []v1.ComponentWithEventSources{
 					{
 						Component: validComponent("okName").Component,
-						EventSources: []v1.EventSource{
+						EventSources: []v1.EventSourceWithStatus{
 							{
-								Name: "okName",
+								EventSource: v1.EventSource{
+									Name: "okName",
+								},
 							},
 						},
 					},
@@ -481,11 +483,15 @@ func validProject(projectName string) v1.PutProjectInput {
 		comp := validComponent(compName)
 		comp.Component.ProjectName = projectName
 		esNum := rand.Intn(5)
-		eventSources := make([]v1.EventSource, esNum)
+		eventSources := make([]v1.EventSourceWithStatus, esNum)
 		for x := 0; x < esNum; x++ {
 			esName := fmt.Sprintf("es-%d-%d", i, x)
-			eventSources[x] = validEventSource(esName, compName).EventSource
-			eventSources[x].ProjectName = projectName
+			es := validPutEventSourceInput(esName, compName).EventSource
+			es.ProjectName = projectName
+			eventSources[x] = v1.EventSourceWithStatus{
+				EventSource: es,
+				Enabled:     true,
+			}
 		}
 		components[i] = v1.ComponentWithEventSources{
 			Component:    comp.Component,
@@ -521,7 +527,7 @@ func putComponentOK(t *testing.T, svc *MaelServiceImpl, name string) v1.PutCompo
 	return out
 }
 
-func validEventSource(eventSourceName string, componentName string) v1.PutEventSourceInput {
+func validPutEventSourceInput(eventSourceName string, componentName string) v1.PutEventSourceInput {
 	return v1.PutEventSourceInput{
 		EventSource: v1.EventSource{
 			Name:          eventSourceName,
@@ -534,7 +540,7 @@ func validEventSource(eventSourceName string, componentName string) v1.PutEventS
 }
 
 func putEventSourceFailsWithCode(t *testing.T, svc *MaelServiceImpl, errCode int, mutator func(i *v1.PutEventSourceInput)) {
-	input := validEventSource("esname", "comp1")
+	input := validPutEventSourceInput("esname", "comp1")
 	mutator(&input)
 	_, err := svc.PutEventSource(input)
 	assert.NotNil(t, err, "PutEventSource didn't error for input: %v", input)
@@ -544,7 +550,7 @@ func putEventSourceFailsWithCode(t *testing.T, svc *MaelServiceImpl, errCode int
 
 func putEventSourceOK(t *testing.T, svc *MaelServiceImpl, eventSourceName string,
 	componentName string) (v1.PutEventSourceInput, v1.PutEventSourceOutput) {
-	input := validEventSource(eventSourceName, componentName)
+	input := validPutEventSourceInput(eventSourceName, componentName)
 	out, err := svc.PutEventSource(input)
 	assert.Nil(t, err, "PutEventSource failed for: %s - %v", eventSourceName, err)
 	assert.Equal(t, eventSourceName, out.Name)
@@ -567,10 +573,10 @@ func componentNames(list []v1.Component) []string {
 	return names
 }
 
-func eventSourceNames(list []v1.EventSource) []string {
+func eventSourceNames(list []v1.EventSourceWithStatus) []string {
 	names := make([]string, len(list))
 	for x, c := range list {
-		names[x] = c.Name
+		names[x] = c.EventSource.Name
 	}
 	return names
 }
@@ -590,9 +596,15 @@ func sanitizeComponent(c *v1.Component) v1.Component {
 	return *c
 }
 
-func sanitizeEventSource(es *v1.EventSource) v1.EventSource {
-	es.Version = 0
-	es.ModifiedAt = 0
+func sanitizeEventSources(list []v1.EventSourceWithStatus) {
+	for i, es := range list {
+		list[i] = sanitizeEventSource(&es)
+	}
+}
+
+func sanitizeEventSource(es *v1.EventSourceWithStatus) v1.EventSourceWithStatus {
+	es.EventSource.Version = 0
+	es.EventSource.ModifiedAt = 0
 	return *es
 }
 
