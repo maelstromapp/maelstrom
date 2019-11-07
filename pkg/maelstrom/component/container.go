@@ -198,9 +198,12 @@ func (c *Container) run() {
 				}
 			}
 		} else {
-			c.stopContainerQuietly("failed to start")
+			c.stopContainerQuietly("failed to init reverse proxy")
 		}
+	} else {
+		c.stopContainerQuietly("failed to start")
 	}
+
 	if err == nil {
 		log.Info("container: exiting run loop", "containerId", common.StrTruncate(c.containerId, 8))
 	} else {

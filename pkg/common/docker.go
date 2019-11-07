@@ -242,7 +242,7 @@ func StartContainer(dockerClient *docker.Client, c *v1.Component, maelstromUrl s
 
 	err = dockerClient.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{})
 	if err != nil {
-		return "", fmt.Errorf("containerStart error for: %s - %v", c.Name, err)
+		return resp.ID, fmt.Errorf("containerStart error for: %s - %v", c.Name, err)
 	}
 	return resp.ID, nil
 }
