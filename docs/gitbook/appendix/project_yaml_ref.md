@@ -250,4 +250,8 @@ components:
     dnssearch:
       - example.com
       - example.org
+    # equivalent to docker run --ulimit <name>:<soft>:<hard>
+    ulimits:
+      - nofile=20000:30000
+      - nproc=3
 ```

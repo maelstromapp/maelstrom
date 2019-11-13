@@ -8,8 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "463c8e20734b64b8787d39a6ec267f41"
-const BarristerDateGenerated int64 = 1572963956619000000
+const BarristerChecksum string = "b6d324b027c8613e57a3ec78c2ec84a8"
+const BarristerDateGenerated int64 = 1573676179329000000
 
 type EventSourceType string
 
@@ -70,6 +70,7 @@ type DockerComponent struct {
 	Dns                         []string      `json:"dns,omitempty"`
 	DnsOptions                  []string      `json:"dnsOptions,omitempty"`
 	DnsSearch                   []string      `json:"dnsSearch,omitempty"`
+	Ulimits                     []string      `json:"ulimits,omitempty"`
 }
 
 type VolumeMount struct {
@@ -1595,6 +1596,13 @@ var IdlJsonRaw = `[
                 "optional": true,
                 "is_array": true,
                 "comment": ""
+            },
+            {
+                "name": "ulimits",
+                "type": "string",
+                "optional": true,
+                "is_array": true,
+                "comment": "format: name:soft limit:hard limit\nsee: https://docs.docker.com/engine/reference/commandline/run/#set-ulimits-in-container---ulimit"
             }
         ],
         "values": null,
@@ -3473,7 +3481,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1572963956619,
-        "checksum": "463c8e20734b64b8787d39a6ec267f41"
+        "date_generated": 1573676179329,
+        "checksum": "b6d324b027c8613e57a3ec78c2ec84a8"
     }
 ]`

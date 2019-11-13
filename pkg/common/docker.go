@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/docker/go-units"
 	"github.com/mgutz/logxi/v1"
 	"github.com/pkg/errors"
 	"os"
@@ -329,6 +330,18 @@ func toContainerHostConfig(c *v1.Component) (*container.HostConfig, error) {
 	}
 	if len(c.Docker.DnsOptions) > 0 {
 		hc.DNSOptions = c.Docker.DnsOptions
+	}
+
+	if len(c.Docker.Ulimits) > 0 {
+		hc.Ulimits = make([]*units.Ulimit, len(c.Docker.Ulimits))
+		for x, str := range c.Docker.Ulimits {
+			ul, err := units.ParseUlimit(str)
+			if err == nil {
+				hc.Ulimits[x] = ul
+			} else {
+				return nil, errors.Wrapf(err, "Unable to parse ulimit: %d - %s", x, str)
+			}
+		}
 	}
 
 	// Port mappings

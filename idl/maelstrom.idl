@@ -348,6 +348,10 @@ struct DockerComponent {
     dns                         []string    [optional]
     dnsOptions                  []string    [optional]
     dnsSearch                   []string    [optional]
+
+    // format: name:soft limit:hard limit
+    // see: https://docs.docker.com/engine/reference/commandline/run/#set-ulimits-in-container---ulimit
+    ulimits                     []string    [optional]
 }
 
 struct VolumeMount {

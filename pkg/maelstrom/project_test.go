@@ -123,6 +123,9 @@ components:
     cpushares: 250
     reservememory: 1024
     limitmemory: 2048
+    ulimits:
+      - foo:23:55
+      - bar:123:456
     crontab: |
        # comment should be ignored
        1 2 * * *   /cron/one
@@ -164,6 +167,10 @@ components:
 						CpuShares:        250,
 						LimitMemoryMiB:   2048,
 						ReserveMemoryMiB: 1024,
+						Ulimits: []string{
+							"foo:23:55",
+							"bar:123:456",
+						},
 					},
 				},
 				EventSources: []v1.EventSourceWithStatus{
