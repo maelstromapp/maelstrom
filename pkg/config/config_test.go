@@ -33,6 +33,7 @@ MAEL_DOCKER_PRUNE_MINUTES=123
 MAEL_DOCKER_PRUNE_UNREG_IMAGES=true
 MAEL_DOCKER_PRUNE_UNREG_KEEP=acme.org/*,hello-world
 
+MAEL_NODE_LIVENESS_SECONDS=200
 `
 
 	expected := Config{
@@ -51,6 +52,7 @@ MAEL_DOCKER_PRUNE_UNREG_KEEP=acme.org/*,hello-world
 		AwsTerminateQueueUrl:        "q1",
 		AwsTerminateMaxAgeSeconds:   44,
 		AwsSpotTerminatePollSeconds: 55,
+		NodeLivenessSeconds:         200,
 		DockerPruneUnregImages:      true,
 		DockerPruneMinutes:          123,
 		DockerPruneUnregKeep:        "acme.org/*,hello-world",

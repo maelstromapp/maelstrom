@@ -183,6 +183,10 @@ func main() {
 		go dockerPruner.Run(time.Minute*time.Duration(conf.DockerPruneMinutes), daemonWG)
 	}
 
+	if conf.NodeLivenessSeconds > 0 {
+		nodeSvcImpl.NodeLiveness = time.Second * time.Duration(conf.NodeLivenessSeconds)
+	}
+
 	daemonWG.Add(2)
 	go nodeSvcImpl.RunNodeStatusLoop(time.Second*30, cancelCtx, daemonWG)
 	go nodeSvcImpl.RunAutoscaleLoop(time.Minute, cancelCtx, daemonWG)

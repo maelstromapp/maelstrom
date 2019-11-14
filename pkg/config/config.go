@@ -131,6 +131,10 @@ type Config struct {
 	// although it's safe to use on any EC2 host
 	AwsSpotTerminatePollSeconds int
 
+	// If > 0, node status rows older than this many seconds will be removed from the database,
+	// effectively removing the node from the cluster until it reports in again
+	NodeLivenessSeconds int `default:"300"`
+
 	// Currently unsupported - will dust these off in the future
 	Cluster      ClusterOptions
 	DigitalOcean *DigitalOceanOptions `envconfig:"DO"`

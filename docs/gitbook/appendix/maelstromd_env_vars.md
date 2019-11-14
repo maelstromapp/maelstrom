@@ -62,6 +62,7 @@ Read more about [Docker image pruning](../production/prune.html)
 | Variable                             | Description                                             | Required? | Default                 
 |--------------------------------------|---------------------------------------------------------|-----------|-----------
 | MAEL_INSTANCE_ID                     | ID of instance with VM provider (e.g. EC2 instance id)  | No <sup>[1](#awslifecycle)</sup> | None
+| MAEL_NODE_LIVENESS_SECONDS           | If a node doesn't report status within this interval it will be removed from the cluster | No        | 300  
 | MAEL_SHUTDOWN_PAUSE_SECONDS          | Seconds to pause before stopping containers at shutdown | No        | 0    
 | MAEL_TERMINATE_COMMAND               | Command to run if instance terminated. Only invoked if AWS lifecycle termination runs, not if SIGTERM/SIGINT received.      | No        | `systemctl disable maelstromd`  
 | MAEL_AWS_TERMINATE_QUEUE_URL         | SQS queue URL for lifecycle hook termination queue      | No <sup>[1](#awslifecycle)</sup> | None  

@@ -104,6 +104,9 @@ type NodeServiceImpl struct {
 	shutdownCh       chan ShutdownFunc
 	awsSession       *session.Session
 	terminateCommand string
+
+	// if node.observedAt is older than this duration we'll consider it stale and remove it
+	NodeLiveness time.Duration
 }
 
 func (n *NodeServiceImpl) Dispatcher() *component.Dispatcher {
@@ -753,13 +756,45 @@ func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context
 		log.Error("nodesvc: error logging status", "err", err)
 	}
 
+	// Load all node status rows from the db
 	allNodes, err := n.db.ListNodeStatus()
 	if err != nil {
 		// don't update cluster
 		log.Error("nodesvc: error listing nodes", "err", err)
 		return
 	}
-	n.cluster.SetAllNodes(allNodes)
+
+	minObservedAt := int64(0)
+	if n.NodeLiveness > 0 {
+		minObservedAt = common.TimeToMillis(time.Now().Add(-1 * n.NodeLiveness))
+	}
+
+	// Remove rows that collide with our peerUrl (which could happen if for some reason the
+	// docker daemon id changed on the host) or if the row is stale
+	keep := allNodes[:0]
+	for _, node := range allNodes {
+		remove := false
+		if node.PeerUrl == n.peerUrl && node.NodeId != n.nodeId {
+			remove = true
+			log.Warn("nodesvc: deleting invalid node status row", "nodeId", node.NodeId, "peerUrl", node.PeerUrl,
+				"observedAt", common.MillisToTime(node.ObservedAt))
+		} else if minObservedAt > 0 && node.ObservedAt < minObservedAt {
+			remove = true
+			log.Warn("nodesvc: deleting stale node status row", "nodeId", node.NodeId,
+				"observedAt", common.MillisToTime(node.ObservedAt), "nodeLivenessDur", n.NodeLiveness.String())
+		}
+
+		if remove {
+			_, err = n.db.RemoveNodeStatus(node.NodeId)
+			if err != nil {
+				log.Error("nodesvc: error deleting node status", "err", err, "nodeId", node.NodeId)
+			}
+		} else {
+			keep = append(keep, node)
+		}
+	}
+
+	n.cluster.SetAllNodes(keep)
 }
 
 func (n *NodeServiceImpl) logStatus(ctx context.Context) error {
