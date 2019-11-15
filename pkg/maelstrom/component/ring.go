@@ -122,6 +122,13 @@ func (c *componentRing) rebuildHandlers() {
 			}
 			compName := c.componentName
 			handler := func(req *RequestInput) {
+
+				defer func() {
+					if r := recover(); r != nil {
+						log.Warn("ring: recovered panic", "r", r)
+					}
+				}()
+
 				relayPath := req.Req.Header.Get("MAELSTROM-RELAY-PATH")
 				if relayPath == "" {
 					relayPath = c.myNodeId
