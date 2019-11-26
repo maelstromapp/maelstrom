@@ -23,20 +23,24 @@ func NewSqlDb(driver string, dsn string) (*SqlDb, error) {
 		return nil, err
 	}
 
+	onConflictSql := "ON CONFLICT <TARGET> DO UPDATE SET "
 	blobType := "mediumblob"
 	if strings.Contains(driver, "postgres") {
 		squirrel.StatementBuilder = squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar)
 		blobType = "jsonb"
+	} else if strings.Contains(driver, "mysql") {
+		onConflictSql = "ON DUPLICATE KEY UPDATE "
 	}
 
-	return &SqlDb{db: db, driver: driver, blobType: blobType}, nil
+	return &SqlDb{db: db, driver: driver, blobType: blobType, onConflictSql: onConflictSql}, nil
 }
 
 type SqlDb struct {
-	db       *sql.DB
-	driver   string
-	blobType string
-	DebugLog bool
+	db            *sql.DB
+	driver        string
+	blobType      string
+	onConflictSql string
+	DebugLog      bool
 }
 
 func (d *SqlDb) Close() {
@@ -47,7 +51,7 @@ func (d *SqlDb) Close() {
 }
 
 func (d *SqlDb) DeleteAll() error {
-	tables := []string{"component", "eventsource", "nodestatus", "rolelock"}
+	tables := []string{"component", "eventsource", "nodestatus", "rolelock", "componentstart"}
 	for _, t := range tables {
 		_, err := d.db.Exec(fmt.Sprintf("delete from %s", t))
 		if err != nil {
@@ -579,6 +583,36 @@ func (d *SqlDb) removeRows(del squirrel.DeleteBuilder) (rows int64, err error) {
 	return
 }
 
+func (d *SqlDb) GetComponentDeployCount(componentName string, version int64) (int, error) {
+	rows, err := squirrel.Select("startCount").From("componentstart").
+		Where(squirrel.Eq{"name": componentName}).
+		Where(squirrel.Eq{"version": version}).
+		RunWith(d.db).Query()
+	if err != nil {
+		return 0, err
+	}
+	defer common.CheckClose(rows, &err)
+	var count int
+	if rows.Next() {
+		err = rows.Scan(&count)
+		if err != nil {
+			return 0, fmt.Errorf("db: GetComponentDeployCount scan err: %v", err)
+		}
+	}
+	return count, nil
+}
+
+func (d *SqlDb) IncrementComponentDeployCount(componentName string, version int64) error {
+	now := common.NowMillis()
+	conflictSql := strings.Replace(d.onConflictSql, "<TARGET>", "(name, version)", 1)
+	insertQ := squirrel.Insert("componentstart").
+		Columns("name", "version", "startCount", "firstStartedAt", "lastStartedAt").
+		Values(componentName, version, 1, now, now).
+		Suffix(conflictSql+"startCount=componentstart.startCount+1, lastStartedAt=?", now)
+	_, err := insertQ.RunWith(d.db).Exec()
+	return err
+}
+
 func (d *SqlDb) Migrate() error {
 	migrations := []darwin.Migration{
 		{
@@ -629,6 +663,18 @@ func (d *SqlDb) Migrate() error {
 			Version:     5,
 			Description: "Add eventsource.enabled column",
 			Script:      `alter table eventsource add column enabled int not null default 1`,
+		},
+		{
+			Version:     6,
+			Description: "Create componentstart table",
+			Script: `create table componentstart (
+                        name             varchar(60) not null,
+                        version          int not null,
+                        startCount       int not null,
+                        firstStartedAt   bigint not null,
+                        lastStartedAt    bigint not null,
+                        primary key (name, version)
+                     )`,
 		},
 	}
 	darwinDriver := darwin.NewGenericDriver(d.db, migrationDialect(d.driver))

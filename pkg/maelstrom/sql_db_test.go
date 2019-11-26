@@ -12,12 +12,14 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func createTestSqlDb() *SqlDb {
 	sqlDb, err := NewSqlDb("sqlite3", "file:test.db?cache=shared&_journal_mode=WAL&mode=memory&_busy_timeout=5000")
-	//sqlDb, err := NewSqlDb("mysql", "root:test@(127.0.0.1:3306)/foo")
+	//sqlDb, err := NewSqlDb("mysql", "root:test@(127.0.0.1:3306)/maeltest")
+	//sqlDb, err := NewSqlDb("postgres", "postgres://postgres:test@127.0.0.1:5432/maeltest?sslmode=disable")
 	panicOnErr(err)
 
 	// run sql migrations and delete any existing data
@@ -109,7 +111,7 @@ func TestListNodeStatus(t *testing.T) {
 		var node v1.NodeStatus
 		f.Fuzz(&node)
 		node.ObservedAt = nowMillis
-		node.NodeId = fmt.Sprintf("node-%40d", i)
+		node.NodeId = fmt.Sprintf("node-%04d", i)
 		nodes[i] = node
 		err := db.PutNodeStatus(node)
 		assert.Nil(t, err)
@@ -275,4 +277,35 @@ func TestToggleEventSourceEnabled(t *testing.T) {
 			Enabled:     true,
 		},
 	}, out.EventSources)
+}
+
+func TestComponentCount(t *testing.T) {
+	db := createTestSqlDb()
+
+	// count is zero initially
+	getComponentDeployCount(t, db, "c1", 1, 0)
+
+	// increment and check
+	assert.Nil(t, db.IncrementComponentDeployCount("c1", 1))
+	getComponentDeployCount(t, db, "c1", 1, 1)
+
+	assert.Nil(t, db.IncrementComponentDeployCount("c1", 1))
+	getComponentDeployCount(t, db, "c1", 1, 2)
+
+	// check other key - should be zero
+	getComponentDeployCount(t, db, "c2", 1, 0)
+	getComponentDeployCount(t, db, "c1", 2, 0)
+
+	// increment others
+	assert.Nil(t, db.IncrementComponentDeployCount("c2", 1))
+	assert.Nil(t, db.IncrementComponentDeployCount("c1", 2))
+	getComponentDeployCount(t, db, "c2", 1, 1)
+	getComponentDeployCount(t, db, "c1", 2, 1)
+	getComponentDeployCount(t, db, "c1", 1, 2)
+}
+
+func getComponentDeployCount(t *testing.T, db Db, componentName string, ver int64, expectedCount int) {
+	count, err := db.GetComponentDeployCount(componentName, ver)
+	assert.Nil(t, err)
+	assert.Equal(t, expectedCount, count)
 }

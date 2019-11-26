@@ -175,6 +175,8 @@ type yamlComponent struct {
 	PullImageOnPut              bool
 	PullImageOnStart            bool
 	Ulimits                     []string
+	StartParallelism            string
+	RestartOrder                string
 }
 
 func (c yamlComponent) toComponentWithEventSources(name string, projectName string,
@@ -247,6 +249,8 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 			MaxDurationSeconds:      c.MaxDurationSeconds,
 			ScaleDownConcurrencyPct: c.ScaleDownConcurrencyPct,
 			ScaleUpConcurrencyPct:   c.ScaleUpConcurrencyPct,
+			StartParallelism:        v1.StartParallelism(c.StartParallelism),
+			RestartOrder:            v1.RestartOrder(c.RestartOrder),
 			Docker: &v1.DockerComponent{
 				Image:                       c.Image,
 				Command:                     c.Command,

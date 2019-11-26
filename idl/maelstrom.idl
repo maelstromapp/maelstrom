@@ -251,6 +251,23 @@ struct Component {
     // Default = 60
     maxDurationSeconds  int   [optional]
 
+    // Informs whether maelstrom should coordinate container starts, potentially
+    // performing them in series (one at a time)
+    //
+    // Default = parallel
+    startParallelism          StartParallelism  [optional]
+
+    // Informs how updates to a new version should be performed.
+    //
+    // If "startstop" a new container is started and health checked, then the old container is stopped.
+    // If "stopstart" the old container is stopped, then the new container is started.
+    //
+    // "startstop" will result in faster upgrades to new versions and in single instance cases will
+    // avoid request pauses during restarts.
+    //
+    // Default = stopstart
+    RestartOrder              RestartOrder      [optional]
+
     // Current version of the component
     // If the current version in the db does not match, a 1004 error is raised.
     // When creating a new component, set this to zero.
@@ -482,6 +499,32 @@ enum EventSourceType {
     sqs
 }
 
+enum StartParallelism {
+    // Start (or restart) components fully parallel (no coordination)
+    parallel
+    //
+    // Start component containers one at a time
+    series
+    //
+    // The first container to update to a new version must
+    // acquire a lock, but after the new version has been deployed
+    // once, all other instances may update in parallel.
+    //
+    // This is useful for cases where the component performs some
+    // provisioning step that may not tolerate concurrent execution
+    // (e.g. a db schema migration, or creation of a queue).
+    // If seriesfirst is used, the first instance of a new version will
+    // run in isolation (creating the relevant resources), and then all
+    // other containers can start (which will no-op on the resource creation
+    // or schema migration)
+    seriesfirst
+}
+
+enum RestartOrder {
+    startstop
+    stopstart
+}
+
 struct NodeStatus {
     nodeId             string
     startedAt          int
@@ -640,7 +683,7 @@ struct NotifyDataChangedOutput {
 
 struct DataChangedUnion {
     // only one of the elements will be populated
-    putComponent      PutComponentOutput      [optional]
+    putComponent      Component               [optional]
     removeComponent   RemoveComponentOutput   [optional]
 }
 

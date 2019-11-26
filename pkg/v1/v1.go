@@ -8,8 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "b6d324b027c8613e57a3ec78c2ec84a8"
-const BarristerDateGenerated int64 = 1573676179329000000
+const BarristerChecksum string = "5e532aa5838edeb1b9c59ad64ce880bf"
+const BarristerDateGenerated int64 = 1574468356495000000
 
 type EventSourceType string
 
@@ -17,6 +17,21 @@ const (
 	EventSourceTypeHttp EventSourceType = "http"
 	EventSourceTypeCron                 = "cron"
 	EventSourceTypeSqs                  = "sqs"
+)
+
+type StartParallelism string
+
+const (
+	StartParallelismParallel    StartParallelism = "parallel"
+	StartParallelismSeries                       = "series"
+	StartParallelismSeriesfirst                  = "seriesfirst"
+)
+
+type RestartOrder string
+
+const (
+	RestartOrderStartstop RestartOrder = "startstop"
+	RestartOrderStopstart              = "stopstart"
 )
 
 type Project struct {
@@ -39,6 +54,8 @@ type Component struct {
 	ScaleUpConcurrencyPct   float64          `json:"scaleUpConcurrencyPct,omitempty"`
 	ScaleDownConcurrencyPct float64          `json:"scaleDownConcurrencyPct,omitempty"`
 	MaxDurationSeconds      int64            `json:"maxDurationSeconds,omitempty"`
+	StartParallelism        StartParallelism `json:"startParallelism,omitempty"`
+	RestartOrder            RestartOrder     `json:"RestartOrder,omitempty"`
 	Version                 int64            `json:"version"`
 	ModifiedAt              int64            `json:"modifiedAt,omitempty"`
 	Docker                  *DockerComponent `json:"docker,omitempty"`
@@ -248,7 +265,7 @@ type NotifyDataChangedOutput struct {
 }
 
 type DataChangedUnion struct {
-	PutComponent    *PutComponentOutput    `json:"putComponent,omitempty"`
+	PutComponent    *Component             `json:"putComponent,omitempty"`
 	RemoveComponent *RemoveComponentOutput `json:"removeComponent,omitempty"`
 }
 
@@ -1388,6 +1405,20 @@ var IdlJsonRaw = `[
                 "comment": "Maximum request duration (in seconds)\nDefault = 60"
             },
             {
+                "name": "startParallelism",
+                "type": "StartParallelism",
+                "optional": true,
+                "is_array": false,
+                "comment": "Informs whether maelstrom should coordinate container starts, potentially\nperforming them in series (one at a time)\n\nDefault = parallel"
+            },
+            {
+                "name": "RestartOrder",
+                "type": "RestartOrder",
+                "optional": true,
+                "is_array": false,
+                "comment": "Informs how updates to a new version should be performed.\n\nIf \"startstop\" a new container is started and health checked, then the old container is stopped.\nIf \"stopstart\" the old container is stopped, then the new container is started.\n\n\"startstop\" will result in faster upgrades to new versions and in single instance cases will\navoid request pauses during restarts.\n\nDefault = stopstart"
+            },
+            {
                 "name": "version",
                 "type": "int",
                 "optional": false,
@@ -1937,6 +1968,54 @@ var IdlJsonRaw = `[
             },
             {
                 "value": "sqs",
+                "comment": ""
+            }
+        ],
+        "functions": null,
+        "barrister_version": "",
+        "date_generated": 0,
+        "checksum": ""
+    },
+    {
+        "type": "enum",
+        "name": "StartParallelism",
+        "comment": "",
+        "value": "",
+        "extends": "",
+        "fields": null,
+        "values": [
+            {
+                "value": "parallel",
+                "comment": "Start (or restart) components fully parallel (no coordination)"
+            },
+            {
+                "value": "series",
+                "comment": "Start component containers one at a time"
+            },
+            {
+                "value": "seriesfirst",
+                "comment": "The first container to update to a new version must\nacquire a lock, but after the new version has been deployed\nonce, all other instances may update in parallel.\n\nThis is useful for cases where the component performs some\nprovisioning step that may not tolerate concurrent execution\n(e.g. a db schema migration, or creation of a queue).\nIf seriesfirst is used, the first instance of a new version will\nrun in isolation (creating the relevant resources), and then all\nother containers can start (which will no-op on the resource creation\nor schema migration)"
+            }
+        ],
+        "functions": null,
+        "barrister_version": "",
+        "date_generated": 0,
+        "checksum": ""
+    },
+    {
+        "type": "enum",
+        "name": "RestartOrder",
+        "comment": "",
+        "value": "",
+        "extends": "",
+        "fields": null,
+        "values": [
+            {
+                "value": "startstop",
+                "comment": ""
+            },
+            {
+                "value": "stopstart",
                 "comment": ""
             }
         ],
@@ -2661,7 +2740,7 @@ var IdlJsonRaw = `[
         "fields": [
             {
                 "name": "putComponent",
-                "type": "PutComponentOutput",
+                "type": "Component",
                 "optional": true,
                 "is_array": false,
                 "comment": "only one of the elements will be populated"
@@ -3481,7 +3560,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1573676179329,
-        "checksum": "b6d324b027c8613e57a3ec78c2ec84a8"
+        "date_generated": 1574468356495,
+        "checksum": "5e532aa5838edeb1b9c59ad64ce880bf"
     }
 ]`

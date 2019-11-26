@@ -21,14 +21,8 @@ import (
 type maelContainerId uint64
 type maelContainerStatus int
 
-const (
-	containerStatusPending maelContainerStatus = iota
-	containerStatusActive
-	containerStatusExited
-)
-
 func NewContainer(dockerClient *docker.Client, component *v1.Component, maelstromUrl string,
-	reqCh chan *RequestInput, id maelContainerId, parent *Component) *Container {
+	reqCh chan *RequestInput, id maelContainerId) *Container {
 	ctx, cancelFx := context.WithCancel(context.Background())
 
 	healthCheckMaxFailures := int(component.Docker.HttpHealthCheckMaxFailures)
@@ -40,8 +34,6 @@ func NewContainer(dockerClient *docker.Client, component *v1.Component, maelstro
 
 	c := &Container{
 		id:                     id,
-		status:                 containerStatusPending,
-		parent:                 parent,
 		dockerClient:           dockerClient,
 		reqCh:                  reqCh,
 		runWg:                  &sync.WaitGroup{},
@@ -59,14 +51,15 @@ func NewContainer(dockerClient *docker.Client, component *v1.Component, maelstro
 		healthCheckFailures:    0,
 		healthCheckMaxFailures: healthCheckMaxFailures,
 	}
-	go c.run()
 	return c
 }
 
 type Container struct {
 	id     maelContainerId
 	status maelContainerStatus
-	parent *Component
+
+	// marker field - if non-empty, container should be terminated by converger
+	terminateReason string
 
 	dockerClient *docker.Client
 
@@ -124,7 +117,7 @@ func (c *Container) ComponentInfo() v1.ComponentInfo {
 }
 
 func (c *Container) CancelAndStop(reason string) {
-	log.Info("container: shutting down: "+reason, "containerId", common.StrTruncate(c.containerId, 8))
+	log.Info("container: shutting down", "reason", reason, "containerId", common.StrTruncate(c.containerId, 8))
 
 	// cancel context - this will cause rev proxies and run loop to exit
 	// note that rev proxies may not fully drain reqCh - so this should only
@@ -149,74 +142,68 @@ func (c *Container) JoinAndStop(reason string) {
 	c.stopContainerQuietly(reason)
 }
 
+func (c *Container) startAndHealthCheck(ctx context.Context) error {
+	var stopReason string
+	var err error
+	err = c.startContainer()
+	if err != nil {
+		stopReason = "failed to start"
+	}
+	if err == nil {
+		err = c.initReverseProxy(ctx)
+		if err != nil {
+			stopReason = "failed to init reverse proxy or health check"
+		}
+	}
+
+	if err != nil {
+		c.stopContainerQuietly(stopReason)
+	}
+	return err
+}
+
 func (c *Container) run() {
 	c.runWg.Add(1)
 	defer c.runWg.Done()
 
-	err := c.startContainer()
-	if err == nil {
-		err = c.initReverseProxy()
-		if err == nil {
+	maxConcur := maxConcurrency(c.component)
+	for i := 0; i < maxConcur; i++ {
+		c.revProxyWg.Add(1)
+		go localRevProxy(c.reqCh, c.statCh, c.proxy, c.ctx, c.revProxyWg)
+	}
 
-			// tell parent component we're ready to accept requests
-			go c.reportStatusToParent(containerStatusActive)
+	healthCheckSecs := c.component.Docker.HttpHealthCheckSeconds
+	if healthCheckSecs <= 0 {
+		healthCheckSecs = 10
+	}
+	healthCheckTicker := time.Tick(time.Duration(healthCheckSecs) * time.Second)
+	activityTicker := time.Tick(time.Second * 20)
 
-			maxConcur := maxConcurrency(c.component)
-			for i := 0; i < maxConcur; i++ {
-				c.revProxyWg.Add(1)
-				go localRevProxy(c.reqCh, c.statCh, c.proxy, c.ctx, c.revProxyWg)
-			}
+	var durationSinceRollover time.Duration
+	rolloverStartTime := time.Now()
+	previousTotalRequests := int64(0)
 
-			healthCheckSecs := c.component.Docker.HttpHealthCheckSeconds
-			if healthCheckSecs <= 0 {
-				healthCheckSecs = 10
-			}
-			healthCheckTicker := time.Tick(time.Duration(healthCheckSecs) * time.Second)
-			activityTicker := time.Tick(time.Second * 20)
-
-			var durationSinceRollover time.Duration
-			rolloverStartTime := time.Now()
-			previousTotalRequests := int64(0)
-
-			running := true
-			for running {
-				select {
-				case dur := <-c.statCh:
-					// duration received after request fulfilled - increment counters
-					c.bumpReqStats()
-					durationSinceRollover += dur
-				case <-activityTicker:
-					// rotate activity buffer - this is used to report concurrency and req counts every x seconds
-					previousTotalRequests = c.appendActivity(previousTotalRequests, rolloverStartTime,
-						durationSinceRollover)
-					rolloverStartTime = time.Now()
-					durationSinceRollover = 0
-				case <-healthCheckTicker:
-					c.runHealthCheck()
-				case <-c.ctx.Done():
-					running = false
-				}
-			}
-		} else {
-			c.stopContainerQuietly("failed to init reverse proxy")
+	running := true
+	for running {
+		select {
+		case dur := <-c.statCh:
+			// duration received after request fulfilled - increment counters
+			c.bumpReqStats()
+			durationSinceRollover += dur
+		case <-activityTicker:
+			// rotate activity buffer - this is used to report concurrency and req counts every x seconds
+			previousTotalRequests = c.appendActivity(previousTotalRequests, rolloverStartTime,
+				durationSinceRollover)
+			rolloverStartTime = time.Now()
+			durationSinceRollover = 0
+		case <-healthCheckTicker:
+			c.runHealthCheck()
+		case <-c.ctx.Done():
+			running = false
 		}
-	} else {
-		c.stopContainerQuietly("failed to start")
 	}
 
-	if err == nil {
-		log.Info("container: exiting run loop", "containerId", common.StrTruncate(c.containerId, 8))
-	} else {
-		log.Error("container: error starting container", "containerId", common.StrTruncate(c.containerId, 8), "err", err)
-	}
-	go c.reportStatusToParent(containerStatusExited)
-}
-
-func (c *Container) reportStatusToParent(status maelContainerStatus) {
-	c.parent.SetContainerStatus(&containerStatusRequest{
-		id:     c.id,
-		status: status,
-	})
+	log.Info("container: exiting run loop", "containerId", common.StrTruncate(c.containerId, 8))
 }
 
 func (c *Container) bumpReqStats() {
@@ -276,8 +263,8 @@ func (c *Container) runHealthCheck() {
 	}
 }
 
-func (c *Container) initReverseProxy() error {
-	cont, err := c.dockerClient.ContainerInspect(context.Background(), c.containerId)
+func (c *Container) initReverseProxy(ctx context.Context) error {
+	cont, err := c.dockerClient.ContainerInspect(ctx, c.containerId)
 	if err != nil {
 		return fmt.Errorf("container: initReverseProxy ContainerInspect error: %v", err)
 	}
@@ -325,7 +312,7 @@ func (c *Container) initReverseProxy() error {
 		healthCheckStartSecs = 60
 	}
 	if healthCheckStartSecs > 0 {
-		if !tryUntilUrlOk(healthCheckUrl, time.Second*time.Duration(healthCheckStartSecs)) {
+		if !tryUntilUrlOk(ctx, healthCheckUrl, time.Second*time.Duration(healthCheckStartSecs)) {
 			return fmt.Errorf("container: health check never passed for: %s url: %s", c.component.Name,
 				healthCheckUrl)
 		}
@@ -360,13 +347,19 @@ func toHealthCheckURL(c *v1.Component, baseUrl *url.URL) *url.URL {
 	}
 }
 
-func tryUntilUrlOk(u *url.URL, timeout time.Duration) bool {
+func tryUntilUrlOk(ctx context.Context, u *url.URL, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if getUrlOK(u) {
 			return true
-		} else {
-			time.Sleep(50 * time.Millisecond)
+		}
+
+		select {
+		case <-ctx.Done():
+			// context canceled
+			return false
+		case <-time.After(50 * time.Millisecond):
+			// try again
 		}
 	}
 	return false

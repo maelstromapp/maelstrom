@@ -24,6 +24,9 @@ type Db interface {
 	ListComponents(input v1.ListComponentsInput) (v1.ListComponentsOutput, error)
 	RemoveComponent(componentName string) (bool, error)
 
+	GetComponentDeployCount(componentName string, version int64) (int, error)
+	IncrementComponentDeployCount(componentName string, version int64) error
+
 	PutEventSource(eventSource v1.EventSource) (int64, error)
 	GetEventSource(eventSourceName string) (v1.EventSource, error)
 	ListEventSources(input v1.ListEventSourcesInput) (v1.ListEventSourcesOutput, error)

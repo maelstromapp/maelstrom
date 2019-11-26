@@ -6,6 +6,7 @@ import (
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	docker "github.com/docker/docker/client"
 	log "github.com/mgutz/logxi/v1"
+	"github.com/pkg/errors"
 	"sync"
 	"time"
 )
@@ -19,34 +20,31 @@ const (
 )
 
 type componentMsg struct {
-	request            *RequestInput
-	infoReq            *nestedInfoRequest
-	scaleReq           *scaleComponentInput
-	instanceCountReq   *instanceCountRequest
-	containerStatusReq *containerStatusRequest
-	dockerEventReq     *dockerEventRequest
-	remoteNotesReq     *remoteNodesRequest
-	pullState          *PullState
-	shutdown           bool
+	request                 *RequestInput
+	scaleReq                *scaleComponentInput
+	instanceCountReq        *instanceCountRequest
+	notifyContainersChanged *notifyContainersChanged
+	dockerEventReq          *dockerEventRequest
+	remoteNotesReq          *remoteNodesRequest
+	componentUpdatedReq     *componentUpdatedInput
+	pullState               *PullState
+	shutdown                bool
 }
 
-type nestedInfoRequest struct {
-	infoCh chan v1.ComponentInfo
-	done   chan bool
-}
-
-type containerStatusRequest struct {
-	id     maelContainerId
-	status maelContainerStatus
-}
+type notifyContainersChanged struct{}
 
 type remoteNodesRequest struct {
 	counts remoteNodeCounts
 }
 
+type componentUpdatedInput struct {
+	component *v1.Component
+}
+
 func NewComponent(id maelComponentId, dispatcher *Dispatcher, nodeSvc v1.NodeService, dockerClient *docker.Client,
 	comp *v1.Component, maelstromUrl string, myNodeId string, targetContainers int,
-	remoteCounts remoteNodeCounts, pullState *PullState) *Component {
+	remoteCounts remoteNodeCounts, pullState *PullState,
+	startLockAcquire ConvergeStartLockAcquire, postStartContainer ConvergePostStartContainer) *Component {
 
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	localCtx, localCtxCancel := context.WithCancel(context.Background())
@@ -65,7 +63,6 @@ func NewComponent(id maelComponentId, dispatcher *Dispatcher, nodeSvc v1.NodeSer
 		ctxCancel:              ctxCancel,
 		ring:                   newComponentRing(comp.Name, myNodeId, remoteCounts),
 		targetContainers:       targetContainers,
-		containers:             make([]*Container, 0),
 		waitingReqs:            make([]*RequestInput, 0),
 		localReqCh:             make(chan *RequestInput),
 		localReqWg:             &sync.WaitGroup{},
@@ -73,7 +70,14 @@ func NewComponent(id maelComponentId, dispatcher *Dispatcher, nodeSvc v1.NodeSer
 		localCtxCancel:         localCtxCancel,
 		pullState:              pullState,
 		maelContainerIdCounter: maelContainerId(0),
+		startLockAcquire:       startLockAcquire,
+		postStartContainer:     postStartContainer,
 	}
+
+	c.converger = NewConverger(ComponentTarget{Component: comp, Count: targetContainers}, ctx).
+		WithComponentCallbacks(c)
+	c.converger.Start()
+
 	go c.run()
 	return c
 }
@@ -87,13 +91,13 @@ type Component struct {
 	status                 maelComponentStatus
 	inbox                  chan componentMsg
 	component              *v1.Component
+	converger              *Converger
 	maelstromUrl           string
 	wg                     *sync.WaitGroup
 	ctx                    context.Context
 	ctxCancel              context.CancelFunc
 	ring                   *componentRing
 	targetContainers       int
-	containers             []*Container
 	waitingReqs            []*RequestInput
 	localReqCh             chan *RequestInput
 	localReqWg             *sync.WaitGroup
@@ -102,6 +106,8 @@ type Component struct {
 	lastPlacedReq          time.Time
 	pullState              *PullState
 	maelContainerIdCounter maelContainerId
+	startLockAcquire       ConvergeStartLockAcquire
+	postStartContainer     ConvergePostStartContainer
 }
 
 func (c *Component) Request(req *RequestInput) {
@@ -113,27 +119,26 @@ func (c *Component) Scale(req *scaleComponentInput) {
 }
 
 func (c *Component) ComponentInfo(infoCh chan v1.ComponentInfo) bool {
-	req := &nestedInfoRequest{
-		infoCh: infoCh,
-		done:   make(chan bool, 1),
+	for _, info := range c.converger.GetComponentInfo() {
+		infoCh <- info
 	}
-	if c.trySend(componentMsg{infoReq: req}) {
-		<-req.done
-		return true
-	}
-	return false
+	return true
 }
 
 func (c *Component) InstanceCount(req *instanceCountRequest) {
 	c.trySend(componentMsg{instanceCountReq: req})
 }
 
-func (c *Component) OnDockerEvent(req *dockerEventRequest) {
-	c.trySend(componentMsg{dockerEventReq: req})
+func (c *Component) NotifyContainersChanged(count int) {
+	c.trySend(componentMsg{notifyContainersChanged: &notifyContainersChanged{}})
 }
 
-func (c *Component) SetContainerStatus(req *containerStatusRequest) {
-	c.trySend(componentMsg{containerStatusReq: req})
+func (c *Component) ComponentUpdated(comp *v1.Component) {
+	c.trySend(componentMsg{componentUpdatedReq: &componentUpdatedInput{component: comp}})
+}
+
+func (c *Component) OnDockerEvent(req *dockerEventRequest) {
+	c.converger.OnDockerEvent(req.Event)
 }
 
 func (c *Component) SetRemoteNodes(req *remoteNodesRequest) {
@@ -165,29 +170,22 @@ func (c *Component) run() {
 	defer c.wg.Done()
 	defer c.ctxCancel()
 
-	// scale to target on startup
-	if c.targetContainers > 0 {
-		c.scale(&scaleComponentInput{targetCount: c.targetContainers})
-	}
-
 	running := true
 	for running {
 		select {
 		case msg := <-c.inbox:
 			if msg.request != nil {
 				c.request(msg.request)
-			} else if msg.infoReq != nil {
-				c.componentInfo(msg.infoReq)
 			} else if msg.scaleReq != nil {
 				c.scale(msg.scaleReq)
 			} else if msg.instanceCountReq != nil {
 				c.instanceCount(msg.instanceCountReq)
-			} else if msg.containerStatusReq != nil {
-				c.setContainerStatus(msg.containerStatusReq)
-			} else if msg.dockerEventReq != nil {
-				c.dockerEvent(msg.dockerEventReq)
 			} else if msg.remoteNotesReq != nil {
 				c.setRemoteNodes(msg.remoteNotesReq)
+			} else if msg.notifyContainersChanged != nil {
+				c.notifyContainersChanged()
+			} else if msg.componentUpdatedReq != nil {
+				c.componentUpdated(msg.componentUpdatedReq)
 			} else if msg.shutdown {
 				c.shutdown()
 				running = false
@@ -234,45 +232,11 @@ func (c *Component) placeComponent() {
 	}
 }
 
-func (c *Component) componentInfo(req *nestedInfoRequest) {
-	for _, cn := range c.containers {
-		req.infoCh <- cn.ComponentInfo()
-	}
-	req.done <- true
-}
-
 func (c *Component) instanceCount(req *instanceCountRequest) {
 	req.Output <- c.ring.size()
 }
 
-func (c *Component) setContainerStatus(req *containerStatusRequest) {
-	activeCount := 0
-	matchIdx := -1
-	var matchCn *Container
-	for i, cn := range c.containers {
-		if cn.id == req.id {
-			matchIdx = i
-			matchCn = cn
-			c.containers[i].status = req.status
-		}
-		if c.containers[i].status == containerStatusActive {
-			activeCount++
-		}
-	}
-
-	if req.status == containerStatusExited {
-		if matchCn != nil {
-			c.containers = append(c.containers[:matchIdx], c.containers[matchIdx+1:]...)
-			if len(c.containers) == 0 {
-				// reset placement timer so we can immediately request placement if necessary
-				c.lastPlacedReq = time.Time{}
-			}
-			log.Info("component: removed container", "id", req.id,
-				"containerId", common.StrTruncate(matchCn.containerId, 8))
-		}
-	}
-
-	c.ring.setLocalCount(activeCount, c.handleReq)
+func (c *Component) notifyContainersChanged() {
 	c.flushWaitingRequests()
 }
 
@@ -308,6 +272,9 @@ func (c *Component) flushWaitingRequests() {
 func (c *Component) shutdown() {
 	log.Info("component: shutting down all containers", "component", c.component.Name)
 
+	// stop converger so we don't start/stop any containers
+	c.converger.Stop()
+
 	// notify containers to exit by closing input channel
 	if c.localReqCh != nil {
 		c.localCtxCancel()
@@ -317,10 +284,9 @@ func (c *Component) shutdown() {
 	}
 
 	// wait for all containers to exit
-	for _, cn := range c.containers {
+	for _, cn := range c.converger.getContainers() {
 		cn.JoinAndStop("component shutdown")
 	}
-	c.containers = make([]*Container, 0)
 
 	// clear local handlers from ring
 	c.ring.setLocalCount(0, c.handleReq)
@@ -333,73 +299,55 @@ func (c *Component) shutdown() {
 	log.Info("component: shutdown complete", "component", c.component.Name)
 }
 
+func (c *Component) componentUpdated(req *componentUpdatedInput) {
+	c.component = req.component
+	c.convertSetTarget()
+}
+
 func (c *Component) scale(req *scaleComponentInput) {
 	c.targetContainers = req.targetCount
 	c.ring.setLocalCount(c.targetContainers, c.handleReq)
-	if req.targetCount > len(c.containers) {
-		c.scaleUp(req.targetCount - len(c.containers))
-	} else if req.targetCount < len(c.containers) {
-		c.scaleDown(len(c.containers) - req.targetCount)
-	}
+	c.convertSetTarget()
 }
 
-func (c *Component) scaleUp(num int) {
-	if c.localReqCh == nil {
-		c.localReqCh = make(chan *RequestInput)
-	}
+func (c *Component) convertSetTarget() {
+	c.converger.SetTarget(ComponentTarget{
+		Component: c.component,
+		Count:     c.targetContainers,
+	})
+}
 
-	if num > 0 {
-		pull := c.component.Docker.PullImageOnStart || c.component.Docker.PullImageOnPut
-		force := c.component.Docker.PullImageOnStart
-		if !force {
-			exists, err := common.ImageExistsLocally(c.dockerClient, c.component.Docker.Image)
-			if err == nil {
-				// if image isn't present locally, pull it now
-				if !exists {
-					pull = true
-					force = true
-				}
-			} else {
-				log.Error("component: unable to list image", "err", err, "component", c.component.Name)
+func (c *Component) pullImage(comp *v1.Component) error {
+	pull := c.component.Docker.PullImageOnStart || c.component.Docker.PullImageOnPut
+	force := c.component.Docker.PullImageOnStart
+	if !force {
+		exists, err := common.ImageExistsLocally(c.dockerClient, c.component.Docker.Image)
+		if err == nil {
+			// if image isn't present locally, pull it now
+			if !exists {
+				pull = true
+				force = true
 			}
-		}
-		if pull {
-			c.pullState.Pull(*c.component, force)
-		}
-	}
-
-	for i := 0; i < num; i++ {
-		c.maelContainerIdCounter++
-		c.containers = append(c.containers, NewContainer(c.dockerClient, c.component, c.maelstromUrl, c.localReqCh,
-			c.maelContainerIdCounter, c))
-	}
-}
-
-func (c *Component) dockerEvent(req *dockerEventRequest) {
-	if req.Event.ContainerExited != nil && req.Event.ContainerExited.ContainerId != "" {
-		for _, cn := range c.containers {
-			if cn.containerId == req.Event.ContainerExited.ContainerId {
-				c.stopAndRemoveContainer(cn, "container exited")
-				break
-			}
+		} else {
+			return errors.Wrap(err, "unable to list images")
 		}
 	}
+	if pull {
+		c.pullState.Pull(*c.component, force)
+	}
+	return nil
 }
 
-func (c *Component) scaleDown(num int) {
-	for i := 0; i < num && i < len(c.containers); i++ {
-		c.stopAndRemoveContainer(c.containers[i], "scale down")
+func (c *Component) startContainerAndHealthCheck(ctx context.Context, comp *v1.Component) (*Container, error) {
+	cn := NewContainer(c.dockerClient, c.component, c.maelstromUrl, c.localReqCh, c.maelContainerIdCounter)
+	err := cn.startAndHealthCheck(ctx)
+	if err != nil {
+		return nil, err
 	}
+	go cn.run()
+	return cn, nil
 }
 
-func (c *Component) stopAndRemoveContainer(cn *Container, reason string) {
-	if len(c.containers) == 1 && c.containers[0].id == cn.id {
-		c.shutdown()
-	} else {
-		c.setContainerStatus(&containerStatusRequest{
-			id:     cn.id,
-			status: containerStatusExited,
-		})
-		go cn.CancelAndStop(reason)
-	}
+func (c *Component) stopContainer(cn *Container, reason string) {
+	cn.CancelAndStop(reason)
 }

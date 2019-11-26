@@ -88,6 +88,54 @@ components:
 	scaleupconcurrencypct: 0.75
 ```
 
+### Restart options
+
+Use the `restartorder` and `startparallelism` features to control how rolling deploys
+are executed.
+
+```yaml
+
+---
+name: myproject
+components:
+  component_name_1:
+    # restartorder
+    #   Informs how updates to a new version should be performed.
+    #   Valid values: startstop, stopstart
+    #
+    # If "startstop" a new container is started and health checked, then the old container is stopped.
+    # If "stopstart" the old container is stopped, then the new container is started.
+    #
+    # "startstop" will result in faster upgrades to new versions and in single instance cases will
+    # avoid request pauses during restarts.
+    #
+    # Default = stopstart
+    restartorder: startstop
+    #
+    # startparallelism
+    #   Valid values: parallel, series, seriesfirst   (Default = parallel)
+    #
+    #   parallel:
+    #   Start (or restart) components fully parallel (no coordination) parallel
+    #    
+    #   series:
+    #   Start component containers one at a time
+    #
+    #   seriesfirst:
+    #   The first container to update to a new version must
+    #   acquire a lock, but after the new version has been deployed
+    #   once, all other instances may update in parallel.
+    #
+    #   This is useful for cases where the component performs some
+    #   provisioning step that may not tolerate concurrent execution
+    #   (e.g. a db schema migration, or creation of a queue).
+    #   If seriesfirst is used, the first instance of a new version will
+    #   run in isolation (creating the relevant resources), and then all
+    #   other containers can start (which will no-op on the resource creation
+    #   or schema migration)
+    startparallelism: series
+```
+
 ### Logging options
 
 By default logs go to the default Docker `json` logger and can be viewed via `docker logs` on the host running the container.

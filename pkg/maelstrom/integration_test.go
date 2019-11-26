@@ -1,7 +1,9 @@
 package maelstrom
 
 import (
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	"testing"
+	"time"
 )
 
 func TestHandlerStartsContainerOnFirstRequest(t *testing.T) {
@@ -73,5 +75,55 @@ func TestRestartsContainerWhenComponentUpdated(t *testing.T) {
 			WhenComponentIsUpdated().
 			WhenHTTPRequestReceived().
 			ThenContainerIsStartedWithNewVersion()
+	})
+}
+
+//func TestOptionallyStartsThenStopsWhenComponentUpdated(t *testing.T) {
+//	wrapTest(t, func() {
+//		GivenExistingContainerWith(t, func(c *v1.Component) {
+//			c.RestartOrder = v1.RestartOrderStartstop
+//		}).
+//			WhenComponentIsUpdated().
+//			WhenHTTPRequestReceived().
+//			ThenContainerIsStartedBeforeTheOlderContainerIsStopped()
+//	})
+//}
+
+func TestOptionallyStopsThenStartsWhenComponentUpdated(t *testing.T) {
+	wrapTest(t, func() {
+		GivenExistingContainerWith(t, func(c *v1.Component) {
+			c.RestartOrder = v1.RestartOrderStopstart
+		}).
+			WhenComponentIsUpdated().
+			WhenHTTPRequestReceived().
+			ThenContainerIsStoppedBeforeTheOlderContainerIsStarted()
+	})
+}
+
+//func TestOptionallyLockWhenComponentUpdated(t *testing.T) {
+//	wrapTest(t, func() {
+//		GivenExistingContainerWith(t, func(c *v1.Component) {
+//			c.StartParallelism = v1.StartParallelismSeriesfirst
+//		}).
+//			WhenAnotherInstanceIsStarted().
+//			AndDockerEventsAreReset().
+//			WhenComponentIsUpdated().
+//			WhenHTTPRequestReceived().
+//			AndTimePasses(2 * time.Second).
+//			ThenContainersAreRestartedInSeries()
+//	})
+//}
+
+func TestRoutesRequestsToOldComponentDuringUpdates(t *testing.T) {
+	wrapTest(t, func() {
+		GivenExistingContainerWith(t, func(c *v1.Component) {
+			c.RestartOrder = v1.RestartOrderStartstop
+		}).
+			WhenHTTPRequestReceived().
+			ThenContainerIsStarted().
+			WhenHTTPRequestsAreMadeContinuously().
+			WhenComponentIsUpdated().
+			AndTimePasses(2 * time.Second).
+			ThenAllHTTPRequestsCompletedWithoutDelay()
 	})
 }

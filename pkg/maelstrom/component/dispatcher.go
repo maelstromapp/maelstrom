@@ -50,7 +50,8 @@ type clusterUpdatedRequest struct {
 }
 
 func NewDispatcher(nodeSvc v1.NodeService, dockerClient *docker.Client, maelstromUrl string,
-	myNodeId string, pullState *PullState) (*Dispatcher, error) {
+	myNodeId string, pullState *PullState,
+	startLockAcquire ConvergeStartLockAcquire, postStartContainer ConvergePostStartContainer) (*Dispatcher, error) {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	d := &Dispatcher{
 		nodeSvc:                 nodeSvc,
@@ -67,6 +68,8 @@ func NewDispatcher(nodeSvc v1.NodeService, dockerClient *docker.Client, maelstro
 		targetCountByComponent:  make(map[string]int),
 		remoteCountsByComponent: make(map[string]remoteNodeCounts),
 		pullState:               pullState,
+		startLockAcquire:        startLockAcquire,
+		postStartContainer:      postStartContainer,
 	}
 
 	rmCount, err := common.RemoveMaelstromContainers(dockerClient, "removing stale containers")
@@ -96,6 +99,8 @@ type Dispatcher struct {
 	targetCountByComponent  map[string]int
 	remoteCountsByComponent map[string]remoteNodeCounts
 	pullState               *PullState
+	startLockAcquire        ConvergeStartLockAcquire
+	postStartContainer      ConvergePostStartContainer
 }
 
 func (d *Dispatcher) Route(rw http.ResponseWriter, req *http.Request, comp *v1.Component, publicGateway bool) {
@@ -246,7 +251,7 @@ func (d *Dispatcher) component(dbComp *v1.Component) *Component {
 	if !ok {
 		c = d.startComponent(dbComp)
 	} else if dbComp.Version > c.component.Version {
-		c = d.restartComponent(c, dbComp, "component updated to version: "+strconv.Itoa(int(dbComp.Version)))
+		c.ComponentUpdated(dbComp)
 	}
 	return c
 }
@@ -255,7 +260,8 @@ func (d *Dispatcher) startComponent(dbComp *v1.Component) *Component {
 	dbComp.Docker.Image = common.NormalizeImageName(dbComp.Docker.Image)
 	d.maelComponentIdCounter++
 	c := NewComponent(d.maelComponentIdCounter, d, d.nodeSvc, d.dockerClient, dbComp, d.maelstromUrl, d.myNodeId,
-		d.targetCountByComponent[dbComp.Name], d.remoteCountsByComponent[dbComp.Name], d.pullState)
+		d.targetCountByComponent[dbComp.Name], d.remoteCountsByComponent[dbComp.Name], d.pullState,
+		d.startLockAcquire, d.postStartContainer)
 	d.componentsByName[dbComp.Name] = c
 	return c
 }
@@ -325,14 +331,7 @@ func (d *Dispatcher) instanceCountForComponent(req *instanceCountRequest) {
 }
 
 func (d *Dispatcher) dockerEvent(req *dockerEventRequest) {
-	if req.Event.ImageUpdated != nil {
-		for _, comp := range d.componentsByName {
-			if comp.component.Docker.Image == req.Event.ImageUpdated.ImageName {
-				d.restartComponent(comp, comp.component, "image updated")
-			}
-		}
-	}
-	if req.Event.ContainerExited != nil {
+	if req.Event != nil {
 		for _, comp := range d.componentsByName {
 			comp.OnDockerEvent(req)
 		}
@@ -348,13 +347,12 @@ func (d *Dispatcher) dataChanged(req *dataChangedRequest) {
 			go cn.Shutdown()
 		}
 	}
-}
-
-func (d *Dispatcher) restartComponent(comp *Component, dbComp *v1.Component, reason string) *Component {
-	log.Info("dispatcher: restarting component", "component", comp.component.Name,
-		"reason", reason, "image", comp.component.Docker.Image)
-	go comp.Shutdown()
-	return d.startComponent(dbComp)
+	if req.Event.PutComponent != nil {
+		cn, ok := d.componentsByName[req.Event.PutComponent.Name]
+		if ok {
+			cn.ComponentUpdated(req.Event.PutComponent)
+		}
+	}
 }
 
 func (d *Dispatcher) shutdown() {

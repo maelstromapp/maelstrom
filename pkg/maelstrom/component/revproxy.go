@@ -25,7 +25,7 @@ func revProxyLoop(reqCh <-chan *RequestInput, statCh chan<- time.Duration,
 				// reqCh closed and drained - all rev proxy loops for this component can exit
 				return
 			}
-			handleReq(mr, myNodeId, componentName, proxy, statCh)
+			handleReq(mr, myNodeId, componentName, proxy, statCh, ctx)
 		case <-ctx.Done():
 			return
 		}
@@ -33,7 +33,7 @@ func revProxyLoop(reqCh <-chan *RequestInput, statCh chan<- time.Duration,
 }
 
 func handleReq(req *RequestInput, myNodeId string, componentName string, proxy *httputil.ReverseProxy,
-	statCh chan<- time.Duration) {
+	statCh chan<- time.Duration, ctx context.Context) {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -58,6 +58,11 @@ func handleReq(req *RequestInput, myNodeId string, componentName string, proxy *
 	proxy.ServeHTTP(req.Resp, req.Req)
 	req.Done <- true
 	if statCh != nil {
-		statCh <- time.Now().Sub(req.StartTime)
+		select {
+		case statCh <- time.Now().Sub(req.StartTime):
+			// ok - sent
+		case <-ctx.Done():
+		}
+
 	}
 }

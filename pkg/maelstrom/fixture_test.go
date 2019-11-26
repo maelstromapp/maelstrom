@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -34,6 +35,183 @@ var defaultComponent v1.Component
 var cronService *CronService
 var contextCancelFx func()
 var dockerClient *docker.Client
+var pinger *httpPinger
+var dMonitor *dockerMonitor
+var httpResultAgg httpResultAggregate
+
+type httpResult struct {
+	elapsed time.Duration
+	err     error
+}
+
+type httpResultAggregate struct {
+	successCount int
+	errorCount   int
+	lastError    error
+	meanElapsed  time.Duration
+	p50Elapsed   time.Duration
+	p90Elapsed   time.Duration
+	p99Elapsed   time.Duration
+}
+
+func newHttpPinger(url string, reqDelay time.Duration, fixture *Fixture) *httpPinger {
+	ctx, cancelFx := context.WithCancel(context.Background())
+	return &httpPinger{
+		url:         url,
+		fixture:     fixture,
+		ctx:         ctx,
+		ctxCancel:   cancelFx,
+		wg:          &sync.WaitGroup{},
+		reqDelay:    reqDelay,
+		resultCh:    make(chan *httpResult),
+		aggResultCh: make(chan httpResultAggregate),
+	}
+}
+
+type httpPinger struct {
+	url         string
+	fixture     *Fixture
+	ctx         context.Context
+	ctxCancel   context.CancelFunc
+	wg          *sync.WaitGroup
+	reqDelay    time.Duration
+	resultCh    chan *httpResult
+	aggResultCh chan httpResultAggregate
+}
+
+func (p *httpPinger) start(n int) {
+	p.wg.Add(n)
+	for i := 0; i < n; i++ {
+		go p.pingerLoop()
+	}
+	go p.collectorLoop()
+}
+
+func (p *httpPinger) stop() httpResultAggregate {
+	p.ctxCancel()
+	p.wg.Wait()
+	close(p.resultCh)
+	return <-p.aggResultCh
+}
+
+func (p *httpPinger) pingerLoop() {
+	defer p.wg.Done()
+	ticker := time.Tick(p.reqDelay)
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-ticker:
+			var err error
+			start := time.Now()
+			rw := p.fixture.makeHttpRequest(p.url)
+			elapsed := time.Now().Sub(start)
+			if rw.Result().StatusCode != 200 {
+				err = fmt.Errorf("non 200 response: %d", rw.Result().StatusCode)
+			}
+			p.resultCh <- &httpResult{
+				elapsed: elapsed,
+				err:     err,
+			}
+		}
+	}
+}
+
+func (p *httpPinger) collectorLoop() {
+	var agg httpResultAggregate
+	var totalElapsed time.Duration
+	timings := make([]time.Duration, 0)
+	for r := range p.resultCh {
+		if r.err == nil {
+			agg.successCount++
+		} else {
+			agg.errorCount++
+			agg.lastError = r.err
+		}
+		totalElapsed += r.elapsed
+		timings = append(timings, r.elapsed)
+	}
+	totalReq := len(timings)
+	if totalReq > 0 {
+		agg.meanElapsed = totalElapsed / time.Duration(totalReq)
+		sort.Sort(DurationAscend(timings))
+		agg.p50Elapsed = timings[totalReq/2]
+		agg.p90Elapsed = timings[int(float64(totalReq)*.9)]
+		agg.p99Elapsed = timings[int(float64(totalReq)*.99)]
+	}
+	p.aggResultCh <- agg
+}
+
+type dockerEvent struct {
+	image       string
+	timeNano    int64
+	action      string
+	containerId string
+}
+
+func newDockerMonitor(dockerClient *docker.Client) *dockerMonitor {
+	ctx, cancelFx := context.WithCancel(context.Background())
+	return &dockerMonitor{
+		dockerClient: dockerClient,
+		ctx:          ctx,
+		ctxCancel:    cancelFx,
+		wg:           &sync.WaitGroup{},
+		events:       make([]*dockerEvent, 0),
+	}
+}
+
+type dockerMonitor struct {
+	dockerClient *docker.Client
+	ctx          context.Context
+	ctxCancel    context.CancelFunc
+	wg           *sync.WaitGroup
+	events       []*dockerEvent
+}
+
+func (d *dockerMonitor) reset() {
+	d.events = make([]*dockerEvent, 0)
+}
+
+func (d *dockerMonitor) start() {
+	d.wg.Add(1)
+	go d.monitorEventLoop()
+}
+
+func (d *dockerMonitor) stop() {
+	d.ctxCancel()
+	d.wg.Wait()
+}
+
+func (d *dockerMonitor) monitorEventLoop() {
+	defer d.wg.Done()
+	msgCh, _ := d.dockerClient.Events(d.ctx, types.EventsOptions{})
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case m := <-msgCh:
+			if m.Status != "" {
+				d.events = append(d.events, &dockerEvent{
+					image:       m.From,
+					timeNano:    m.TimeNano,
+					action:      m.Action,
+					containerId: m.ID,
+				})
+			}
+			fmt.Printf("%+v\n", m)
+		}
+	}
+}
+
+func (d *dockerMonitor) actionsByImage(image string) []string {
+	actions := make([]string, 0)
+	for _, ev := range d.events {
+		if ev.image == image && ev.action != "" {
+			actions = append(actions, ev.action)
+		}
+	}
+	return actions
+}
 
 func init() {
 	dc, err := docker.NewEnvClient()
@@ -56,9 +234,12 @@ func init() {
 
 func beforeTest() {
 	resetDefaults()
+	startDockerMonitor()
 }
 
 func afterTest(t *testing.T) {
+	stopPinger()
+	stopDockerMonitor()
 	stopCronService()
 	stopMaelstromContainers(t)
 }
@@ -81,6 +262,26 @@ func resetDefaults() {
 			HttpHealthCheckSeconds:      2,
 			HttpStartHealthCheckSeconds: 60,
 		},
+	}
+}
+
+func startDockerMonitor() {
+	stopDockerMonitor()
+	dMonitor = newDockerMonitor(dockerClient)
+	dMonitor.start()
+}
+
+func stopDockerMonitor() {
+	if dMonitor != nil {
+		dMonitor.stop()
+		dMonitor = nil
+	}
+}
+
+func stopPinger() {
+	if pinger != nil {
+		httpResultAgg = pinger.stop()
+		pinger = nil
 	}
 }
 
@@ -166,7 +367,12 @@ func GivenNoMaelstromContainers(t *testing.T) *Fixture {
 }
 
 func GivenExistingContainer(t *testing.T) *Fixture {
+	return GivenExistingContainerWith(t, func(c *v1.Component) {})
+}
+
+func GivenExistingContainerWith(t *testing.T, mutateFx func(c *v1.Component)) *Fixture {
 	sqlDb := newDb(t)
+	mutateFx(&defaultComponent)
 	containerId, err := common.StartContainer(dockerClient, &defaultComponent, testGatewayUrl)
 
 	fmt.Printf("GivenExistingContainer startContainer: %s\n", containerId)
@@ -203,6 +409,14 @@ func (f *Fixture) makeHttpRequest(url string) *httptest.ResponseRecorder {
 
 func (f *Fixture) WhenSystemIsStarted() *Fixture {
 	// no-op
+	return f
+}
+
+func (f *Fixture) WhenAnotherInstanceIsStarted() *Fixture {
+	containerId, err := common.StartContainer(dockerClient, &defaultComponent, testGatewayUrl)
+	assert.Nil(f.t, err, "StartContainer err != nil: %v", err)
+
+	fmt.Printf("WhenAnotherInstanceIsStarted startContainer: %s\n", containerId)
 	return f
 }
 
@@ -308,17 +522,27 @@ func (f *Fixture) WhenAutoscaleRuns() *Fixture {
 }
 
 func (f *Fixture) WhenComponentIsUpdated() *Fixture {
+	f.component.Version++
 	f.nodeSvcImpl.Dispatcher().OnComponentNotification(v1.DataChangedUnion{
-		PutComponent: &v1.PutComponentOutput{
-			Name:    f.component.Name,
-			Version: f.component.Version + 1,
-		},
+		PutComponent: &f.component,
 	})
+	return f
+}
+
+func (f *Fixture) WhenHTTPRequestsAreMadeContinuously() *Fixture {
+	stopPinger()
+	pinger = newHttpPinger("http://127.0.0.1:12345/", time.Millisecond, f)
+	pinger.start(2)
 	return f
 }
 
 func (f *Fixture) AndTimePasses(duration time.Duration) *Fixture {
 	time.Sleep(duration)
+	return f
+}
+
+func (f *Fixture) AndDockerEventsAreReset() *Fixture {
+	dMonitor.reset()
 	return f
 }
 
@@ -341,6 +565,38 @@ func (f *Fixture) ThenContainerIsStarted() *Fixture {
 
 func (f *Fixture) ThenContainerIsStartedWithNewVersion() *Fixture {
 	assert.True(f.t, f.componentContainerExists(), "component container is not running!")
+	return f
+}
+
+func (f *Fixture) ThenContainerIsStartedBeforeTheOlderContainerIsStopped() *Fixture {
+	expected := []string{"create", "start", "create", "start", "kill", "die", "stop", "destroy"}
+	assert.Equal(f.t, expected, dMonitor.actionsByImage(defaultComponent.Docker.Image))
+	return f
+}
+
+func (f *Fixture) ThenContainerIsStoppedBeforeTheOlderContainerIsStarted() *Fixture {
+	expected := []string{"create", "start", "kill", "die", "stop", "destroy", "create", "start"}
+	assert.Equal(f.t, expected, dMonitor.actionsByImage(defaultComponent.Docker.Image))
+	return f
+}
+
+func (f *Fixture) ThenContainersAreRestartedInSeries() *Fixture {
+	expected := []string{"create", "start", "create", "start"}
+	assert.Equal(f.t, expected, dMonitor.actionsByImage(defaultComponent.Docker.Image))
+	return f
+}
+
+func (f *Fixture) ThenContainersAreRestartedInParallel() *Fixture {
+	expected := []string{"create", "create", "start", "start"}
+	assert.Equal(f.t, expected, dMonitor.actionsByImage(defaultComponent.Docker.Image))
+	return f
+}
+
+func (f *Fixture) ThenAllHTTPRequestsCompletedWithoutDelay() *Fixture {
+	stopPinger()
+	assert.True(f.t, httpResultAgg.successCount > 0)
+	assert.Equal(f.t, 0, httpResultAgg.errorCount, "got errors: %v", httpResultAgg.lastError)
+	assert.True(f.t, httpResultAgg.p99Elapsed < 20*time.Millisecond)
 	return f
 }
 

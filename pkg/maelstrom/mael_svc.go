@@ -161,7 +161,7 @@ func (v *MaelServiceImpl) PutProject(input v1.PutProjectInput) (v1.PutProjectOut
 
 	// then put
 	for _, c := range diff.ComponentPut {
-		newVersion, err := v.db.PutComponent(c)
+		_, err := v.db.PutComponent(c)
 		if err != nil {
 			return v1.PutProjectOutput{}, v.onError(DbError, "PutComponent failed", err)
 		}
@@ -170,7 +170,7 @@ func (v *MaelServiceImpl) PutProject(input v1.PutProjectInput) (v1.PutProjectOut
 		} else {
 			out.ComponentsUpdated = append(out.ComponentsUpdated, c)
 		}
-		v.notifyPutComponent(&v1.PutComponentOutput{Name: c.Name, Version: newVersion}, true)
+		v.notifyPutComponent(c.Name, true)
 	}
 	for _, ev := range diff.EventSourcePut {
 		_, err = v.db.PutEventSource(ev)
@@ -265,7 +265,7 @@ func (v *MaelServiceImpl) PutComponent(input v1.PutComponentInput) (v1.PutCompon
 	}
 
 	// Notify subscribers
-	v.notifyPutComponent(&output, true)
+	v.notifyPutComponent(name, true)
 
 	return output, nil
 }
@@ -428,17 +428,23 @@ func (v *MaelServiceImpl) ListEventSources(input v1.ListEventSourcesInput) (v1.L
 	return v.db.ListEventSources(input)
 }
 
-func (v *MaelServiceImpl) notifyPutComponent(putOutput *v1.PutComponentOutput, broadcast bool) {
-	cn := v1.DataChangedUnion{
-		PutComponent: putOutput,
+func (v *MaelServiceImpl) notifyPutComponent(componentName string, broadcast bool) {
+	comp, err := v.db.GetComponent(componentName)
+	if err != nil {
+		log.Error("mael_svc: notifyPutComponent GetComponent failed", "component", componentName, "err", err)
+		return
+	}
+
+	change := v1.DataChangedUnion{
+		PutComponent: &comp,
 	}
 	for _, s := range v.componentSubscribers {
-		go s.OnComponentNotification(cn)
+		go s.OnComponentNotification(change)
 	}
 	if broadcast && v.cluster != nil {
 		v.cluster.BroadcastDataChanged(v1.NotifyDataChangedInput{
 			NodeId:  v.myNodeId,
-			Changes: []v1.DataChangedUnion{{PutComponent: putOutput}},
+			Changes: []v1.DataChangedUnion{change},
 		})
 	}
 }
@@ -461,7 +467,7 @@ func (v *MaelServiceImpl) notifyRemoveComponent(rmOutput *v1.RemoveComponentOutp
 func (v *MaelServiceImpl) NotifyDataChanged(input v1.NotifyDataChangedInput) (v1.NotifyDataChangedOutput, error) {
 	for _, change := range input.Changes {
 		if change.PutComponent != nil {
-			v.notifyPutComponent(change.PutComponent, false)
+			v.notifyPutComponent(change.PutComponent.Name, false)
 		}
 		if change.RemoveComponent != nil {
 			v.notifyRemoveComponent(change.RemoveComponent, false)

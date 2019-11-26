@@ -1,6 +1,9 @@
 package maelstrom
 
-import "github.com/coopernurse/maelstrom/pkg/v1"
+import (
+	"github.com/coopernurse/maelstrom/pkg/v1"
+	"time"
+)
 
 type nameValueByName []v1.NameValue
 
@@ -100,3 +103,9 @@ func (s httpEventSourcesForResolver) Less(i, j int) bool {
 	}
 	return s[i].Name < s[j].Name
 }
+
+type DurationAscend []time.Duration
+
+func (s DurationAscend) Len() int           { return len(s) }
+func (s DurationAscend) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s DurationAscend) Less(i, j int) bool { return s[i] < s[j] }

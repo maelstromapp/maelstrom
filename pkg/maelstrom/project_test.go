@@ -111,9 +111,11 @@ components:
     maxinstances: 5
     maxconcurrency: 3
     maxdurationseconds: 30
+    restartorder: startstop
   detector:
     image: coopernurse/object-detector:latest
     command: ["python", "/app/detector.py"]
+    startparallelism: series
     volumes:
       - source: ${HOME}/.aws
         target: /root/.aws
@@ -147,8 +149,9 @@ components:
 		Components: []v1.ComponentWithEventSources{
 			{
 				Component: v1.Component{
-					Name:        "detector",
-					ProjectName: "demo-object-detector",
+					Name:             "detector",
+					ProjectName:      "demo-object-detector",
+					StartParallelism: v1.StartParallelismSeries,
 					Environment: []v1.NameValue{
 						{Name: "A", Value: "a"},
 						{Name: "B", Value: "$$blah"},
@@ -238,8 +241,9 @@ components:
 			},
 			{
 				Component: v1.Component{
-					Name:        "gizmo",
-					ProjectName: "demo-object-detector",
+					Name:         "gizmo",
+					ProjectName:  "demo-object-detector",
+					RestartOrder: v1.RestartOrderStartstop,
 					Environment: []v1.NameValue{
 						{Name: "A", Value: "a"},
 						{Name: "B", Value: "gizmoB"},

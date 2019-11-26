@@ -17,6 +17,7 @@ import (
 	log "github.com/mgutz/logxi/v1"
 	"github.com/pkg/errors"
 	"math/rand"
+	"net/http"
 	"os/exec"
 	"sort"
 	"strings"
@@ -68,8 +69,11 @@ func NewNodeServiceImplFromDocker(db Db, dockerClient *docker.Client, privatePor
 		terminateCommand: terminateCommand,
 	}
 
+	compLock := NewCompLocker(db, nodeId)
+
 	log.Info("maelstromd: creating dispatcher", "maelstromUrl", maelstromUrl)
-	dispatcher, err := component.NewDispatcher(nodeSvc, dockerClient, maelstromUrl, nodeId, pullState)
+	dispatcher, err := component.NewDispatcher(nodeSvc, dockerClient, maelstromUrl, nodeId, pullState,
+		compLock.startLockAcquire, compLock.postStartContainer)
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +328,7 @@ func (n *NodeServiceImpl) placeComponentInternal(input v1.PlaceComponentInput) (
 	for time.Now().Before(deadline) {
 		placedNode, retry := n.placeComponentTryOnce(input.ComponentName, requiredRAM)
 		if placedNode != nil {
-			log.Info("nodesvc: PlaceComponent successful", "elapsed", time.Now().Sub(startTime),
+			log.Info("nodesvc: PlaceComponent successful", "elapsed", time.Now().Sub(startTime).String(),
 				"component", input.ComponentName, "clientNode", common.TruncNodeId(n.nodeId),
 				"placedNode", common.TruncNodeId(placedNode.NodeId))
 			return v1.PlaceComponentOutput{
@@ -447,10 +451,7 @@ func (n *NodeServiceImpl) placeComponentTryOnce(componentName string, requiredRA
 
 func (n *NodeServiceImpl) waitUntilComponentRunning(node v1.NodeStatus, status *v1.NodeStatus,
 	comp v1.Component) (*v1.NodeStatus, bool) {
-	seconds := comp.Docker.HttpStartHealthCheckSeconds
-	if seconds <= 0 {
-		seconds = 60
-	}
+	seconds := healthCheckSeconds(comp.Docker)
 	deadline := time.Now().Add(time.Second * time.Duration(seconds))
 	for time.Now().Before(deadline) {
 		for _, c := range status.RunningComponents {
@@ -771,7 +772,10 @@ func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context
 
 	// Remove rows that collide with our peerUrl (which could happen if for some reason the
 	// docker daemon id changed on the host) or if the row is stale
-	keep := allNodes[:0]
+
+	okNodeChan := make(chan v1.NodeStatus, len(allNodes))
+	checkerWG := &sync.WaitGroup{}
+
 	for _, node := range allNodes {
 		remove := false
 		if node.PeerUrl == n.peerUrl && node.NodeId != n.nodeId {
@@ -790,8 +794,22 @@ func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context
 				log.Error("nodesvc: error deleting node status", "err", err, "nodeId", node.NodeId)
 			}
 		} else {
-			keep = append(keep, node)
+			if node.NodeId == n.nodeId {
+				okNodeChan <- node
+			} else {
+				// verify node connectivity
+				checkerWG.Add(1)
+				go healthCheckPeer(node, okNodeChan, checkerWG)
+			}
 		}
+	}
+
+	// collect results
+	checkerWG.Wait()
+	close(okNodeChan)
+	keep := allNodes[:0]
+	for node := range okNodeChan {
+		keep = append(keep, node)
 	}
 
 	n.cluster.SetAllNodes(keep)
@@ -864,4 +882,28 @@ func (n *NodeServiceImpl) resolveNodeStatus(ctx context.Context) (v1.NodeStatus,
 func rpcErr(err error, code ErrorCode, msg string) error {
 	log.Error(msg, "code", code, "err", err)
 	return &barrister.JsonRpcError{Code: int(code), Message: msg}
+}
+
+func healthCheckPeer(node v1.NodeStatus, okNodeChan chan<- v1.NodeStatus, wg *sync.WaitGroup) {
+	defer wg.Done()
+	client := http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(node.PeerUrl + "/_mael_health_check")
+	if err == nil && resp.StatusCode == http.StatusOK {
+		okNodeChan <- node
+	} else {
+		var errStr string
+		if err != nil {
+			errStr = err.Error()
+		}
+		log.Warn("nodesvc: unable to health check peer", "nodeId", node.NodeId,
+			"peerUrl", node.PeerUrl, "err", errStr)
+	}
+}
+
+func healthCheckSeconds(d *v1.DockerComponent) int64 {
+	seconds := d.HttpStartHealthCheckSeconds
+	if seconds <= 0 {
+		seconds = 60
+	}
+	return seconds
 }
