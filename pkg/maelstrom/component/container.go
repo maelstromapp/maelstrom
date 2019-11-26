@@ -239,7 +239,7 @@ func (c *Container) stopContainerQuietly(reason string) {
 	if c.containerId != "" {
 		err := common.RemoveContainer(c.dockerClient, c.containerId, c.component.Name,
 			strconv.Itoa(int(c.component.Version)), reason)
-		if err != nil {
+		if err != nil && !docker.IsErrContainerNotFound(err) {
 			log.Warn("container: unable to stop container", "err", err.Error(), "component", c.component.Name)
 		}
 	}

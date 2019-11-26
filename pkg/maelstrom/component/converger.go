@@ -225,6 +225,7 @@ func (c *Converger) stopAndRemoveContainer(id maelContainerId, dockerContainerId
 		if id == cn.id || dockerContainerId == cn.containerId {
 			c.convergeStopContainer(cn, reason)
 			found = cn
+			log.Info("converge: stopAndRemoveContainer found container", "id", cn.id, "containerId", cn.containerId)
 		}
 	}
 
@@ -268,6 +269,7 @@ func (c *Converger) run() {
 }
 
 func (c *Converger) converge() {
+	startTime := time.Now()
 	target := c.GetTarget()
 	plan := c.plan(target)
 
@@ -299,14 +301,17 @@ func (c *Converger) converge() {
 	}
 
 	if len(plan.steps) > 0 {
+		elapsed := time.Now().Sub(startTime)
 		log.Info("converge: successfully converged to target", "component", target.Component.Name,
-			"version", target.Component.Version, "count", target.Count, "image", target.Component.Docker.Image)
+			"version", target.Component.Version, "count", target.Count, "image", target.Component.Docker.Image,
+			"elapsed", elapsed.String())
 	}
 }
 
 func (c *Converger) start(step *startStep) error {
 	var releaseLock bool
 	var err error
+	log.Info("converge: startStep - acquiring lock", "component", step.component.Name, "ver", step.component.Version)
 	if step.lock {
 		releaseLock, err = c.convergeStartLockAcquire(c.ctx, step.component)
 		if err != nil {
@@ -317,6 +322,7 @@ func (c *Converger) start(step *startStep) error {
 		}
 	}
 
+	log.Info("converge: startStep - starting container", "component", step.component.Name, "ver", step.component.Version)
 	success := true
 	container, err := c.convergeStartContainer(c.ctx, step.component)
 	if err != nil {
@@ -329,6 +335,7 @@ func (c *Converger) start(step *startStep) error {
 		c.notifyContainersChanged()
 	}
 
+	log.Info("converge: startStep - post start container", "component", step.component.Name, "ver", step.component.Version)
 	err2 := c.convergePostStartContainer(step.component, releaseLock, success)
 	if err2 != nil {
 		log.Error("converge: error releasing component lock", "component", step.component.Name,
@@ -339,6 +346,7 @@ func (c *Converger) start(step *startStep) error {
 }
 
 func (c *Converger) stop(step *stopStep) error {
+	log.Info("converge: stopStep - stopping container", "containerId", step.containerId)
 	c.stopAndRemoveContainer(step.containerId, "unused", step.reason)
 	return nil
 }

@@ -339,6 +339,7 @@ func (c *Component) pullImage(comp *v1.Component) error {
 }
 
 func (c *Component) startContainerAndHealthCheck(ctx context.Context, comp *v1.Component) (*Container, error) {
+	c.maelContainerIdCounter++
 	cn := NewContainer(c.dockerClient, c.component, c.maelstromUrl, c.localReqCh, c.maelContainerIdCounter)
 	err := cn.startAndHealthCheck(ctx)
 	if err != nil {

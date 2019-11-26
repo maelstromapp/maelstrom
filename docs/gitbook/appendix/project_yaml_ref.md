@@ -103,11 +103,15 @@ components:
     #   Informs how updates to a new version should be performed.
     #   Valid values: startstop, stopstart
     #
-    # If "startstop" a new container is started and health checked, then the old container is stopped.
+    # If "startstop" a new container is started and health checked, then the old container 
+    # is stopped.
+    #
     # If "stopstart" the old container is stopped, then the new container is started.
     #
-    # "startstop" will result in faster upgrades to new versions and in single instance cases will
-    # avoid request pauses during restarts.
+    # "startstop" will result in faster upgrades to new versions and in single instance 
+    # cases will avoid request pauses during restarts, but it will lead to temporary
+    # increased memory usage since the two containers (old and new) will briefly run
+    # simultaneously.
     #
     # Default = stopstart
     restartorder: startstop
