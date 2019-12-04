@@ -82,22 +82,14 @@ func (c *Cluster) SetAllNodes(nodes []v1.NodeStatus) {
 	c.notifyAll()
 }
 
-func (c *Cluster) SetAndBroadcastStatus(node v1.NodeStatus) error {
+func (c *Cluster) SetAndBroadcastStatus(node v1.NodeStatus) {
 	c.SetNode(node)
 	input := v1.StatusChangedInput{
 		NodeId:  c.myNodeId,
 		Exiting: false,
 		Status:  &node,
 	}
-	var lastErr error
-	for _, svc := range c.GetRemoteNodeServices() {
-		_, err := svc.StatusChanged(input)
-		if err != nil {
-			log.Error("cluster: SetAndBroadcastStatus error calling StatusChanged", "err", err)
-			lastErr = err
-		}
-	}
-	return lastErr
+	c.broadcastStatusChangeAsync(input, "SetAndBroadcastStatus")
 }
 
 func (c *Cluster) RemoveAndBroadcast() {
@@ -106,11 +98,17 @@ func (c *Cluster) RemoveAndBroadcast() {
 		NodeId:  c.myNodeId,
 		Exiting: true,
 	}
+	c.broadcastStatusChangeAsync(input, "RemoveAndBroadcast")
+}
+
+func (c *Cluster) broadcastStatusChangeAsync(input v1.StatusChangedInput, logPrefix string) {
 	for _, svc := range c.GetRemoteNodeServices() {
-		_, err := svc.StatusChanged(input)
-		if err != nil {
-			log.Error("cluster: RemoveAndBroadcast error calling StatusChanged", "err", err)
-		}
+		go func(s v1.NodeService) {
+			_, err := s.StatusChanged(input)
+			if err != nil {
+				log.Error("cluster: "+logPrefix+" error calling StatusChanged", "err", err)
+			}
+		}(svc)
 	}
 }
 

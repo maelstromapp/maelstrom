@@ -73,7 +73,7 @@ func NewNodeServiceImplFromDocker(db Db, dockerClient *docker.Client, privatePor
 
 	log.Info("maelstromd: creating dispatcher", "maelstromUrl", maelstromUrl)
 	dispatcher, err := component.NewDispatcher(nodeSvc, dockerClient, maelstromUrl, nodeId, pullState,
-		compLock.startLockAcquire, compLock.postStartContainer)
+		compLock.startLockAcquire, compLock.postStartContainer, nodeSvc.OnContainersChanged)
 	if err != nil {
 		return nil, err
 	}
@@ -531,8 +531,6 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 			rpcErr(err, MiscError, "nodesvc: StartStopComponents:resolveNodeStatus failed")
 	}
 
-	n.cluster.SetNode(status)
-
 	return v1.StartStopComponentsOutput{
 		TargetVersionMismatch: scaleOut.TargetVersionMismatch,
 		TargetStatus:          &status,
@@ -540,6 +538,13 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 		Stopped:               scaleOut.Stopped,
 		Errors:                scaleOut.Errors,
 	}, nil
+}
+
+func (n *NodeServiceImpl) OnContainersChanged() {
+	_, err := n.resolveAndBroadcastNodeStatus(context.Background())
+	if err != nil {
+		log.Error("nodesvc: OnContainersChanged error", "err", err)
+	}
 }
 
 func (n NodeServiceImpl) TerminateNode(input v1.TerminateNodeInput) (v1.TerminateNodeOutput, error) {
@@ -834,8 +839,8 @@ func (n *NodeServiceImpl) resolveAndBroadcastNodeStatus(ctx context.Context) (v1
 		return status, err
 	}
 
-	err = n.cluster.SetAndBroadcastStatus(status)
-	return status, err
+	n.cluster.SetAndBroadcastStatus(status)
+	return status, nil
 }
 
 func (n *NodeServiceImpl) resolveNodeStatus(ctx context.Context) (v1.NodeStatus, error) {

@@ -51,25 +51,27 @@ type clusterUpdatedRequest struct {
 
 func NewDispatcher(nodeSvc v1.NodeService, dockerClient *docker.Client, maelstromUrl string,
 	myNodeId string, pullState *PullState,
-	startLockAcquire ConvergeStartLockAcquire, postStartContainer ConvergePostStartContainer) (*Dispatcher, error) {
+	startLockAcquire ConvergeStartLockAcquire, postStartContainer ConvergePostStartContainer,
+	notifyContainersChanged ComponentNotifyContainersChanged) (*Dispatcher, error) {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	d := &Dispatcher{
-		nodeSvc:                 nodeSvc,
-		dockerClient:            dockerClient,
-		inbox:                   make(chan dispatcherMsg),
-		wg:                      &sync.WaitGroup{},
-		ctx:                     ctx,
-		ctxCancel:               ctxCancel,
-		componentsByName:        make(map[string]*Component),
-		version:                 common.NowMillis(),
-		maelstromUrl:            maelstromUrl,
-		myNodeId:                myNodeId,
-		maelComponentIdCounter:  maelComponentId(0),
-		targetCountByComponent:  make(map[string]int),
-		remoteCountsByComponent: make(map[string]remoteNodeCounts),
-		pullState:               pullState,
-		startLockAcquire:        startLockAcquire,
-		postStartContainer:      postStartContainer,
+		nodeSvc:                   nodeSvc,
+		dockerClient:              dockerClient,
+		inbox:                     make(chan dispatcherMsg),
+		wg:                        &sync.WaitGroup{},
+		ctx:                       ctx,
+		ctxCancel:                 ctxCancel,
+		componentsByName:          make(map[string]*Component),
+		version:                   common.NowMillis(),
+		maelstromUrl:              maelstromUrl,
+		myNodeId:                  myNodeId,
+		maelComponentIdCounter:    maelComponentId(0),
+		targetCountByComponent:    make(map[string]int),
+		remoteCountsByComponent:   make(map[string]remoteNodeCounts),
+		pullState:                 pullState,
+		startLockAcquire:          startLockAcquire,
+		postStartContainer:        postStartContainer,
+		notifyContainersChangedFx: notifyContainersChanged,
 	}
 
 	rmCount, err := common.RemoveMaelstromContainers(dockerClient, "removing stale containers")
@@ -85,22 +87,23 @@ func NewDispatcher(nodeSvc v1.NodeService, dockerClient *docker.Client, maelstro
 }
 
 type Dispatcher struct {
-	nodeSvc                 v1.NodeService
-	dockerClient            *docker.Client
-	inbox                   chan dispatcherMsg
-	wg                      *sync.WaitGroup
-	ctx                     context.Context
-	ctxCancel               context.CancelFunc
-	componentsByName        map[string]*Component
-	version                 int64
-	maelstromUrl            string
-	myNodeId                string
-	maelComponentIdCounter  maelComponentId
-	targetCountByComponent  map[string]int
-	remoteCountsByComponent map[string]remoteNodeCounts
-	pullState               *PullState
-	startLockAcquire        ConvergeStartLockAcquire
-	postStartContainer      ConvergePostStartContainer
+	nodeSvc                   v1.NodeService
+	dockerClient              *docker.Client
+	inbox                     chan dispatcherMsg
+	wg                        *sync.WaitGroup
+	ctx                       context.Context
+	ctxCancel                 context.CancelFunc
+	componentsByName          map[string]*Component
+	version                   int64
+	maelstromUrl              string
+	myNodeId                  string
+	maelComponentIdCounter    maelComponentId
+	targetCountByComponent    map[string]int
+	remoteCountsByComponent   map[string]remoteNodeCounts
+	pullState                 *PullState
+	startLockAcquire          ConvergeStartLockAcquire
+	postStartContainer        ConvergePostStartContainer
+	notifyContainersChangedFx ComponentNotifyContainersChanged
 }
 
 func (d *Dispatcher) Route(rw http.ResponseWriter, req *http.Request, comp *v1.Component, publicGateway bool) {
@@ -261,7 +264,7 @@ func (d *Dispatcher) startComponent(dbComp *v1.Component) *Component {
 	d.maelComponentIdCounter++
 	c := NewComponent(d.maelComponentIdCounter, d, d.nodeSvc, d.dockerClient, dbComp, d.maelstromUrl, d.myNodeId,
 		d.targetCountByComponent[dbComp.Name], d.remoteCountsByComponent[dbComp.Name], d.pullState,
-		d.startLockAcquire, d.postStartContainer)
+		d.startLockAcquire, d.postStartContainer, d.notifyContainersChangedFx)
 	d.componentsByName[dbComp.Name] = c
 	return c
 }

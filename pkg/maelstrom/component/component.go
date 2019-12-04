@@ -14,6 +14,8 @@ import (
 type maelComponentId uint64
 type maelComponentStatus int
 
+type ComponentNotifyContainersChanged func()
+
 const (
 	componentStatusActive maelComponentStatus = iota
 	componentStatusExited
@@ -44,34 +46,36 @@ type componentUpdatedInput struct {
 func NewComponent(id maelComponentId, dispatcher *Dispatcher, nodeSvc v1.NodeService, dockerClient *docker.Client,
 	comp *v1.Component, maelstromUrl string, myNodeId string, targetContainers int,
 	remoteCounts remoteNodeCounts, pullState *PullState,
-	startLockAcquire ConvergeStartLockAcquire, postStartContainer ConvergePostStartContainer) *Component {
+	startLockAcquire ConvergeStartLockAcquire, postStartContainer ConvergePostStartContainer,
+	notifyContainersChanged ComponentNotifyContainersChanged) *Component {
 
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	localCtx, localCtxCancel := context.WithCancel(context.Background())
 
 	c := &Component{
-		id:                     id,
-		status:                 componentStatusActive,
-		dispatcher:             dispatcher,
-		nodeSvc:                nodeSvc,
-		dockerClient:           dockerClient,
-		inbox:                  make(chan componentMsg),
-		component:              comp,
-		maelstromUrl:           maelstromUrl,
-		wg:                     &sync.WaitGroup{},
-		ctx:                    ctx,
-		ctxCancel:              ctxCancel,
-		ring:                   newComponentRing(comp.Name, myNodeId, remoteCounts),
-		targetContainers:       targetContainers,
-		waitingReqs:            make([]*RequestInput, 0),
-		localReqCh:             make(chan *RequestInput),
-		localReqWg:             &sync.WaitGroup{},
-		localCtx:               localCtx,
-		localCtxCancel:         localCtxCancel,
-		pullState:              pullState,
-		maelContainerIdCounter: maelContainerId(0),
-		startLockAcquire:       startLockAcquire,
-		postStartContainer:     postStartContainer,
+		id:                        id,
+		status:                    componentStatusActive,
+		dispatcher:                dispatcher,
+		nodeSvc:                   nodeSvc,
+		dockerClient:              dockerClient,
+		inbox:                     make(chan componentMsg),
+		component:                 comp,
+		maelstromUrl:              maelstromUrl,
+		wg:                        &sync.WaitGroup{},
+		ctx:                       ctx,
+		ctxCancel:                 ctxCancel,
+		ring:                      newComponentRing(comp.Name, myNodeId, remoteCounts),
+		targetContainers:          targetContainers,
+		waitingReqs:               make([]*RequestInput, 0),
+		localReqCh:                make(chan *RequestInput),
+		localReqWg:                &sync.WaitGroup{},
+		localCtx:                  localCtx,
+		localCtxCancel:            localCtxCancel,
+		pullState:                 pullState,
+		maelContainerIdCounter:    maelContainerId(0),
+		startLockAcquire:          startLockAcquire,
+		postStartContainer:        postStartContainer,
+		notifyContainersChangedFx: notifyContainersChanged,
 	}
 
 	c.converger = NewConverger(ComponentTarget{Component: comp, Count: targetContainers}, ctx).
@@ -87,27 +91,28 @@ type Component struct {
 	nodeSvc      v1.NodeService
 	dockerClient *docker.Client
 
-	id                     maelComponentId
-	status                 maelComponentStatus
-	inbox                  chan componentMsg
-	component              *v1.Component
-	converger              *Converger
-	maelstromUrl           string
-	wg                     *sync.WaitGroup
-	ctx                    context.Context
-	ctxCancel              context.CancelFunc
-	ring                   *componentRing
-	targetContainers       int
-	waitingReqs            []*RequestInput
-	localReqCh             chan *RequestInput
-	localReqWg             *sync.WaitGroup
-	localCtx               context.Context
-	localCtxCancel         context.CancelFunc
-	lastPlacedReq          time.Time
-	pullState              *PullState
-	maelContainerIdCounter maelContainerId
-	startLockAcquire       ConvergeStartLockAcquire
-	postStartContainer     ConvergePostStartContainer
+	id                        maelComponentId
+	status                    maelComponentStatus
+	inbox                     chan componentMsg
+	component                 *v1.Component
+	converger                 *Converger
+	maelstromUrl              string
+	wg                        *sync.WaitGroup
+	ctx                       context.Context
+	ctxCancel                 context.CancelFunc
+	ring                      *componentRing
+	targetContainers          int
+	waitingReqs               []*RequestInput
+	localReqCh                chan *RequestInput
+	localReqWg                *sync.WaitGroup
+	localCtx                  context.Context
+	localCtxCancel            context.CancelFunc
+	lastPlacedReq             time.Time
+	pullState                 *PullState
+	maelContainerIdCounter    maelContainerId
+	startLockAcquire          ConvergeStartLockAcquire
+	postStartContainer        ConvergePostStartContainer
+	notifyContainersChangedFx ComponentNotifyContainersChanged
 }
 
 func (c *Component) Request(req *RequestInput) {
@@ -237,6 +242,7 @@ func (c *Component) instanceCount(req *instanceCountRequest) {
 }
 
 func (c *Component) notifyContainersChanged() {
+	go c.notifyContainersChangedFx()
 	c.flushWaitingRequests()
 }
 
@@ -266,6 +272,10 @@ func (c *Component) flushWaitingRequests() {
 		}
 		c.waitingReqs = make([]*RequestInput, 0)
 		log.Info("component: flushed waiting requests", "count", waitingCount)
+	}
+	// if ring empty, reset lastPlacedReq so we request placement on next request received
+	if c.ring.size() < 1 {
+		c.lastPlacedReq = time.Time{}
 	}
 }
 
