@@ -184,8 +184,8 @@ func sumMaxConcurrency(infos []v1.ComponentInfo, maxConcurrencyPerInst int64) su
 			for _, val := range nodeActivity {
 				if val.Concurrency > maxVal {
 					maxVal = val.Concurrency
-					totalConcur += val.Concurrency
 				}
+				totalConcur += val.Concurrency
 			}
 			sumMaxConcur += maxVal
 			sumAvgConcur += totalConcur / float64(len(nodeActivity))
