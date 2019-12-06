@@ -7,6 +7,7 @@ import (
 	docker "github.com/docker/docker/client"
 	log "github.com/mgutz/logxi/v1"
 	"github.com/pkg/errors"
+	"net/http/httputil"
 	"sync"
 	"time"
 )
@@ -52,6 +53,8 @@ func NewComponent(id maelComponentId, dispatcher *Dispatcher, nodeSvc v1.NodeSer
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	localCtx, localCtxCancel := context.WithCancel(context.Background())
 
+	bufferPool := NewProxyBufferPool()
+
 	c := &Component{
 		id:                        id,
 		status:                    componentStatusActive,
@@ -64,7 +67,7 @@ func NewComponent(id maelComponentId, dispatcher *Dispatcher, nodeSvc v1.NodeSer
 		wg:                        &sync.WaitGroup{},
 		ctx:                       ctx,
 		ctxCancel:                 ctxCancel,
-		ring:                      newComponentRing(comp.Name, myNodeId, remoteCounts),
+		ring:                      newComponentRing(comp.Name, myNodeId, remoteCounts, bufferPool),
 		targetContainers:          targetContainers,
 		waitingReqs:               make([]*RequestInput, 0),
 		localReqCh:                make(chan *RequestInput),
@@ -76,6 +79,7 @@ func NewComponent(id maelComponentId, dispatcher *Dispatcher, nodeSvc v1.NodeSer
 		startLockAcquire:          startLockAcquire,
 		postStartContainer:        postStartContainer,
 		notifyContainersChangedFx: notifyContainersChanged,
+		bufferPool:                bufferPool,
 	}
 
 	c.converger = NewConverger(ComponentTarget{Component: comp, Count: targetContainers}, ctx).
@@ -113,6 +117,7 @@ type Component struct {
 	startLockAcquire          ConvergeStartLockAcquire
 	postStartContainer        ConvergePostStartContainer
 	notifyContainersChangedFx ComponentNotifyContainersChanged
+	bufferPool                httputil.BufferPool
 }
 
 func (c *Component) Request(req *RequestInput) {
@@ -350,7 +355,8 @@ func (c *Component) pullImage(comp *v1.Component) error {
 
 func (c *Component) startContainerAndHealthCheck(ctx context.Context, comp *v1.Component) (*Container, error) {
 	c.maelContainerIdCounter++
-	cn := NewContainer(c.dockerClient, c.component, c.maelstromUrl, c.localReqCh, c.maelContainerIdCounter)
+	cn := NewContainer(c.dockerClient, c.component, c.maelstromUrl, c.localReqCh, c.maelContainerIdCounter,
+		c.bufferPool)
 	err := cn.startAndHealthCheck(ctx)
 	if err != nil {
 		return nil, err

@@ -15,6 +15,7 @@ import (
 	docker "github.com/docker/docker/client"
 	"github.com/mgutz/logxi/v1"
 	"net/http"
+	httppprof "net/http/pprof"
 	"os"
 	"os/signal"
 	"runtime"
@@ -222,6 +223,14 @@ func main() {
 
 	privateGateway := maelstrom.NewGateway(resolver, dispatcher, false, outboundIp.String())
 	privateSvrMux := http.NewServeMux()
+	if conf.Pprof {
+		log.Info("maelstromd: binding pprof routes to /_mael/pprof/")
+		privateSvrMux.Handle("/_mael/pprof/heap", httppprof.Handler("heap"))
+		privateSvrMux.Handle("/_mael/pprof/cmdline", http.HandlerFunc(httppprof.Cmdline))
+		privateSvrMux.Handle("/_mael/pprof/profile", http.HandlerFunc(httppprof.Profile))
+		privateSvrMux.Handle("/_mael/pprof/symbol", http.HandlerFunc(httppprof.Symbol))
+		privateSvrMux.Handle("/_mael/pprof/trace", http.HandlerFunc(httppprof.Trace))
+	}
 	privateSvrMux.Handle("/_mael/v1", &v1Server)
 	privateSvrMux.Handle("/_mael/logs", logsHandler)
 	privateSvrMux.Handle("/", privateGateway)

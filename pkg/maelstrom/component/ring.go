@@ -21,7 +21,8 @@ type componentHandler struct {
 	local   bool
 }
 
-func newComponentRing(componentName string, myNodeId string, remoteNodes remoteNodeCounts) *componentRing {
+func newComponentRing(componentName string, myNodeId string, remoteNodes remoteNodeCounts,
+	bufferPool httputil.BufferPool) *componentRing {
 	ring := &componentRing{
 		componentName: componentName,
 		myNodeId:      myNodeId,
@@ -30,6 +31,7 @@ func newComponentRing(componentName string, myNodeId string, remoteNodes remoteN
 		localCount:    0,
 		handlers:      nil,
 		remoteNodes:   remoteNodes,
+		bufferPool:    bufferPool,
 	}
 	ring.rebuildHandlers()
 	return ring
@@ -43,6 +45,7 @@ type componentRing struct {
 	localHandler  *componentHandler
 	handlers      []*componentHandler
 	remoteNodes   remoteNodeCounts
+	bufferPool    httputil.BufferPool
 }
 
 func (c *componentRing) size() int {
@@ -112,6 +115,7 @@ func (c *componentRing) rebuildHandlers() {
 		target, err := url.Parse(peerUrl)
 		if err == nil {
 			proxy := httputil.NewSingleHostReverseProxy(target)
+			proxy.BufferPool = c.bufferPool
 			proxy.Transport = &http.Transport{
 				Proxy: http.ProxyFromEnvironment,
 				DialContext: (&net.Dialer{

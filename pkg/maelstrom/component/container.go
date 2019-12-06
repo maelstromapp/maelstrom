@@ -22,7 +22,7 @@ type maelContainerId uint64
 type maelContainerStatus int
 
 func NewContainer(dockerClient *docker.Client, component *v1.Component, maelstromUrl string,
-	reqCh chan *RequestInput, id maelContainerId) *Container {
+	reqCh chan *RequestInput, id maelContainerId, bufferPool httputil.BufferPool) *Container {
 	ctx, cancelFx := context.WithCancel(context.Background())
 
 	healthCheckMaxFailures := int(component.Docker.HttpHealthCheckMaxFailures)
@@ -50,6 +50,7 @@ func NewContainer(dockerClient *docker.Client, component *v1.Component, maelstro
 		activity:               make([]v1.ComponentActivity, 0),
 		healthCheckFailures:    0,
 		healthCheckMaxFailures: healthCheckMaxFailures,
+		bufferPool:             bufferPool,
 	}
 	return c
 }
@@ -68,7 +69,8 @@ type Container struct {
 
 	// reverse proxy instance used by rev proxy workers
 	// hits the container port for the container we're managing
-	proxy *httputil.ReverseProxy
+	proxy      *httputil.ReverseProxy
+	bufferPool httputil.BufferPool
 
 	// channel of incoming requests for this component
 	// note that multiple Container instances may share the same reqCh
@@ -321,6 +323,7 @@ func (c *Container) initReverseProxy(ctx context.Context) error {
 	log.Info("container: active for component", "component", c.component.Name, "ver", c.component.Version,
 		"containerId", common.StrTruncate(cont.ID, 8), "url", target.String())
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.BufferPool = c.bufferPool
 	proxy.Transport = &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{

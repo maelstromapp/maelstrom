@@ -116,7 +116,7 @@ func (d *Dispatcher) Route(rw http.ResponseWriter, req *http.Request, comp *v1.C
 		}
 	}
 	deadline := componentReqDeadline(deadlineNano, comp)
-	ctx, _ := context.WithDeadline(context.Background(), deadline)
+	ctx, ctxCancel := context.WithDeadline(context.Background(), deadline)
 	if req.Header.Get("MAELSTROM-DEADLINE-NANO") == "" {
 		req.Header.Set("MAELSTROM-DEADLINE-NANO", strconv.FormatInt(deadline.UnixNano(), 10))
 	}
@@ -137,6 +137,7 @@ func (d *Dispatcher) Route(rw http.ResponseWriter, req *http.Request, comp *v1.C
 	// Block on result, or timeout
 	select {
 	case <-compReq.Done:
+		ctxCancel()
 		return
 	case <-ctx.Done():
 		msg := "gateway: Timeout proxying component: " + comp.Name

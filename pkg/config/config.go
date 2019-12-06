@@ -81,8 +81,12 @@ type Config struct {
 	CronRefreshSeconds int `default:"60"`
 	// If > 0, print gc stats every x seconds
 	LogGcSeconds int
+
 	// If set, log profile data to this filename
 	CpuProfileFilename string
+	// If true, bind go pprof endpoints to private gateway /_mael/pprof/
+	Pprof bool
+
 	// Memory (MiB) to make available to containers (if set to zero, maelstromd will simply act as a relay)
 	TotalMemory int64 `default:"-1"`
 

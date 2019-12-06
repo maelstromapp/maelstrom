@@ -28,6 +28,7 @@ MAEL_AWS_SPOT_TERMINATE_POLL_SECONDS=55
 
 MAEL_LOG_GC_SECONDS=66
 MAEL_CPU_PROFILE_FILENAME=somefile
+MAEL_PPROF=true
 
 MAEL_DOCKER_PRUNE_MINUTES=123
 MAEL_DOCKER_PRUNE_UNREG_IMAGES=true
@@ -46,6 +47,7 @@ MAEL_NODE_LIVENESS_SECONDS=200
 		CronRefreshSeconds:          50,
 		LogGcSeconds:                66,
 		CpuProfileFilename:          "somefile",
+		Pprof:                       true,
 		TotalMemory:                 -200,
 		TerminateCommand:            "term cmd",
 		ShutdownPauseSeconds:        3,

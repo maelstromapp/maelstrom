@@ -73,7 +73,15 @@ Read more about [Docker image pruning](../production/prune.html)
 
 ## Debugging
 
-| Variable                        | Description                                  | Required? | Default |
-|---------------------------------|----------------------------------------------|-----------|---------|
-| MAEL_LOG_GC_SECONDS             | If set, print GC stats every x seconds       | No        | None    |
-| MAEL_CPU_PROFILE_FILENAME       | If set, write Go profiling info to this file | No        | None    |
+| Variable                        | Description                                   | Required? | Default |
+|---------------------------------|-----------------------------------------------|-----------|---------|
+| MAEL_LOG_GC_SECONDS             | If set, print GC stats every x seconds        | No        | None    |
+| MAEL_CPU_PROFILE_FILENAME       | If set, write Go profiling info to this file  | No        | None    |
+| MAEL_PPROF                      | If true, expose pprof HTTP routes             | No        | false   |
+
+`pprof` routes are bound to the internal gateway port.  For example, to get a heap profile, set `MAEL_PPROF=true` and
+request the `/_mael/pprof/heap` endpoint:
+
+```
+curl -sK -v http://localhost:8374/_mael/pprof/heap > heap.out
+```
