@@ -442,8 +442,11 @@ func (d *SqlDb) PutNodeStatus(status v1.NodeStatus) error {
 		return fmt.Errorf("PutNodeStatus RowsAffected failed for nodeId: %s err: %v", status.NodeId, err)
 	}
 	if rows != 1 {
+		conflictSql := strings.Replace(d.onConflictSql, "<TARGET>", "(nodeId)", 1)
 		q := squirrel.Insert("nodestatus").
-			Columns("nodeId", "observedAt", "json").Values(status.NodeId, status.ObservedAt, jsonVal)
+			Columns("nodeId", "observedAt", "json").
+			Values(status.NodeId, status.ObservedAt, jsonVal).
+			Suffix(conflictSql+"observedAt=?", status.ObservedAt)
 		_, err := q.RunWith(d.db).Exec()
 		if err != nil {
 			return fmt.Errorf("PutNodeStatus insert failed for nodeId: %s err: %v", status.NodeId, err)

@@ -829,6 +829,9 @@ func (n *NodeServiceImpl) logStatus(ctx context.Context) error {
 }
 
 func (n *NodeServiceImpl) resolveAndBroadcastNodeStatus(ctx context.Context) (v1.NodeStatus, error) {
+	n.loadStatusLock.Lock()
+	defer n.loadStatusLock.Unlock()
+
 	status, err := n.resolveNodeStatus(ctx)
 	if err != nil {
 		return status, err
