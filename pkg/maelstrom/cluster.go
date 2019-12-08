@@ -250,7 +250,13 @@ func (c *Cluster) BroadcastTerminationEvent(input v1.TerminateNodeInput) {
 }
 
 func (c *Cluster) notifyAll() {
+	nodesCopy := make(map[string]v1.NodeStatus)
+	c.lock.Lock()
+	for k, v := range c.nodesById {
+		nodesCopy[k] = v
+	}
+	c.lock.Unlock()
 	for _, o := range c.observers {
-		go o.OnClusterUpdated(c.nodesById)
+		go o.OnClusterUpdated(nodesCopy)
 	}
 }
