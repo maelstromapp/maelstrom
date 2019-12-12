@@ -13,6 +13,8 @@ stores configuration state about the components and event sources in the system.
 * A component is a docker image with a related run configuration and environment variables.
 * An event source is something that generates requests for a component. HTTP requests, scheduled jobs, and 
   messages in queues are all types of events.  Maelstrom currently supports HTTP, cron, and AWS SQS events.
+
+![screencast](https://maelstromapp.com/images/demo_screencast.svg)
   
 ## Documentation
 
