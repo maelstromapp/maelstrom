@@ -11,6 +11,8 @@ github.com/cenkalti/backoff v2.1.1+incompatible h1:tKJnvO2kl0zmb/jA5UKAt4VoEVw1q
 github.com/cenkalti/backoff v2.1.1+incompatible/go.mod h1:90ReRw6GdpyfrHakVjL/QHaoyV4aDUVVkXQJJJ3NXXM=
 github.com/coopernurse/barrister-go v0.0.0-20180602004421-efbfefb2c4a3 h1:Rkg0Gy1bNrdeWFyvAW0HRCeVZu9DSX82AsdJwcgsPQY=
 github.com/coopernurse/barrister-go v0.0.0-20180602004421-efbfefb2c4a3/go.mod h1:tBvkf11o08mNaimCnzEGK8kW9gb7XdwHnmqDSb9PpJE=
+github.com/coopernurse/envconfig v0.0.2 h1:7NbtjGioIWXu8XvnROOx746bNp5wSOvJysqfY2rSGFs=
+github.com/coopernurse/envconfig v0.0.2/go.mod h1:IIesVqOwrBgL9RZKhvP7V3tJiFa6zjuZgBwSnoQhsvw=
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/digitalocean/godo v1.14.0 h1:x/Ecu4wpLAXIujhZJk8OP7fAb2uIuk13AeUhBYDPKJo=
@@ -67,8 +69,6 @@ github.com/miekg/dns v1.1.3 h1:1g0r1IvskvgL8rR+AcHzUA+oFmGcQlaIm4IqakufeMM=
 github.com/miekg/dns v1.1.3/go.mod h1:W1PPwlIAgtquWBMBEV9nkV9Cazfe8ScdGz/Lj7v3Nrg=
 github.com/namedotcom/go v0.0.0-20180403034216-08470befbe04 h1:o6uBwrhM5C8Ll3MAAxrQxRHEu7FkapwTuI2WmL1rw4g=
 github.com/namedotcom/go v0.0.0-20180403034216-08470befbe04/go.mod h1:5sN+Lt1CaY4wsPvgQH/jsuJi4XO2ssZbdsIizr4CVC8=
-github.com/ndrewnee/envconfig v0.0.0-20190406231007-7e84fd1358a1 h1:V+K3wIX7S8aZrFHfjXwQsaVla1GgRlWpvdz/9H5jE20=
-github.com/ndrewnee/envconfig v0.0.0-20190406231007-7e84fd1358a1/go.mod h1:t35xUUDBxnNLFzIMx6v4oiGP3szViQkfzbiXIYS4mtQ=
 github.com/opencontainers/go-digest v1.0.0-rc1 h1:WzifXhOVOEOuFYOJAW6aQqW0TooG2iki3E3Ii+WN7gQ=
 github.com/opencontainers/go-digest v1.0.0-rc1/go.mod h1:cMLVZDEM3+U2I4VmLI6N8jQYUd2OVphdqWwCJHrFt2s=
 github.com/pkg/errors v0.8.0 h1:WdK/asTD0HN+q6hsWO3/vpuAkAr+tw6aNJNDFFf0+qw=

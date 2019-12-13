@@ -6,6 +6,7 @@ require (
 	github.com/aws/aws-sdk-go v1.23.18
 	github.com/c9s/goprocinfo v0.0.0-20190309065803-0b2ad9ac246b
 	github.com/coopernurse/barrister-go v0.0.0-20180602004421-efbfefb2c4a3
+	github.com/coopernurse/envconfig v0.0.2
 	github.com/digitalocean/godo v1.14.0
 	github.com/docker/distribution v2.7.0+incompatible // indirect
 	github.com/docker/docker v1.13.1
@@ -28,7 +29,6 @@ require (
 	github.com/mgutz/logxi v0.0.0-20161027140823-aebf8a7d67ab
 	github.com/mholt/certmagic v0.5.1
 	github.com/namedotcom/go v0.0.0-20180403034216-08470befbe04 // indirect
-	github.com/ndrewnee/envconfig v0.0.0-20190406231007-7e84fd1358a1
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/pkg/errors v0.8.0
 	github.com/robfig/cron/v3 v3.0.0

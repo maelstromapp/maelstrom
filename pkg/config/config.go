@@ -3,8 +3,8 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"github.com/coopernurse/envconfig"
 	"github.com/coopernurse/maelstrom/pkg/common"
-	"github.com/ndrewnee/envconfig"
 	"io"
 	"os"
 	"strings"
