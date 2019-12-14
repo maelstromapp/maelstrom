@@ -3,6 +3,7 @@ package maelstrom
 import (
 	"fmt"
 	"github.com/coopernurse/maelstrom/pkg/cert"
+	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"net/http"
 	"sort"
@@ -16,7 +17,7 @@ type ComponentResolver interface {
 	ByHTTPRequest(req *http.Request, public bool) (v1.Component, error)
 }
 
-func NewDbResolver(db Db, certWrapper *cert.CertMagicWrapper, cacheDuration time.Duration) *DbComponentResolver {
+func NewDbResolver(db db.Db, certWrapper *cert.CertMagicWrapper, cacheDuration time.Duration) *DbComponentResolver {
 	return &DbComponentResolver{
 		db:            db,
 		certWrapper:   certWrapper,
@@ -26,7 +27,7 @@ func NewDbResolver(db Db, certWrapper *cert.CertMagicWrapper, cacheDuration time
 }
 
 type DbComponentResolver struct {
-	db            Db
+	db            db.Db
 	certWrapper   *cert.CertMagicWrapper
 	cacheDuration time.Duration
 	lock          *sync.Mutex
@@ -131,7 +132,7 @@ func (r *DbComponentResolver) ByHTTPRequest(req *http.Request, public bool) (v1.
 		}
 	}
 
-	return v1.Component{}, NotFound
+	return v1.Component{}, db.NotFound
 }
 
 func httpEventSourceMatches(es v1.EventSource, hostname string, path string) bool {
@@ -145,7 +146,7 @@ func httpEventSourceMatches(es v1.EventSource, hostname string, path string) boo
 		(es.Http.PathPrefix == "" || strings.HasPrefix(path, es.Http.PathPrefix))
 }
 
-func allEnabledHttpEventSources(db Db, certWrapper *cert.CertMagicWrapper) ([]v1.EventSource, error) {
+func allEnabledHttpEventSources(db db.Db, certWrapper *cert.CertMagicWrapper) ([]v1.EventSource, error) {
 	nextToken := ""
 	input := v1.ListEventSourcesInput{EventSourceType: v1.EventSourceTypeHttp}
 	allSources := make([]v1.EventSource, 0)

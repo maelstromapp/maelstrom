@@ -1,4 +1,4 @@
-package maelstrom
+package db
 
 import (
 	"fmt"

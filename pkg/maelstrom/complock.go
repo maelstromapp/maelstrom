@@ -2,6 +2,7 @@ package maelstrom
 
 import (
 	"context"
+	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/pkg/errors"
@@ -9,11 +10,11 @@ import (
 )
 
 type CompLocker struct {
-	db     Db
+	db     db.Db
 	nodeId string
 }
 
-func NewCompLocker(db Db, nodeId string) *CompLocker {
+func NewCompLocker(db db.Db, nodeId string) *CompLocker {
 	return &CompLocker{
 		db:     db,
 		nodeId: nodeId,

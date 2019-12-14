@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/mgutz/logxi/v1"
 	"github.com/robfig/cron/v3"
@@ -16,7 +17,7 @@ import (
 	"time"
 )
 
-func NewCronService(db Db, gateway *Gateway, ctx context.Context, nodeId string, refreshRate time.Duration) *CronService {
+func NewCronService(db db.Db, gateway *Gateway, ctx context.Context, nodeId string, refreshRate time.Duration) *CronService {
 	return &CronService{
 		db:           db,
 		gateway:      gateway,
@@ -28,7 +29,7 @@ func NewCronService(db Db, gateway *Gateway, ctx context.Context, nodeId string,
 }
 
 type CronService struct {
-	db           Db
+	db           db.Db
 	gateway      *Gateway
 	ctx          context.Context
 	nodeId       string

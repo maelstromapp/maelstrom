@@ -5,6 +5,7 @@ import (
 	"context"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/sqs"
+	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	log "github.com/mgutz/logxi/v1"
@@ -20,7 +21,7 @@ type sqsMessage struct {
 	component *v1.Component
 }
 
-func NewSqsPoller(roleId string, db Db, dispatcher *component.Dispatcher, es v1.EventSource, sqsClient *sqs.SQS,
+func NewSqsPoller(roleId string, db db.Db, dispatcher *component.Dispatcher, es v1.EventSource, sqsClient *sqs.SQS,
 	queueUrls []*string, ctx context.Context, parentWg *sync.WaitGroup) *SqsPoller {
 	return &SqsPoller{
 		roleId:     roleId,
@@ -38,7 +39,7 @@ func NewSqsPoller(roleId string, db Db, dispatcher *component.Dispatcher, es v1.
 type SqsPoller struct {
 	roleId     string
 	sqs        *sqs.SQS
-	db         Db
+	db         db.Db
 	dispatcher *component.Dispatcher
 	es         v1.EventSource
 	queueUrls  []*string

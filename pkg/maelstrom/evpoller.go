@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sqs"
+	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	log "github.com/mgutz/logxi/v1"
@@ -15,7 +16,7 @@ import (
 	"time"
 )
 
-func NewEvPoller(myNodeId string, ctx context.Context, db Db, dispatcher *component.Dispatcher,
+func NewEvPoller(myNodeId string, ctx context.Context, db db.Db, dispatcher *component.Dispatcher,
 	awsSession *session.Session) *EvPoller {
 	return &EvPoller{
 		myNodeId:    myNodeId,
@@ -32,7 +33,7 @@ func NewEvPoller(myNodeId string, ctx context.Context, db Db, dispatcher *compon
 type EvPoller struct {
 	myNodeId    string
 	ctx         context.Context
-	db          Db
+	db          db.Db
 	dispatcher  *component.Dispatcher
 	awsSession  *session.Session
 	activeRoles map[string]context.CancelFunc

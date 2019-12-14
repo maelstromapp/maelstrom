@@ -3,23 +3,18 @@ package maelstrom
 import (
 	"fmt"
 	"github.com/coopernurse/barrister-go"
+	"github.com/coopernurse/maelstrom/pkg/db"
+	"github.com/coopernurse/maelstrom/pkg/test"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/google/gofuzz"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
-	"math/rand"
 	"strings"
 	"testing"
 )
 
-func panicOnErr(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-
-func createV1() (*MaelServiceImpl, *SqlDb) {
-	sqlDb := createTestSqlDb()
+func createV1() (*MaelServiceImpl, *db.SqlDb) {
+	sqlDb := db.NewTestSqlDb()
 	return NewMaelServiceImpl(sqlDb, nil, nil, "node1", nil), sqlDb
 }
 
@@ -32,7 +27,7 @@ func TestComponentCRUD(t *testing.T) {
 	assert.Equal(t, int64(1), out.Version)
 
 	// Put updates an existing component with the same name
-	input := validComponent("c2")
+	input := test.ValidComponent("c2")
 	_, err := svc.PutComponent(input)
 	assert.Nil(t, err)
 
@@ -113,7 +108,7 @@ func TestComponentValidation(t *testing.T) {
 	// Raises 1001 if name is invalid
 	invalid := []string{"", " ", "\t\n", "hello)"}
 	for _, name := range invalid {
-		i := validComponent(name)
+		i := test.ValidComponent(name)
 		out, err := svc.PutComponent(i)
 		assert.Equal(t, v1.PutComponentOutput{}, out)
 		assertRpcErr(t, err, 1001)
@@ -127,7 +122,7 @@ func TestComponentValidation(t *testing.T) {
 	}
 
 	// Raises 1002 if name already exists and previousVersion is zero
-	input := validComponent("1002test")
+	input := test.ValidComponent("1002test")
 
 	// first put should succeed
 	_, err := svc.PutComponent(input)
@@ -138,7 +133,7 @@ func TestComponentValidation(t *testing.T) {
 	assertRpcErr(t, err, 1002)
 
 	// Raises 1004 if previousVersion is not current
-	input = validComponent("1004test")
+	input = test.ValidComponent("1004test")
 
 	// first put should succeed
 	out, err := svc.PutComponent(input)
@@ -366,7 +361,7 @@ func TestProjectCRUD(t *testing.T) {
 	// get project and verify equality
 	getOut, err := svc.GetProject(v1.GetProjectInput{Name: projName})
 	assert.Nil(t, err, "GetProject err: %v", err)
-	sanitizeComponentsWithEventSources(getOut.Project.Components)
+	test.SanitizeComponentsWithEventSources(getOut.Project.Components)
 	assert.Equal(t, putIn.Project, getOut.Project)
 
 	// remove project
@@ -395,7 +390,7 @@ func TestProjectValidation(t *testing.T) {
 				Name: name,
 				Components: []v1.ComponentWithEventSources{
 					{
-						Component: validComponent("componentName").Component,
+						Component: test.ValidComponent("componentName").Component,
 					},
 				},
 			},
@@ -419,7 +414,7 @@ func TestProjectValidation(t *testing.T) {
 				Name: "projectName",
 				Components: []v1.ComponentWithEventSources{
 					{
-						Component: validComponent("co!@mponentName").Component,
+						Component: test.ValidComponent("co!@mponentName").Component,
 					},
 				},
 			},
@@ -430,7 +425,7 @@ func TestProjectValidation(t *testing.T) {
 				Name: "projectName",
 				Components: []v1.ComponentWithEventSources{
 					{
-						Component: validComponent("okName").Component,
+						Component: test.ValidComponent("okName").Component,
 						EventSources: []v1.EventSourceWithStatus{
 							{
 								EventSource: v1.EventSource{
@@ -457,7 +452,7 @@ func TestProjectValidation(t *testing.T) {
 				Name: name,
 				Components: []v1.ComponentWithEventSources{
 					{
-						Component: validComponent("componentName").Component,
+						Component: test.ValidComponent("componentName").Component,
 					},
 				},
 			},
@@ -470,79 +465,23 @@ func TestProjectValidation(t *testing.T) {
 ////////////////////////////////////////////////////////
 
 func putProjectOK(t *testing.T, svc *MaelServiceImpl, projectName string) (v1.PutProjectInput, v1.PutProjectOutput) {
-	input := validProject(projectName)
+	input := test.ValidProject(projectName)
 	out, err := svc.PutProject(input)
 	assert.Nil(t, err, "PutProject failed for: %s - %v", projectName, err)
 	assert.Equal(t, input.Project.Name, out.Name)
 	return input, out
 }
 
-func validProject(projectName string) v1.PutProjectInput {
-	num := rand.Intn(5) + 1
-	components := make([]v1.ComponentWithEventSources, num)
-	for i := 0; i < num; i++ {
-		compName := fmt.Sprintf("comp-%d", i)
-		comp := validComponent(compName)
-		comp.Component.ProjectName = projectName
-		esNum := rand.Intn(5)
-		eventSources := make([]v1.EventSourceWithStatus, esNum)
-		for x := 0; x < esNum; x++ {
-			esName := fmt.Sprintf("es-%d-%d", i, x)
-			es := validPutEventSourceInput(esName, compName).EventSource
-			es.ProjectName = projectName
-			eventSources[x] = v1.EventSourceWithStatus{
-				EventSource: es,
-				Enabled:     true,
-			}
-		}
-		components[i] = v1.ComponentWithEventSources{
-			Component:    comp.Component,
-			EventSources: eventSources,
-		}
-	}
-
-	return v1.PutProjectInput{
-		Project: v1.Project{
-			Name:       projectName,
-			Components: components,
-		},
-	}
-}
-
-func validComponent(componentName string) v1.PutComponentInput {
-	return v1.PutComponentInput{
-		Component: v1.Component{
-			Name: componentName,
-			Docker: &v1.DockerComponent{
-				Image:    "coopernurse/foo",
-				HttpPort: 8080,
-			},
-		},
-	}
-}
-
 func putComponentOK(t *testing.T, svc *MaelServiceImpl, name string) v1.PutComponentOutput {
-	input := validComponent(name)
+	input := test.ValidComponent(name)
 	out, err := svc.PutComponent(input)
 	assert.Nil(t, err, "PutComponent failed for: %s - %v", name, err)
 	assert.Equal(t, input.Component.Name, out.Name)
 	return out
 }
 
-func validPutEventSourceInput(eventSourceName string, componentName string) v1.PutEventSourceInput {
-	return v1.PutEventSourceInput{
-		EventSource: v1.EventSource{
-			Name:          eventSourceName,
-			ComponentName: componentName,
-			Http: &v1.HttpEventSource{
-				Hostname: "www.example.com",
-			},
-		},
-	}
-}
-
 func putEventSourceFailsWithCode(t *testing.T, svc *MaelServiceImpl, errCode int, mutator func(i *v1.PutEventSourceInput)) {
-	input := validPutEventSourceInput("esname", "comp1")
+	input := test.ValidPutEventSourceInput("esname", "comp1")
 	mutator(&input)
 	_, err := svc.PutEventSource(input)
 	assert.NotNil(t, err, "PutEventSource didn't error for input: %v", input)
@@ -552,7 +491,7 @@ func putEventSourceFailsWithCode(t *testing.T, svc *MaelServiceImpl, errCode int
 
 func putEventSourceOK(t *testing.T, svc *MaelServiceImpl, eventSourceName string,
 	componentName string) (v1.PutEventSourceInput, v1.PutEventSourceOutput) {
-	input := validPutEventSourceInput(eventSourceName, componentName)
+	input := test.ValidPutEventSourceInput(eventSourceName, componentName)
 	out, err := svc.PutEventSource(input)
 	assert.Nil(t, err, "PutEventSource failed for: %s - %v", eventSourceName, err)
 	assert.Equal(t, eventSourceName, out.Name)
@@ -581,33 +520,6 @@ func eventSourceNames(list []v1.EventSourceWithStatus) []string {
 		names[x] = c.EventSource.Name
 	}
 	return names
-}
-
-func sanitizeComponentsWithEventSources(list []v1.ComponentWithEventSources) {
-	for i, ces := range list {
-		list[i].Component = sanitizeComponent(&ces.Component)
-		for x, es := range ces.EventSources {
-			ces.EventSources[x] = sanitizeEventSource(&es)
-		}
-	}
-}
-
-func sanitizeComponent(c *v1.Component) v1.Component {
-	c.Version = 0
-	c.ModifiedAt = 0
-	return *c
-}
-
-func sanitizeEventSources(list []v1.EventSourceWithStatus) {
-	for i, es := range list {
-		list[i] = sanitizeEventSource(&es)
-	}
-}
-
-func sanitizeEventSource(es *v1.EventSourceWithStatus) v1.EventSourceWithStatus {
-	es.EventSource.Version = 0
-	es.EventSource.ModifiedAt = 0
-	return *es
 }
 
 func assertRpcErr(t *testing.T, err error, errCode int) {

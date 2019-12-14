@@ -5,19 +5,16 @@ import (
 	"github.com/coopernurse/barrister-go"
 	"github.com/coopernurse/maelstrom/pkg/cert"
 	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/mgutz/logxi/v1"
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 )
 
 var _ v1.MaelstromService = (*MaelServiceImpl)(nil)
 var nameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-
-// tests can swap out
-var timeNow = func() time.Time { return time.Now() }
 
 type ErrorCode int
 
@@ -59,7 +56,7 @@ func projectNameValid(errPrefix string, name string) (string, error) {
 	return nameValid(errPrefix, name, 20)
 }
 
-func NewMaelServiceImpl(db Db, componentSubscribers []ComponentSubscriber, certWrapper *cert.CertMagicWrapper,
+func NewMaelServiceImpl(db db.Db, componentSubscribers []ComponentSubscriber, certWrapper *cert.CertMagicWrapper,
 	myNodeId string, cluster *Cluster) *MaelServiceImpl {
 	return &MaelServiceImpl{
 		db:                   db,
@@ -71,7 +68,7 @@ func NewMaelServiceImpl(db Db, componentSubscribers []ComponentSubscriber, certW
 }
 
 type MaelServiceImpl struct {
-	db                   Db
+	db                   db.Db
 	componentSubscribers []ComponentSubscriber
 	certWrapper          *cert.CertMagicWrapper
 	myNodeId             string
@@ -85,9 +82,9 @@ func (v *MaelServiceImpl) onError(code ErrorCode, msg string, err error) error {
 
 func (v *MaelServiceImpl) transformPutError(prefix string, err error) error {
 	if err != nil {
-		if err == IncorrectPreviousVersion {
+		if err == db.IncorrectPreviousVersion {
 			return &barrister.JsonRpcError{Code: 1004, Message: prefix + ": previousVersion is incorrect"}
-		} else if err == AlreadyExists {
+		} else if err == db.AlreadyExists {
 			return &barrister.JsonRpcError{Code: 1002, Message: prefix + ": already exists with key"}
 		}
 		return v.onError(DbError, "v1.server: transformPutError "+prefix, err)
@@ -274,7 +271,7 @@ func (v *MaelServiceImpl) GetComponent(input v1.GetComponentInput) (v1.GetCompon
 	input.Name = strings.ToLower(input.Name)
 	c, err := v.db.GetComponent(input.Name)
 	if err != nil {
-		if err == NotFound {
+		if err == db.NotFound {
 			return v1.GetComponentOutput{}, &barrister.JsonRpcError{
 				Code:    1003,
 				Message: "No Component found with name: " + input.Name}
@@ -326,7 +323,7 @@ func (v *MaelServiceImpl) PutEventSource(input v1.PutEventSourceInput) (v1.PutEv
 
 	// * 1003 - input.componentName does not reference a component defined in the system
 	component, err := v.db.GetComponent(input.EventSource.ComponentName)
-	if err == NotFound {
+	if err == db.NotFound {
 		return v1.PutEventSourceOutput{},
 			newRpcErr(1003, "eventSource.component not found: "+input.EventSource.ComponentName)
 	}
@@ -350,7 +347,7 @@ func (v *MaelServiceImpl) GetEventSource(input v1.GetEventSourceInput) (v1.GetEv
 	input.Name = strings.ToLower(input.Name)
 	es, err := v.db.GetEventSource(input.Name)
 	if err != nil {
-		if err == NotFound {
+		if err == db.NotFound {
 			return v1.GetEventSourceOutput{}, &barrister.JsonRpcError{
 				Code:    1003,
 				Message: "No event source found with name: " + input.Name}

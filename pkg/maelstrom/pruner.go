@@ -3,6 +3,7 @@ package maelstrom
 import (
 	"context"
 	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/db"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
@@ -14,7 +15,7 @@ import (
 	"time"
 )
 
-func NewDockerPruner(dockerClient *docker.Client, db Db, ctx context.Context,
+func NewDockerPruner(dockerClient *docker.Client, db db.Db, ctx context.Context,
 	pruneUnregistered bool, pruneKeep []string) *DockerPruner {
 	return &DockerPruner{
 		dockerClient:      dockerClient,
@@ -27,7 +28,7 @@ func NewDockerPruner(dockerClient *docker.Client, db Db, ctx context.Context,
 
 type DockerPruner struct {
 	dockerClient      *docker.Client
-	db                Db
+	db                db.Db
 	ctx               context.Context
 	pruneUnregistered bool
 	pruneKeep         []string

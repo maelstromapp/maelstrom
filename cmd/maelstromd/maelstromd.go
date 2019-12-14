@@ -9,6 +9,7 @@ import (
 	"github.com/coopernurse/maelstrom/pkg/cert"
 	"github.com/coopernurse/maelstrom/pkg/common"
 	"github.com/coopernurse/maelstrom/pkg/config"
+	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	"github.com/coopernurse/maelstrom/pkg/v1"
@@ -43,8 +44,8 @@ func mustStart(s *http.Server) {
 	}
 }
 
-func initDb(sqlDriver, sqlDSN string) maelstrom.Db {
-	sqlDb, err := maelstrom.NewSqlDb(sqlDriver, sqlDSN)
+func initDb(sqlDriver, sqlDSN string) db.Db {
+	sqlDb, err := db.NewSqlDb(sqlDriver, sqlDSN)
 	if err != nil {
 		log.Error("maelstromd: cannot create SqlDb", "driver", sqlDriver, "err", err)
 		os.Exit(2)

@@ -368,7 +368,7 @@ func eventSourceToggle(enabled bool, args docopt.Opts, svc v1.MaelstromService) 
 	var esTypeConv v1.EventSourceType
 	var err error
 	if esType != "" {
-		esTypeConv, err = maelstrom.StrToEventSourceType(esType)
+		esTypeConv, err = v1.StrToEventSourceType(esType)
 		checkErr(err, "Invalid --type")
 	}
 

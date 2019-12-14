@@ -3,6 +3,7 @@ package maelstrom
 import (
 	"fmt"
 	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/db"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	log "github.com/mgutz/logxi/v1"
 	"github.com/pkg/errors"
@@ -70,7 +71,7 @@ func componentsByName(comps []v1.Component) map[string]v1.Component {
 	return byName
 }
 
-func loadActiveComponents(nodes []v1.NodeStatus, db Db) (map[string]v1.Component, error) {
+func loadActiveComponents(nodes []v1.NodeStatus, db db.Db) (map[string]v1.Component, error) {
 	activeComponents := map[string]bool{}
 	for _, node := range nodes {
 		for _, comp := range node.RunningComponents {

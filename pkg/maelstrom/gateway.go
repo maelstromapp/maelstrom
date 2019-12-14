@@ -1,6 +1,7 @@
 package maelstrom
 
 import (
+	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	"github.com/mgutz/logxi/v1"
 	"net/http"
@@ -33,7 +34,7 @@ func (g *Gateway) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	// Resolve Component based on hostname/path
 	comp, err := g.compResolver.ByHTTPRequest(req, g.public)
 	if err != nil {
-		if err == NotFound {
+		if err == db.NotFound {
 			respondText(rw, http.StatusNotFound, "No component matches the request")
 		} else {
 			log.Error("gateway: compResolver.ByHTTPRequest", "err", err)

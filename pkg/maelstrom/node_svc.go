@@ -11,6 +11,7 @@ import (
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	"github.com/coopernurse/barrister-go"
 	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	docker "github.com/docker/docker/client"
@@ -36,7 +37,7 @@ type placeComponentResult struct {
 	err    error
 }
 
-func NewNodeServiceImplFromDocker(db Db, dockerClient *docker.Client, privatePort int,
+func NewNodeServiceImplFromDocker(db db.Db, dockerClient *docker.Client, privatePort int,
 	peerUrl string, totalMemAllowed int64, instanceId string, shutdownCh chan ShutdownFunc,
 	awsSession *session.Session, terminateCommand string, pullState *component.PullState) (*NodeServiceImpl, error) {
 
@@ -90,7 +91,7 @@ func NewNodeServiceImplFromDocker(db Db, dockerClient *docker.Client, privatePor
 
 type NodeServiceImpl struct {
 	dispatcher *component.Dispatcher
-	db         Db
+	db         db.Db
 	cluster    *Cluster
 	// nodeId is the maelstrom node id used to uniquely identify this node in the cluster
 	// it is currently the docker node id and is derived from the docker daemon at startup
@@ -307,7 +308,7 @@ func waitForPlacement(waitCh chan placeComponentResult) (v1.PlaceComponentOutput
 func (n *NodeServiceImpl) placeComponentInternal(input v1.PlaceComponentInput) (v1.PlaceComponentOutput, error) {
 	// get component
 	comp, err := n.db.GetComponent(input.ComponentName)
-	if err == NotFound {
+	if err == db.NotFound {
 		return v1.PlaceComponentOutput{}, &barrister.JsonRpcError{
 			Code:    1003,
 			Message: "No Component found with name: " + input.ComponentName}

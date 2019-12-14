@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/docker/docker/api/types"
@@ -297,8 +298,8 @@ func stopMaelstromContainers(t *testing.T) {
 	assert.Nil(t, err, "RemoveMaelstromContainers err != nil: %v", err)
 }
 
-func newDb(t *testing.T) *SqlDb {
-	sqlDb, err := NewSqlDb("sqlite3", "file:test.db?cache=shared&_journal_mode=MEMORY&mode=rwc")
+func newDb(t *testing.T) *db.SqlDb {
+	sqlDb, err := db.NewSqlDb("sqlite3", "file:test.db?cache=shared&_journal_mode=MEMORY&mode=rwc")
 	assert.Nil(t, err, "NewSqlDb err != nil: %v", err)
 	err = sqlDb.Migrate()
 	assert.Nil(t, err, "sqlDb.Migrate err != nil: %v", err)
@@ -311,7 +312,7 @@ func newDb(t *testing.T) *SqlDb {
 	return sqlDb
 }
 
-func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *SqlDb) *Fixture {
+func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *db.SqlDb) *Fixture {
 	successfulReqs := int64(0)
 	daemonWG := &sync.WaitGroup{}
 	resolver := NewDbResolver(sqlDb, nil, 0)

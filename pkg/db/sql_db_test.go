@@ -1,8 +1,9 @@
-package maelstrom
+package db
 
 import (
 	"fmt"
 	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/test"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	fuzz "github.com/google/gofuzz"
 	"github.com/stretchr/testify/assert"
@@ -16,18 +17,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func createTestSqlDb() *SqlDb {
-	sqlDb, err := NewSqlDb("sqlite3", "file:test.db?cache=shared&_journal_mode=WAL&mode=memory&_busy_timeout=5000")
-	//sqlDb, err := NewSqlDb("mysql", "root:test@(127.0.0.1:3306)/maeltest")
-	//sqlDb, err := NewSqlDb("postgres", "postgres://postgres:test@127.0.0.1:5432/maeltest?sslmode=disable")
-	panicOnErr(err)
-
-	// run sql migrations and delete any existing data
-	panicOnErr(sqlDb.Migrate())
-	panicOnErr(sqlDb.DeleteAll())
-
-	return sqlDb
-}
+// tests can swap out
+var timeNow = func() time.Time { return time.Now() }
 
 func mockTimeNow(t time.Time) time.Time {
 	timeNow = func() time.Time { return t }
@@ -38,7 +29,7 @@ func TestNodeStatusCRUD(t *testing.T) {
 	start := time.Now()
 	nowMillis := common.TimeToMillis(mockTimeNow(time.Now().Add(time.Millisecond)))
 	f := fuzz.New()
-	db := createTestSqlDb()
+	db := NewTestSqlDb()
 
 	// empty list by default
 	dbNodes, err := db.ListNodeStatus()
@@ -103,7 +94,7 @@ func TestNodeStatusCRUD(t *testing.T) {
 
 func TestListNodeStatus(t *testing.T) {
 	nowMillis := common.TimeToMillis(mockTimeNow(time.Now()))
-	db := createTestSqlDb()
+	db := NewTestSqlDb()
 	f := fuzz.New()
 	total := 200
 	nodes := make([]v1.NodeStatus, total)
@@ -124,7 +115,7 @@ func TestListNodeStatus(t *testing.T) {
 }
 
 func TestAcquireReleaseRole(t *testing.T) {
-	db := createTestSqlDb()
+	db := NewTestSqlDb()
 	node1 := "node1"
 	node2 := "node2"
 	r1 := "role1"
@@ -199,7 +190,7 @@ func TestAcquireReleaseRole(t *testing.T) {
 }
 
 func TestAcquireReleaseRoleConcurrency(t *testing.T) {
-	db := createTestSqlDb()
+	db := NewTestSqlDb()
 	roles := make([]string, 300)
 	for i := 0; i < len(roles); i++ {
 		roles[i] = fmt.Sprintf("role%d", i)
@@ -233,22 +224,22 @@ func TestAcquireReleaseRoleConcurrency(t *testing.T) {
 }
 
 func TestToggleEventSourceEnabled(t *testing.T) {
-	db := createTestSqlDb()
+	db := NewTestSqlDb()
 	out, err := db.ListEventSources(v1.ListEventSourcesInput{})
 	assert.Nil(t, err)
 	assert.Equal(t, []v1.EventSourceWithStatus{}, out.EventSources)
 
-	es := validPutEventSourceInput("es1", "c1").EventSource
+	es := test.ValidPutEventSourceInput("es1", "c1").EventSource
 	_, err = db.PutEventSource(es)
 	assert.Nil(t, err)
 
-	es2 := validPutEventSourceInput("es2", "c1").EventSource
+	es2 := test.ValidPutEventSourceInput("es2", "c1").EventSource
 	_, err = db.PutEventSource(es2)
 	assert.Nil(t, err)
 
 	out, err = db.ListEventSources(v1.ListEventSourcesInput{})
 	assert.Nil(t, err)
-	sanitizeEventSources(out.EventSources)
+	test.SanitizeEventSources(out.EventSources)
 	assert.Equal(t, []v1.EventSourceWithStatus{
 		{
 			EventSource: es,
@@ -266,7 +257,7 @@ func TestToggleEventSourceEnabled(t *testing.T) {
 
 	out, err = db.ListEventSources(v1.ListEventSourcesInput{})
 	assert.Nil(t, err)
-	sanitizeEventSources(out.EventSources)
+	test.SanitizeEventSources(out.EventSources)
 	assert.Equal(t, []v1.EventSourceWithStatus{
 		{
 			EventSource: es,
@@ -280,7 +271,7 @@ func TestToggleEventSourceEnabled(t *testing.T) {
 }
 
 func TestComponentCount(t *testing.T) {
-	db := createTestSqlDb()
+	db := NewTestSqlDb()
 
 	// count is zero initially
 	getComponentDeployCount(t, db, "c1", 1, 0)

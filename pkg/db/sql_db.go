@@ -1,4 +1,4 @@
-package maelstrom
+package db
 
 import (
 	"database/sql"
@@ -33,6 +33,19 @@ func NewSqlDb(driver string, dsn string) (*SqlDb, error) {
 	}
 
 	return &SqlDb{db: db, driver: driver, blobType: blobType, onConflictSql: onConflictSql}, nil
+}
+
+func NewTestSqlDb() *SqlDb {
+	sqlDb, err := NewSqlDb("sqlite3", "file:test.db?cache=shared&_journal_mode=WAL&mode=memory&_busy_timeout=5000")
+	//sqlDb, err := NewSqlDb("mysql", "root:test@(127.0.0.1:3306)/maeltest")
+	//sqlDb, err := NewSqlDb("postgres", "postgres://postgres:test@127.0.0.1:5432/maeltest?sslmode=disable")
+	panicOnErr(err)
+
+	// run sql migrations and delete any existing data
+	panicOnErr(sqlDb.Migrate())
+	panicOnErr(sqlDb.DeleteAll())
+
+	return sqlDb
 }
 
 type SqlDb struct {
@@ -340,7 +353,7 @@ func (d *SqlDb) PutEventSource(eventSource v1.EventSource) (int64, error) {
 		return 0, fmt.Errorf("PutEventSource unable to marshal JSON: %v", err)
 	}
 
-	eventType := string(getEventSourceType(eventSource))
+	eventType := string(v1.GetEventSourceType(eventSource))
 
 	if previousVersion == 0 {
 		err = d.insertRow("eventsource", eventSource.Name, eventSource,
@@ -713,4 +726,10 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+func panicOnErr(err error) {
+	if err != nil {
+		panic(err)
+	}
 }

@@ -1,13 +1,14 @@
 package maelstrom
 
 import (
+	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	docker "github.com/docker/docker/client"
 	log "github.com/mgutz/logxi/v1"
 )
 
-func NewImagePuller(dockerClient *docker.Client, db Db, pullState *component.PullState) *ImagePuller {
+func NewImagePuller(dockerClient *docker.Client, db db.Db, pullState *component.PullState) *ImagePuller {
 	return &ImagePuller{
 		dockerClient: dockerClient,
 		db:           db,
@@ -17,7 +18,7 @@ func NewImagePuller(dockerClient *docker.Client, db Db, pullState *component.Pul
 
 type ImagePuller struct {
 	dockerClient *docker.Client
-	db           Db
+	db           db.Db
 	pullState    *component.PullState
 }
 
