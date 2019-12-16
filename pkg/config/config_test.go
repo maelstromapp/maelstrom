@@ -26,6 +26,10 @@ MAEL_AWS_TERMINATE_QUEUE_URL=q1
 MAEL_AWS_TERMINATE_MAX_AGE_SECONDS=44
 MAEL_AWS_SPOT_TERMINATE_POLL_SECONDS=55
 
+MAEL_HTTP_READ_TIMEOUT=100
+MAEL_HTTP_WRITE_TIMEOUT=200
+MAEL_HTTP_IDLE_TIMEOUT=400
+
 MAEL_LOG_GC_SECONDS=66
 MAEL_CPU_PROFILE_FILENAME=somefile
 MAEL_PPROF=true
@@ -42,6 +46,9 @@ MAEL_NODE_LIVENESS_SECONDS=200
 		PublicPort:                  1,
 		PublicHTTPSPort:             2,
 		PrivatePort:                 3,
+		HTTPReadTimeout:             100,
+		HTTPWriteTimeout:            200,
+		HTTPIdleTimeout:             400,
 		SqlDriver:                   "driver",
 		SqlDsn:                      "dsn Here",
 		CronRefreshSeconds:          50,

@@ -226,7 +226,7 @@ func calcScaleTarget(input scaleTargetInput) scaleTargetOutput {
 	if target < input.minInst {
 		target = input.minInst
 	}
-	if target > input.maxInst && input.maxInst > input.minInst {
+	if target > input.maxInst && input.maxInst >= input.minInst {
 		target = input.maxInst
 	}
 	output.targetInstances = int(target)

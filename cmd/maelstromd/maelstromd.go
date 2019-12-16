@@ -238,12 +238,17 @@ func main() {
 
 	var servers []*http.Server
 
+	readTimeout := time.Duration(conf.HTTPReadTimeout) * time.Second
+	writeTimeout := time.Duration(conf.HTTPWriteTimeout) * time.Second
+	idleTimeout := time.Duration(conf.HTTPIdleTimeout) * time.Second
+
 	if certWrapper == nil {
 		servers = []*http.Server{
 			{
 				Addr:         fmt.Sprintf(":%d", conf.PublicPort),
-				ReadTimeout:  30 * time.Second,
-				WriteTimeout: 600 * time.Second,
+				ReadTimeout:  readTimeout,
+				WriteTimeout: writeTimeout,
+				IdleTimeout:  idleTimeout,
 				Handler:      publicSvr,
 			},
 		}
@@ -257,9 +262,11 @@ func main() {
 	}
 
 	privateSvr := &http.Server{
-		Addr:        fmt.Sprintf(":%d", conf.PrivatePort),
-		ReadTimeout: 30 * time.Second,
-		Handler:     privateSvrMux,
+		Addr:         fmt.Sprintf(":%d", conf.PrivatePort),
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
+		Handler:      privateSvrMux,
 	}
 	go mustStart(privateSvr)
 	servers = append(servers, privateSvr)

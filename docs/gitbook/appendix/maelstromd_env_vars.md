@@ -17,13 +17,16 @@ that control the logging format. Please read the logxi docs for more details.
 | LOGXI_FORMAT     | Sets format for logger                       | `LOGXI_FORMAT=text`
 | LOGXI_COLORS     | Color schema for log levels                  | `LOGXI_COLORS=TRC,DBG,WRN=yellow,INF=green,ERR=red`
 
-## Ports
+## HTTP
 
 | Variable                    | Description                                                               | Required? | Default |
 |-----------------------------|---------------------------------------------------------------------------|-----------|---------|
 | MAEL_PUBLIC_PORT            | HTTP port to bind to for external HTTP reqs                               | No        | 80      |
 | MAEL_PUBLIC_HTTPS_PORT      | HTTP port to bind to for external HTTPS reqs                              | No        | 443     |
 | MAEL_PRIVATE_PORT           | HTTP port to bind to for internal HTTP reqs (node to node and RPC calls)  | No        | 8374    |
+| MAEL_HTTP_READ_TIMEOUT      | Max duration (seconds) for reading the request (including body)           | No        | 300     |
+| MAEL_HTTP_WRITE_TIMEOUT     | Duration (seconds) before timing out writes of the response               | No        | 310     |
+| MAEL_HTTP_IDLE_TIMEOUT      | Max time to wait (seconds) for next req when keep-alives are enabled      | No        | 310     |
 
 ## Database
 

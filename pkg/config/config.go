@@ -73,6 +73,12 @@ type Config struct {
 	PublicHTTPSPort int `default:"443" envconfig:"PUBLIC_HTTPS_PORT"`
 	// Port used for private routing and management operations
 	PrivatePort int `default:"8374"`
+
+	// HTTP Server timeouts (in seconds)
+	HTTPReadTimeout  int `default:"300"`
+	HTTPWriteTimeout int `default:"310"`
+	HTTPIdleTimeout  int `default:"310"`
+
 	// database/sql driver to use
 	SqlDriver string
 	// DSN for sql database - format is specific to each particular database driver
