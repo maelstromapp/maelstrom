@@ -7,6 +7,7 @@ import (
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/stretchr/testify/assert"
 	"io/ioutil"
+	"reflect"
 	"sort"
 	"testing"
 	"testing/quick"
@@ -17,8 +18,10 @@ func TestPropertyNeverExceedsTotalMemory(t *testing.T) {
 	f := func(nodeComps NodesAndComponents) bool {
 		input := nodeComps.Input
 		beforeRamByNode := map[string]int64{}
+		nodesById := map[string]v1.NodeStatus{}
 		for _, node := range input.Nodes {
-			totalRam, _ := totalRamUsed(node, nil, input.ComponentsByName)
+			nodesById[node.NodeId] = node
+			totalRam := totalRamUsed(node, nil, input.ComponentsByName)
 			beforeRamByNode[node.NodeId] = totalRam
 			if totalRam > node.TotalMemoryMiB {
 				panic(fmt.Sprintf("%s - totalRam %d > %d", node.NodeId, totalRam, node.TotalMemoryMiB))
@@ -31,12 +34,12 @@ func TestPropertyNeverExceedsTotalMemory(t *testing.T) {
 		}
 
 		options := CalcAutoscalePlacement(input.Nodes, input.ComponentsByName)
-		for _, opt := range options {
-			optRam := OptionNetRam(opt, input.ComponentsByName)
-			ramUsed := beforeRamByNode[opt.TargetNode.NodeId] + optRam
+		for x, opt := range options {
+			ramUsed := totalRamUsed(nodesById[opt.TargetNode.NodeId], opt, input.ComponentsByName)
 			if ramUsed < 0 || ramUsed > opt.TargetNode.TotalMemoryMiB {
-				fmt.Printf("fail: %s TotalMemory=%d beforeUsed=%d afterUsed=%d\n", opt.TargetNode.NodeId,
-					opt.TargetNode.TotalMemoryMiB, beforeRamByNode[opt.TargetNode.NodeId], ramUsed)
+				fmt.Printf("fail: options[%d] %s TotalMemory=%d beforeUsed=%d afterUsed=%d\n", x,
+					opt.TargetNode.NodeId, opt.TargetNode.TotalMemoryMiB, beforeRamByNode[opt.TargetNode.NodeId],
+					ramUsed)
 				err = ioutil.WriteFile("/tmp/fail.json", data, 0660)
 				if err != nil {
 					panic(err)
@@ -84,14 +87,14 @@ func testScaleUpPlacesOnEmptyNode(t *testing.T) {
 
 	expected := []*PlacementOption{
 		{
-			TargetNode: nodes[1],
-			Input: v1.StartStopComponentsInput{
+			TargetNode: &nodes[1],
+			Input: &v1.StartStopComponentsInput{
 				ClientNodeId:  "",
 				TargetVersion: nodes[1].Version,
-				TargetCounts: []v1.ComponentDelta{
+				TargetCounts: []v1.ComponentTarget{
 					{
 						ComponentName:     comps[0].Name,
-						Delta:             1,
+						TargetCount:       1,
 						RequiredMemoryMiB: comps[0].Docker.ReserveMemoryMiB,
 					},
 				},
@@ -105,6 +108,12 @@ func testScaleUpPlacesOnEmptyNode(t *testing.T) {
 }
 
 func TestPlaceHighRAMComponent(t *testing.T) {
+	for i := 0; i < 300; i++ {
+		testFoo(t)
+	}
+}
+
+func testFoo(t *testing.T) {
 	// - test: 3 nodes, 2 w/o enough ram to run component, 1 with enough, but running other components.
 	//   should rebalance components from n3 to n1/2 and start big component on n3.
 
@@ -127,11 +136,25 @@ func TestPlaceHighRAMComponent(t *testing.T) {
 	expected := []*PlacementOption{
 		makePlacementOption(nodes[0], makeTargetCount(comps[0], 1)),
 		makePlacementOption(nodes[1], makeTargetCount(comps[1], 1)),
-		makePlacementOption(nodes[2], makeTargetCount(comps[0], -1), makeTargetCount(comps[1], -1),
+		makePlacementOption(nodes[2], makeTargetCount(comps[0], 0), makeTargetCount(comps[1], 0),
 			makeTargetCount(comps[2], 1)),
 	}
 
-	actual := CalcAutoscalePlacement(nodes, componentsByName(comps))
+	actual := sortPlacementOptions(CalcAutoscalePlacement(nodes, componentsByName(comps)))
+	if !reflect.DeepEqual(expected, actual) {
+		for i, o := range expected {
+			fmt.Printf("expect: %d %s\n", i, o.TargetNode.NodeId)
+			for x, t := range o.Input.TargetCounts {
+				fmt.Printf("  tc: %d %20s %d  %d\n", x, t.ComponentName, t.TargetCount, t.RequiredMemoryMiB)
+			}
+		}
+		for i, o := range actual {
+			fmt.Printf("actual: %d %s\n", i, o.TargetNode.NodeId)
+			for x, t := range o.Input.TargetCounts {
+				fmt.Printf("  tc: %d %20s %d  %d\n", x, t.ComponentName, t.TargetCount, t.RequiredMemoryMiB)
+			}
+		}
+	}
 	assert.Equal(t, expected, sortPlacementOptions(actual))
 }
 
@@ -158,13 +181,9 @@ func TestPlacementAntiAffinity(t *testing.T) {
 		options := CalcAutoscalePlacement(input.Nodes, input.ComponentsByName)
 		for _, opt := range options {
 			nodeId := opt.TargetNode.NodeId
-			runningComp := RunningComponents(opt.TargetNode, opt)
-			compCount := map[string]int{}
-			ramAvail := opt.TargetNode.TotalMemoryMiB
-			for _, rc := range runningComp {
-				compCount[rc.ComponentName] += 1
-				ramAvail -= rc.MemoryReservedMiB
-			}
+			compCount, _ := opt.ContainerCountByComponent()
+			ramAvail := opt.TargetNode.TotalMemoryMiB - opt.RamUsed()
+
 			for comp, count := range compCount {
 				c := input.ComponentsByName[comp]
 				if ramAvail >= c.Docker.ReserveMemoryMiB {
@@ -228,8 +247,13 @@ func TestOnlyScaleToZeroIfIdle(t *testing.T) {
 			placementOptionByNode[opt.TargetNode.NodeId] = opt
 		}
 		for _, node := range input.Nodes {
-			for _, rc := range RunningComponents(node, placementOptionByNode[node.NodeId]) {
-				compCountAfter[rc.ComponentName] += 1
+			placementOption := placementOptionByNode[node.NodeId]
+			if placementOption == nil {
+				placementOption = newPlacementOptionForNode(node)
+			}
+			countByComp, _ := placementOption.ContainerCountByComponent()
+			for compName, count := range countByComp {
+				compCountAfter[compName] += count
 			}
 		}
 
@@ -264,15 +288,28 @@ func TestNoIdleNodes(t *testing.T) {
 			placementOptionByNode[opt.TargetNode.NodeId] = opt
 		}
 		for _, node := range input.Nodes {
-			runningComps := RunningComponents(node, placementOptionByNode[node.NodeId])
-			if len(runningComps) == 0 {
+			placementOption := placementOptionByNode[node.NodeId]
+			if placementOption == nil {
+				placementOption = newPlacementOptionForNode(node)
+			}
+			_, total := placementOption.ContainerCountByComponent()
+			if total <= 0 {
 				if node.TotalMemoryMiB > emptyNodeWithMostRam.TotalMemoryMiB {
 					emptyNodeWithMostRam = node
 				}
-			} else if len(runningComps) > 1 {
-				for _, rc := range runningComps {
-					if rc.MemoryReservedMiB < smallestMoveableComponentRam {
-						smallestMoveableComponentRam = rc.MemoryReservedMiB
+			} else {
+				countByComp, totalComp := placementOption.ContainerCountByComponent()
+				if totalComp > 1 {
+					for _, rc := range node.RunningComponents {
+						if countByComp[rc.ComponentName] > 0 && rc.MemoryReservedMiB < smallestMoveableComponentRam {
+							smallestMoveableComponentRam = rc.MemoryReservedMiB
+						}
+					}
+					for _, tc := range placementOption.Input.TargetCounts {
+						if countByComp[tc.ComponentName] > 0 && tc.RequiredMemoryMiB < smallestMoveableComponentRam &&
+							tc.RequiredMemoryMiB > 0 {
+							smallestMoveableComponentRam = tc.RequiredMemoryMiB
+						}
 					}
 				}
 			}
@@ -292,16 +329,16 @@ func TestNoIdleNodes(t *testing.T) {
 func sortPlacementOptions(options []*PlacementOption) []*PlacementOption {
 	sort.Sort(PlacementOptionByNode(options))
 	for i, opt := range options {
-		sort.Sort(ComponentDeltaByCompName(opt.Input.TargetCounts))
+		sort.Sort(ComponentTargetByCompName(opt.Input.TargetCounts))
 		options[i] = opt
 	}
 	return options
 }
 
-func makePlacementOption(node v1.NodeStatus, targetCounts ...v1.ComponentDelta) *PlacementOption {
+func makePlacementOption(node v1.NodeStatus, targetCounts ...v1.ComponentTarget) *PlacementOption {
 	return &PlacementOption{
-		TargetNode: node,
-		Input: v1.StartStopComponentsInput{
+		TargetNode: &node,
+		Input: &v1.StartStopComponentsInput{
 			ClientNodeId:  "",
 			TargetVersion: node.Version,
 			TargetCounts:  targetCounts,
@@ -310,15 +347,11 @@ func makePlacementOption(node v1.NodeStatus, targetCounts ...v1.ComponentDelta) 
 	}
 }
 
-func makeTargetCount(c v1.Component, delta int) v1.ComponentDelta {
-	requiredMemory := int64(0)
-	if delta > 0 {
-		requiredMemory = c.Docker.ReserveMemoryMiB
-	}
-	return v1.ComponentDelta{
+func makeTargetCount(c v1.Component, count int) v1.ComponentTarget {
+	return v1.ComponentTarget{
 		ComponentName:     c.Name,
-		Delta:             int64(delta),
-		RequiredMemoryMiB: requiredMemory,
+		TargetCount:       int64(count),
+		RequiredMemoryMiB: c.Docker.ReserveMemoryMiB,
 	}
 }
 
@@ -331,10 +364,6 @@ func toComponentInfo(c v1.Component, activity ...v1.ComponentActivity) v1.Compon
 		TotalRequests:     0,
 		Activity:          activity,
 	}
-}
-
-func makeComponent(name string, requiredRamMiB int64, minInst int64, maxInst int64, maxConcur int64) v1.Component {
-	return makeComponentWithConcur(name, requiredRamMiB, minInst, maxInst, maxConcur, 0, 0)
 }
 
 func makeComponentWithConcur(name string, requiredRamMiB int64, minInst int64, maxInst int64, maxConcur int64,
@@ -368,4 +397,24 @@ func makeComponentWithConcur(name string, requiredRamMiB int64, minInst int64, m
 			LimitMemoryMiB:              0,
 		},
 	}
+}
+
+func totalRamUsed(node v1.NodeStatus, placementOption *PlacementOption, compsByName map[string]v1.Component) int64 {
+	ramUsed := int64(0)
+
+	compInPlacement := map[string]bool{}
+	if placementOption != nil {
+		for _, tc := range placementOption.Input.TargetCounts {
+			compInPlacement[tc.ComponentName] = true
+			ramUsed += tc.TargetCount * compsByName[tc.ComponentName].Docker.ReserveMemoryMiB
+		}
+	}
+
+	for _, rc := range node.RunningComponents {
+		if !compInPlacement[rc.ComponentName] {
+			ramUsed += rc.MemoryReservedMiB
+		}
+	}
+
+	return ramUsed
 }

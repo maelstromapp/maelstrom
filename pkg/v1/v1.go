@@ -8,8 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "5e532aa5838edeb1b9c59ad64ce880bf"
-const BarristerDateGenerated int64 = 1574468356495000000
+const BarristerChecksum string = "a985d82e2048b867bf3590591f5afaab"
+const BarristerDateGenerated int64 = 1576595838135000000
 
 type EventSourceType string
 
@@ -359,10 +359,10 @@ type PlaceComponentOutput struct {
 }
 
 type StartStopComponentsInput struct {
-	ClientNodeId  string           `json:"clientNodeId"`
-	TargetVersion int64            `json:"targetVersion"`
-	TargetCounts  []ComponentDelta `json:"targetCounts"`
-	ReturnStatus  bool             `json:"returnStatus,omitempty"`
+	ClientNodeId  string            `json:"clientNodeId"`
+	TargetVersion int64             `json:"targetVersion"`
+	TargetCounts  []ComponentTarget `json:"targetCounts"`
+	ReturnStatus  bool              `json:"returnStatus,omitempty"`
 }
 
 type StartStopComponentsOutput struct {
@@ -396,6 +396,12 @@ type ComponentDelta struct {
 	ComponentName     string `json:"componentName"`
 	Delta             int64  `json:"delta"`
 	RequiredMemoryMiB int64  `json:"requiredMemoryMiB"`
+}
+
+type ComponentTarget struct {
+	ComponentName     string `json:"componentName"`
+	RequiredMemoryMiB int64  `json:"requiredMemoryMiB"`
+	TargetCount       int64  `json:"targetCount"`
 }
 
 type ComponentDeltaError struct {
@@ -3279,10 +3285,10 @@ var IdlJsonRaw = `[
             },
             {
                 "name": "targetCounts",
-                "type": "ComponentDelta",
+                "type": "ComponentTarget",
                 "optional": false,
                 "is_array": true,
-                "comment": "Number of instances of each component the client would like the target\nnode to add (delta \u003e 0) or remove (delta \u003c 0)."
+                "comment": "Number of instances of each component the client would like the target to run"
             },
             {
                 "name": "returnStatus",
@@ -3496,6 +3502,41 @@ var IdlJsonRaw = `[
     },
     {
         "type": "struct",
+        "name": "ComponentTarget",
+        "comment": "",
+        "value": "",
+        "extends": "",
+        "fields": [
+            {
+                "name": "componentName",
+                "type": "string",
+                "optional": false,
+                "is_array": false,
+                "comment": ""
+            },
+            {
+                "name": "requiredMemoryMiB",
+                "type": "int",
+                "optional": false,
+                "is_array": false,
+                "comment": ""
+            },
+            {
+                "name": "targetCount",
+                "type": "int",
+                "optional": false,
+                "is_array": false,
+                "comment": ""
+            }
+        ],
+        "values": null,
+        "functions": null,
+        "barrister_version": "",
+        "date_generated": 0,
+        "checksum": ""
+    },
+    {
+        "type": "struct",
         "name": "ComponentDeltaError",
         "comment": "",
         "value": "",
@@ -3560,7 +3601,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1574468356495,
-        "checksum": "5e532aa5838edeb1b9c59ad64ce880bf"
+        "date_generated": 1576595838135,
+        "checksum": "a985d82e2048b867bf3590591f5afaab"
     }
 ]`

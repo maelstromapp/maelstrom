@@ -63,6 +63,14 @@ func (s componentDeltaByDelta) Len() int           { return len(s) }
 func (s componentDeltaByDelta) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 func (s componentDeltaByDelta) Less(i, j int) bool { return s[i].delta < s[j].delta }
 
+/////////////////////////////////////////////////////
+
+func CalcAutoscalePlacement(nodes []v1.NodeStatus, componentsByName map[string]v1.Component) []*PlacementOption {
+	concurrency := toComponentConcurrency(nodes, componentsByName)
+	deltas := toComponentDeltas(concurrency)
+	return computeScaleStartStopInputs(nodes, deltas)
+}
+
 func componentsByName(comps []v1.Component) map[string]v1.Component {
 	byName := map[string]v1.Component{}
 	for _, c := range comps {
@@ -226,7 +234,7 @@ func calcScaleTarget(input scaleTargetInput) scaleTargetOutput {
 	if target < input.minInst {
 		target = input.minInst
 	}
-	if target > input.maxInst && input.maxInst >= input.minInst {
+	if target > input.maxInst && input.maxInst > 0 && input.maxInst >= input.minInst {
 		target = input.maxInst
 	}
 	output.targetInstances = int(target)
@@ -248,31 +256,24 @@ func toComponentDeltas(concurrency []componentConcurrency) []componentDelta {
 	return deltas
 }
 
-func mergeTargetCounts(a []v1.ComponentDelta, b []v1.ComponentDelta) []v1.ComponentDelta {
-	byComponentName := map[string]v1.ComponentDelta{}
-	for _, count := range a {
-		byComponentName[count.ComponentName] = count
-	}
+func mergeTargetCounts(a []v1.ComponentTarget, b []v1.ComponentTarget) []v1.ComponentTarget {
+	merged := make([]v1.ComponentTarget, 0)
+
+	byComponentName := map[string]bool{}
+
+	// add "b" first
 	for _, count := range b {
-		oldCount, ok := byComponentName[count.ComponentName]
-		if ok {
-			count.Delta += oldCount.Delta
-			if count.RequiredMemoryMiB <= 0 {
-				count.RequiredMemoryMiB = oldCount.RequiredMemoryMiB
-			}
-		}
-		byComponentName[count.ComponentName] = count
+		byComponentName[count.ComponentName] = true
+		merged = append(merged, count)
 	}
 
-	merged := make([]v1.ComponentDelta, 0)
-	for _, count := range byComponentName {
-		if count.Delta != 0 {
-			if count.RequiredMemoryMiB <= 0 && count.Delta > 0 {
-				panic(fmt.Sprintf("Invalid ComponentDelta: %+v", count))
-			}
+	// add "a" if not in "b"
+	for _, count := range a {
+		if !byComponentName[count.ComponentName] {
 			merged = append(merged, count)
 		}
 	}
+
 	return merged
 }
 
@@ -285,24 +286,6 @@ func mergeOption(optionByNode map[string]*PlacementOption, toMerge *PlacementOpt
 	return toMerge
 }
 
-func countByComponent(componentName string, rcs []v1.ComponentInfo) int {
-	count := 0
-	for _, rc := range rcs {
-		if rc.ComponentName == componentName {
-			count++
-		}
-	}
-	return count
-}
-
-func nodeRamUsedMiB(runningComps []v1.ComponentInfo) int64 {
-	ramUsed := int64(0)
-	for _, rc := range runningComps {
-		ramUsed += rc.MemoryReservedMiB
-	}
-	return ramUsed
-}
-
 func computeScaleStartStopInputs(nodes []v1.NodeStatus, deltas []componentDelta) []*PlacementOption {
 
 	optionByNode := map[string]*PlacementOption{}
@@ -310,10 +293,14 @@ func computeScaleStartStopInputs(nodes []v1.NodeStatus, deltas []componentDelta)
 
 	for _, node := range nodes {
 		totalRam := int64(0)
+		comps := make([]string, 0)
 		for _, rc := range node.RunningComponents {
 			totalRam += rc.MemoryReservedMiB
+			comps = append(comps, rc.ComponentName)
 		}
 		beforeRamByNode[node.NodeId] = totalRam
+
+		optionByNode[node.NodeId] = newPlacementOptionForNode(node)
 	}
 
 	sort.Sort(componentDeltaByDelta(deltas))
@@ -323,7 +310,7 @@ func computeScaleStartStopInputs(nodes []v1.NodeStatus, deltas []componentDelta)
 		if d.delta < 0 {
 			stopTotal := d.delta * -1
 			for i := 0; i < stopTotal; i++ {
-				option := BestStopComponentOption(nodes, optionByNode, d.componentName)
+				option := BestStopComponentOption(optionByNode, d.componentName)
 				if option == nil {
 					log.Warn("scale: unable to scale down component", "component", d.componentName, "delta", d.delta)
 					break
@@ -338,7 +325,7 @@ func computeScaleStartStopInputs(nodes []v1.NodeStatus, deltas []componentDelta)
 	for _, d := range deltas {
 		if d.delta > 0 {
 			for i := 0; i < d.delta; i++ {
-				option := BestStartComponentOption(nodes, optionByNode, d.componentName, d.reserveMemoryMiB, false)
+				option := BestStartComponentOption(optionByNode, d.componentName, d.reserveMemoryMiB, false)
 				if option == nil {
 					log.Warn("scale: unable to scale up component", "component", d.componentName, "delta", d.delta)
 					break
@@ -351,29 +338,17 @@ func computeScaleStartStopInputs(nodes []v1.NodeStatus, deltas []componentDelta)
 
 	// rebalance - migrate components to empty nodes
 	for _, node := range nodes {
-		runningComps := RunningComponents(node, optionByNode[node.NodeId])
-		ramUsed := nodeRamUsedMiB(runningComps)
-		if ramUsed == 0 {
-			fromNode, comp := findCompToMove(nodes, optionByNode, node.NodeId, node.TotalMemoryMiB)
-			if fromNode != nil {
-				fromOpt := getOrCreate(optionByNode, *fromNode)
-				fromOpt.Input.TargetCounts = mergeTargetCounts(fromOpt.Input.TargetCounts, []v1.ComponentDelta{
-					{
-						ComponentName: comp.ComponentName,
-						Delta:         -1,
-					},
-				})
-				optionByNode[fromNode.NodeId] = fromOpt
+		placementOption := optionByNode[node.NodeId]
+		ramUsed := placementOption.RamUsed()
 
-				toOpt := getOrCreate(optionByNode, node)
-				toOpt.Input.TargetCounts = mergeTargetCounts(toOpt.Input.TargetCounts, []v1.ComponentDelta{
-					{
-						ComponentName:     comp.ComponentName,
-						Delta:             1,
-						RequiredMemoryMiB: comp.MemoryReservedMiB,
-					},
-				})
-				optionByNode[node.NodeId] = toOpt
+		if ramUsed == 0 {
+			fromOption, compName, requiredRam := findCompToMove(optionByNode, node.NodeId, node.TotalMemoryMiB)
+			if fromOption != nil {
+				cloned := fromOption.cloneWithTargetDelta(compName, -1, requiredRam)
+				fromOption.Input.TargetCounts = cloned.Input.TargetCounts
+
+				cloned = placementOption.cloneWithTargetDelta(compName, 1, requiredRam)
+				placementOption.Input.TargetCounts = cloned.Input.TargetCounts
 			}
 		}
 	}
@@ -381,81 +356,51 @@ func computeScaleStartStopInputs(nodes []v1.NodeStatus, deltas []componentDelta)
 	options := make([]*PlacementOption, 0)
 	for _, opt := range optionByNode {
 		if len(opt.Input.TargetCounts) > 0 {
+			sort.Sort(ComponentTargetByCompName(opt.Input.TargetCounts))
 			options = append(options, opt)
 		}
 	}
 	sort.Sort(PlacementOptionByNode(options))
+
 	return options
 }
 
-func getOrCreate(optionByNode map[string]*PlacementOption, node v1.NodeStatus) *PlacementOption {
-	opt := optionByNode[node.NodeId]
-	if opt == nil {
-		opt = &PlacementOption{
-			TargetNode: node,
-			Input: v1.StartStopComponentsInput{
-				ClientNodeId:  "",
-				TargetVersion: node.Version,
-				TargetCounts:  []v1.ComponentDelta{},
-				ReturnStatus:  true,
-			},
+func findCompToMove(placementByNode map[string]*PlacementOption, otherNodeId string,
+	freeMemoryMiB int64) (*PlacementOption, string, int64) {
+	for _, placementOption := range placementByNode {
+		runningComps, totalContainers := placementOption.ContainerCountByComponent()
+		if placementOption.TargetNode.NodeId != otherNodeId && totalContainers > 1 {
+			for _, rc := range placementOption.TargetNode.RunningComponents {
+				if runningComps[rc.ComponentName] > 0 && rc.MemoryReservedMiB <= freeMemoryMiB {
+					return placementOption, rc.ComponentName, rc.MemoryReservedMiB
+				}
+			}
+			for _, tc := range placementOption.Input.TargetCounts {
+				if runningComps[tc.ComponentName] > 0 && tc.RequiredMemoryMiB <= freeMemoryMiB {
+					return placementOption, tc.ComponentName, tc.RequiredMemoryMiB
+				}
+			}
 		}
 	}
-	return opt
+	return nil, "", 0
 }
 
-func findCompToMove(nodes []v1.NodeStatus, placementByNode map[string]*PlacementOption, otherNodeId string,
-	freeMemoryMiB int64) (*v1.NodeStatus, *v1.ComponentInfo) {
+func newPlacementOptionsByNodeId(nodes []v1.NodeStatus) map[string]*PlacementOption {
+	byNodeId := map[string]*PlacementOption{}
 	for _, n := range nodes {
-		runningComps := RunningComponents(n, placementByNode[n.NodeId])
-		if n.NodeId != otherNodeId && len(runningComps) > 1 {
-			for _, rc := range runningComps {
-				if rc.MemoryReservedMiB <= freeMemoryMiB {
-					return &n, &rc
-				}
-			}
-		}
+		byNodeId[n.NodeId] = newPlacementOptionForNode(n)
 	}
-	return nil, nil
+	return byNodeId
 }
 
-func CalcAutoscalePlacement(nodes []v1.NodeStatus, componentsByName map[string]v1.Component) []*PlacementOption {
-	concurrency := toComponentConcurrency(nodes, componentsByName)
-	deltas := toComponentDeltas(concurrency)
-	return computeScaleStartStopInputs(nodes, deltas)
-}
-
-func OptionNetRam(option *PlacementOption, componentsByName map[string]v1.Component) int64 {
-	ram := int64(0)
-	for _, tc := range option.Input.TargetCounts {
-		ram += tc.Delta * componentsByName[tc.ComponentName].Docker.ReserveMemoryMiB
+func newPlacementOptionForNode(node v1.NodeStatus) *PlacementOption {
+	return &PlacementOption{
+		TargetNode: &node,
+		Input: &v1.StartStopComponentsInput{
+			ClientNodeId:  "",
+			TargetVersion: node.Version,
+			TargetCounts:  []v1.ComponentTarget{},
+			ReturnStatus:  true,
+		},
 	}
-	return ram
-}
-
-func totalRamUsed(node v1.NodeStatus, options []PlacementOption,
-	componentsByName map[string]v1.Component) (int64, *PlacementOption) {
-	totalRam := int64(0)
-	optIdx := -1
-	for _, rc := range node.RunningComponents {
-		totalRam += rc.MemoryReservedMiB
-	}
-	for idx, opt := range options {
-		if opt.TargetNode.NodeId == node.NodeId {
-			optIdx = idx
-			fmt.Printf("found opt: %v\n", opt)
-			for _, tc := range opt.Input.TargetCounts {
-				comp, ok := componentsByName[tc.ComponentName]
-				if ok {
-					totalRam += comp.Docker.ReserveMemoryMiB * tc.Delta
-				} else {
-					fmt.Printf("comp not found: %s - %+v\n", tc.ComponentName, tc)
-				}
-			}
-		}
-	}
-	if optIdx >= 0 {
-		return totalRam, &options[optIdx]
-	}
-	return totalRam, nil
 }

@@ -834,9 +834,8 @@ struct StartStopComponentsInput {
     // without central coordination.
     targetVersion       int
 
-    // Number of instances of each component the client would like the target
-    // node to add (delta > 0) or remove (delta < 0).
-    targetCounts        []ComponentDelta
+    // Number of instances of each component the client would like the target to run
+    targetCounts        []ComponentTarget
 
     // If true, targetStatus will be populated after performing changes
     // Optional. default=false
@@ -890,6 +889,12 @@ struct ComponentDelta {
     componentName     string
     delta             int
     requiredMemoryMiB int
+}
+
+struct ComponentTarget {
+    componentName     string
+    requiredMemoryMiB int
+    targetCount       int
 }
 
 struct ComponentDeltaError {

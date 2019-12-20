@@ -400,7 +400,7 @@ func (n *NodeServiceImpl) placeComponentTryOnce(componentName string, requiredRA
 		return nil, false
 	}
 
-	option := BestStartComponentOption(nodes, map[string]*PlacementOption{}, componentName, requiredRAM, true)
+	option := BestStartComponentOption(newPlacementOptionsByNodeId(nodes), componentName, requiredRAM, true)
 	if option == nil {
 		log.Error("nodesvc: PlaceComponent failed - BestPlacementOption returned nil",
 			"component", componentName, "requiredRAM", requiredRAM, "nodeMaxRAM", maxNodeRAM, "nodeCount", len(nodes))
@@ -411,7 +411,7 @@ func (n *NodeServiceImpl) placeComponentTryOnce(componentName string, requiredRA
 	node := option.TargetNode
 	option.Input.ClientNodeId = n.nodeId
 
-	output, err := n.cluster.GetNodeService(node).StartStopComponents(option.Input)
+	output, err := n.cluster.GetNodeService(*node).StartStopComponents(*option.Input)
 
 	if output.TargetStatus != nil {
 		n.cluster.SetNode(*output.TargetStatus)
@@ -427,7 +427,7 @@ func (n *NodeServiceImpl) placeComponentTryOnce(componentName string, requiredRA
 				log.Error("nodesvc: placeComponentTryOnce GetComponent error", "component", componentName, "err", err)
 				return nil, false
 			}
-			updatedStatus, running := n.waitUntilComponentRunning(node, output.TargetStatus, comp)
+			updatedStatus, running := n.waitUntilComponentRunning(*node, output.TargetStatus, comp)
 			if running {
 				// Success
 				n.cluster.SetNode(*updatedStatus)
@@ -492,7 +492,7 @@ func (n *NodeServiceImpl) autoscale() {
 	inputs := CalcAutoscalePlacement(nodes, componentsByName)
 
 	for _, input := range inputs {
-		output, err := n.cluster.GetNodeService(input.TargetNode).StartStopComponents(input.Input)
+		output, err := n.cluster.GetNodeService(*input.TargetNode).StartStopComponents(*input.Input)
 		if err == nil {
 			log.Info("autoscale: StartStopComponents success",
 				"targetNode", common.TruncNodeId(input.TargetNode.NodeId), "targetCounts", input.Input.TargetCounts)
@@ -516,7 +516,7 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 		}
 		scaleTargets[i] = component.ScaleTarget{
 			Component:         &comp,
-			Delta:             tc.Delta,
+			TargetCount:       tc.TargetCount,
 			RequiredMemoryMiB: tc.RequiredMemoryMiB,
 		}
 	}

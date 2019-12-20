@@ -181,8 +181,8 @@ type NodesAndComponents struct {
 }
 
 func (n NodesAndComponents) Generate(rand *rand.Rand, size int) reflect.Value {
-	nodes := make([]v1.NodeStatus, size)
-	components := make([]v1.Component, rand.Intn(30)+1)
+	nodes := make([]v1.NodeStatus, (size%2)+2)
+	components := make([]v1.Component, rand.Intn(3)+1)
 
 	for i := 0; i < len(components); i++ {
 		components[i] = randComponent(fmt.Sprintf("comp-%d", i), 2000, rand)
@@ -195,7 +195,7 @@ func (n NodesAndComponents) Generate(rand *rand.Rand, size int) reflect.Value {
 	compByName := componentsByName(components)
 
 	for _, node := range nodes {
-		totalRam, _ := totalRamUsed(node, nil, compByName)
+		totalRam := totalRamUsed(node, nil, compByName)
 		if totalRam > node.TotalMemoryMiB {
 			panic(fmt.Sprintf("totalRam %d > %d", totalRam, node.TotalMemoryMiB))
 		}
@@ -207,21 +207,12 @@ func (n NodesAndComponents) Generate(rand *rand.Rand, size int) reflect.Value {
 	}})
 }
 
-func scaleDownCount(counts []v1.ComponentDelta) int {
-	count := 0
-	for _, c := range counts {
-		if c.Delta < 0 {
-			count++
-		}
-	}
-	return count
-}
-
 /////////////////////////////////////////////////////////////////////////////
 
 func TestBestStartComponentOptionNeverReturnsNilIfNodeHasEnoughRAM(t *testing.T) {
 	f := func(nl NodeList) bool {
-		return BestStartComponentOption(nl, map[string]*PlacementOption{}, componentA, ramRequiredMedium, true) != nil
+		return BestStartComponentOption(newPlacementOptionsByNodeId(nl), componentA,
+			ramRequiredMedium, true) != nil
 	}
 	if err := quick.Check(f, nil); err != nil {
 		t.Error(err)
@@ -236,8 +227,8 @@ func TestBestStartComponentOptionNeverStopsContainerIfNodeHasEnoughUnreservedRAM
 			nl[0].RunningComponents = nl[0].RunningComponents[0:1]
 			nl[0].RunningComponents[0].MemoryReservedMiB = 10
 		}
-		option := BestStartComponentOption(nl, map[string]*PlacementOption{}, componentA, ramRequiredMedium, true)
-		return option != nil && scaleDownCount(option.Input.TargetCounts) == 0
+		option := BestStartComponentOption(newPlacementOptionsByNodeId(nl), componentA, ramRequiredMedium, true)
+		return option != nil && option.scaleDownCount() == 0
 	}
 	if err := quick.Check(f, nil); err != nil {
 		t.Error(err)
@@ -247,14 +238,14 @@ func TestBestStartComponentOptionNeverStopsContainerIfNodeHasEnoughUnreservedRAM
 func TestBestStartComponentOptionNoNodeWithEnoughRam(t *testing.T) {
 	nodes := []v1.NodeStatus{randNode(0, defaultRand)}
 	nodes[0].TotalMemoryMiB = ramRequiredMedium - 1
-	assert.Nil(t, BestStartComponentOption(nodes, map[string]*PlacementOption{}, componentA, ramRequiredMedium, true))
+	assert.Nil(t, BestStartComponentOption(newPlacementOptionsByNodeId(nodes), componentA, ramRequiredMedium, true))
 }
 
 func TestBestStartComponentOptionSingleNode(t *testing.T) {
 	nodes := []v1.NodeStatus{randNode(0, defaultRand)}
 	nodes[0].TotalMemoryMiB += ramRequiredMedium
-	option := BestStartComponentOption(nodes, map[string]*PlacementOption{}, componentA, ramRequiredMedium, true)
-	assert.Equal(t, nodes[0], option.TargetNode)
+	option := BestStartComponentOption(newPlacementOptionsByNodeId(nodes), componentA, ramRequiredMedium, true)
+	assert.Equal(t, &nodes[0], option.TargetNode)
 }
 
 func TestBestStartComponentOptionStopsExisting(t *testing.T) {
@@ -273,19 +264,19 @@ func TestBestStartComponentOptionStopsExisting(t *testing.T) {
 		},
 	}
 	expected := &PlacementOption{
-		TargetNode: nodes[0],
-		Input: v1.StartStopComponentsInput{
+		TargetNode: &nodes[0],
+		Input: &v1.StartStopComponentsInput{
 			ClientNodeId:  "",
 			TargetVersion: nodes[0].Version,
-			TargetCounts: []v1.ComponentDelta{
-				{ComponentName: "0", Delta: -1},
-				{ComponentName: "1", Delta: -1},
-				{ComponentName: componentA, Delta: 1, RequiredMemoryMiB: ramRequiredMedium},
+			TargetCounts: []v1.ComponentTarget{
+				{ComponentName: "0", TargetCount: 0, RequiredMemoryMiB: 500},
+				{ComponentName: "1", TargetCount: 0, RequiredMemoryMiB: 400},
+				{ComponentName: componentA, TargetCount: 1, RequiredMemoryMiB: ramRequiredMedium},
 			},
 			ReturnStatus: true,
 		},
 	}
-	assert.Equal(t, expected, BestStartComponentOption(nodes, map[string]*PlacementOption{}, componentA, ramRequiredMedium, true))
+	assert.Equal(t, expected, BestStartComponentOption(newPlacementOptionsByNodeId(nodes), componentA, ramRequiredMedium, true))
 }
 
 func TestBestStartComponentOptionStopsComponentWithMostInstances(t *testing.T) {
@@ -315,16 +306,16 @@ func TestBestStartComponentOptionStopsComponentWithMostInstances(t *testing.T) {
 		},
 	}
 	expected := &PlacementOption{
-		TargetNode: nodes[1],
-		Input: v1.StartStopComponentsInput{
+		TargetNode: &nodes[1],
+		Input: &v1.StartStopComponentsInput{
 			ClientNodeId:  "",
 			TargetVersion: nodes[1].Version,
-			TargetCounts: []v1.ComponentDelta{
-				{ComponentName: "1", Delta: -1},
-				{ComponentName: componentA, Delta: 1, RequiredMemoryMiB: componentARam},
+			TargetCounts: []v1.ComponentTarget{
+				{ComponentName: "1", TargetCount: 0, RequiredMemoryMiB: 900},
+				{ComponentName: componentA, TargetCount: 1, RequiredMemoryMiB: componentARam},
 			},
 			ReturnStatus: true,
 		},
 	}
-	assert.Equal(t, expected, BestStartComponentOption(nodes, map[string]*PlacementOption{}, componentA, componentARam, true))
+	assert.Equal(t, expected, BestStartComponentOption(newPlacementOptionsByNodeId(nodes), componentA, componentARam, true))
 }

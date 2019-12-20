@@ -286,16 +286,21 @@ func (d *Dispatcher) scale(req *scaleInputInternal) {
 		for _, target := range req.TargetCounts {
 			comp := d.component(target.Component)
 			oldTarget := d.targetCountByComponent[target.Component.Name]
-			newTarget := oldTarget + int(target.Delta)
+			newTarget := int(target.TargetCount)
 			if newTarget < 0 {
 				newTarget = 0
 			}
 			d.targetCountByComponent[target.Component.Name] = newTarget
 			go comp.Scale(&scaleComponentInput{targetCount: newTarget})
-			if target.Delta > 0 {
-				out.Started = append(out.Started, target.ToV1ComponentDelta())
-			} else if target.Delta < 0 {
-				out.Stopped = append(out.Stopped, target.ToV1ComponentDelta())
+			delta := v1.ComponentDelta{
+				ComponentName:     target.Component.Name,
+				Delta:             int64(newTarget - oldTarget),
+				RequiredMemoryMiB: target.RequiredMemoryMiB,
+			}
+			if newTarget > oldTarget {
+				out.Started = append(out.Started, delta)
+			} else if newTarget < oldTarget {
+				out.Stopped = append(out.Stopped, delta)
 			}
 		}
 	} else {

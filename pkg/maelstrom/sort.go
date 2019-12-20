@@ -61,11 +61,11 @@ func (s ComponentInfoByRunningCountAndReqTime) Less(i, j int) bool {
 	return s.Components[i].LastRequestTime > s.Components[j].LastRequestTime
 }
 
-type ComponentDeltaByCompName []v1.ComponentDelta
+type ComponentTargetByCompName []v1.ComponentTarget
 
-func (s ComponentDeltaByCompName) Len() int           { return len(s) }
-func (s ComponentDeltaByCompName) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-func (s ComponentDeltaByCompName) Less(i, j int) bool { return s[i].ComponentName < s[j].ComponentName }
+func (s ComponentTargetByCompName) Len() int           { return len(s) }
+func (s ComponentTargetByCompName) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s ComponentTargetByCompName) Less(i, j int) bool { return s[i].ComponentName < s[j].ComponentName }
 
 type StringPtr []*string
 

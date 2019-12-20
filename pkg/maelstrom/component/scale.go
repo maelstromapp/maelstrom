@@ -9,16 +9,8 @@ type ScaleInput struct {
 
 type ScaleTarget struct {
 	Component         *v1.Component
-	Delta             int64
+	TargetCount       int64
 	RequiredMemoryMiB int64
-}
-
-func (t ScaleTarget) ToV1ComponentDelta() v1.ComponentDelta {
-	return v1.ComponentDelta{
-		ComponentName:     t.Component.Name,
-		Delta:             t.Delta,
-		RequiredMemoryMiB: t.RequiredMemoryMiB,
-	}
 }
 
 type scaleInputInternal struct {

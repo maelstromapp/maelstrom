@@ -499,7 +499,7 @@ func (f *Fixture) WhenStopRequestReceived() *Fixture {
 		TargetCounts: []component.ScaleTarget{
 			{
 				Component:         &f.component,
-				Delta:             -1,
+				TargetCount:       0,
 				RequiredMemoryMiB: 0,
 			},
 		},
