@@ -142,6 +142,12 @@ components:
           visibilitytimeout: 300
           maxconcurrency: 10
           path: /message
+      stepfunc1:
+        awsstepfunc:
+          activityname: stepfunc1activity
+          maxconcurrency: 11
+          concurrencyperpoller: 5
+          path: /activity1
 `
 
 	expected := v1.Project{
@@ -188,6 +194,20 @@ components:
 								VisibilityTimeout: 300,
 								MaxConcurrency:    10,
 								Path:              "/message",
+							},
+						},
+						Enabled: true,
+					},
+					{
+						EventSource: v1.EventSource{
+							Name:          "stepfunc1",
+							ComponentName: "detector",
+							ProjectName:   "demo-object-detector",
+							Awsstepfunc: &v1.AwsStepFunctionEventSource{
+								ActivityName:         "stepfunc1activity",
+								MaxConcurrency:       11,
+								ConcurrencyPerPoller: 5,
+								Path:                 "/activity1",
 							},
 						},
 						Enabled: true,

@@ -414,9 +414,9 @@ func eventSourceLs(args docopt.Opts, svc v1.MaelstromService) {
 			es := ess.EventSource
 			if first {
 				first = false
-				fmt.Printf("%-20s  %-20s  %-5s  %-30s  %-5s  %-13s  %-8s\n",
+				fmt.Printf("%-20s  %-20s  %-7s  %-30s  %-5s  %-13s  %-8s\n",
 					"Event Source", "Component", "Type", "Description", "Ver", "Last Modified", "Status")
-				fmt.Printf("-----------------------------------------------------------------------------------------------------------------\n")
+				fmt.Printf("------------------------------------------------------------------------------------------------------------------\n")
 			}
 			mod := humanize.Time(time.Unix(0, es.ModifiedAt*1e6))
 			esType := "??"
@@ -440,12 +440,15 @@ func eventSourceLs(args docopt.Opts, svc v1.MaelstromService) {
 				if es.Sqs.NameAsPrefix {
 					description += "*"
 				}
+			} else if es.Awsstepfunc != nil {
+				esType = "awsstep"
+				description = es.Awsstepfunc.ActivityName
 			}
 			status := "Disabled"
 			if ess.Enabled {
 				status = "Enabled"
 			}
-			fmt.Printf("%-20s  %-20s  %-5s  %-30s  %-5d  %-13s  %-8s\n", trunc(es.Name, 20),
+			fmt.Printf("%-20s  %-20s  %-7s  %-30s  %-5d  %-13s  %-8s\n", trunc(es.Name, 20),
 				trunc(es.ComponentName, 20), esType, trunc(description, 30), es.Version, mod, status)
 		}
 		nextToken = output.NextToken

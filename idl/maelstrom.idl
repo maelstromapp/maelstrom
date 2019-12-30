@@ -409,9 +409,10 @@ struct EventSource {
     modifiedAt   int
 
     // One and only one event source type may be provided
-    http       HttpEventSource   [optional]
-    cron       CronEventSource   [optional]
-    sqs        SqsEventSource    [optional]
+    http         HttpEventSource              [optional]
+    cron         CronEventSource              [optional]
+    sqs          SqsEventSource               [optional]
+    awsstepfunc  AwsStepFunctionEventSource   [optional]
 }
 
 struct HttpEventSource {
@@ -493,10 +494,30 @@ struct SqsEventSource {
 
 }
 
+struct AwsStepFunctionEventSource {
+    // Name of step function activity
+    // The ARN for the activity will be resolved by maelstromd,
+    // and if not found an activity will be registered with AWS
+    activityName            string
+
+    // Request path, optionally including a query string
+    // If a query string is included, make sure the parameters are
+    // properly URL encoded as it will be used verbatim
+    path                  string
+
+    // Total max concurrent messages to process for this component via this
+    // step function activity (default=1)
+    maxConcurrency        int     [optional]
+
+    // Concurrent messages to process per polling process (default=1)
+    concurrencyPerPoller  int     [optional]
+}
+
 enum EventSourceType {
     http
     cron
     sqs
+    awsstepfunc
 }
 
 enum StartParallelism {

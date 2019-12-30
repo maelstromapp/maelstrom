@@ -8,15 +8,16 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "a985d82e2048b867bf3590591f5afaab"
-const BarristerDateGenerated int64 = 1576595838135000000
+const BarristerChecksum string = "9aa3db77f6530d7652898e94f5a1e236"
+const BarristerDateGenerated int64 = 1577473215351000000
 
 type EventSourceType string
 
 const (
-	EventSourceTypeHttp EventSourceType = "http"
-	EventSourceTypeCron                 = "cron"
-	EventSourceTypeSqs                  = "sqs"
+	EventSourceTypeHttp        EventSourceType = "http"
+	EventSourceTypeCron                        = "cron"
+	EventSourceTypeSqs                         = "sqs"
+	EventSourceTypeAwsstepfunc                 = "awsstepfunc"
 )
 
 type StartParallelism string
@@ -103,14 +104,15 @@ type EventSourceWithStatus struct {
 }
 
 type EventSource struct {
-	Name          string           `json:"name"`
-	ComponentName string           `json:"componentName"`
-	ProjectName   string           `json:"projectName,omitempty"`
-	Version       int64            `json:"version"`
-	ModifiedAt    int64            `json:"modifiedAt"`
-	Http          *HttpEventSource `json:"http,omitempty"`
-	Cron          *CronEventSource `json:"cron,omitempty"`
-	Sqs           *SqsEventSource  `json:"sqs,omitempty"`
+	Name          string                      `json:"name"`
+	ComponentName string                      `json:"componentName"`
+	ProjectName   string                      `json:"projectName,omitempty"`
+	Version       int64                       `json:"version"`
+	ModifiedAt    int64                       `json:"modifiedAt"`
+	Http          *HttpEventSource            `json:"http,omitempty"`
+	Cron          *CronEventSource            `json:"cron,omitempty"`
+	Sqs           *SqsEventSource             `json:"sqs,omitempty"`
+	Awsstepfunc   *AwsStepFunctionEventSource `json:"awsstepfunc,omitempty"`
 }
 
 type HttpEventSource struct {
@@ -139,6 +141,13 @@ type SqsEventSource struct {
 	MessagesPerPoll      int64  `json:"messagesPerPoll,omitempty"`
 	ConcurrencyPerPoller int64  `json:"concurrencyPerPoller,omitempty"`
 	VisibilityTimeout    int64  `json:"visibilityTimeout,omitempty"`
+}
+
+type AwsStepFunctionEventSource struct {
+	ActivityName         string `json:"activityName"`
+	Path                 string `json:"path"`
+	MaxConcurrency       int64  `json:"maxConcurrency,omitempty"`
+	ConcurrencyPerPoller int64  `json:"concurrencyPerPoller,omitempty"`
 }
 
 type NodeStatus struct {
@@ -1780,6 +1789,13 @@ var IdlJsonRaw = `[
                 "optional": true,
                 "is_array": false,
                 "comment": ""
+            },
+            {
+                "name": "awsstepfunc",
+                "type": "AwsStepFunctionEventSource",
+                "optional": true,
+                "is_array": false,
+                "comment": ""
             }
         ],
         "values": null,
@@ -1957,6 +1973,48 @@ var IdlJsonRaw = `[
         "checksum": ""
     },
     {
+        "type": "struct",
+        "name": "AwsStepFunctionEventSource",
+        "comment": "",
+        "value": "",
+        "extends": "",
+        "fields": [
+            {
+                "name": "activityName",
+                "type": "string",
+                "optional": false,
+                "is_array": false,
+                "comment": "Name of step function activity\nThe ARN for the activity will be resolved by maelstromd,\nand if not found an activity will be registered with AWS"
+            },
+            {
+                "name": "path",
+                "type": "string",
+                "optional": false,
+                "is_array": false,
+                "comment": "Request path, optionally including a query string\nIf a query string is included, make sure the parameters are\nproperly URL encoded as it will be used verbatim"
+            },
+            {
+                "name": "maxConcurrency",
+                "type": "int",
+                "optional": true,
+                "is_array": false,
+                "comment": "Total max concurrent messages to process for this component via this\nstep function activity (default=1)"
+            },
+            {
+                "name": "concurrencyPerPoller",
+                "type": "int",
+                "optional": true,
+                "is_array": false,
+                "comment": "Concurrent messages to process per polling process (default=1)"
+            }
+        ],
+        "values": null,
+        "functions": null,
+        "barrister_version": "",
+        "date_generated": 0,
+        "checksum": ""
+    },
+    {
         "type": "enum",
         "name": "EventSourceType",
         "comment": "",
@@ -1974,6 +2032,10 @@ var IdlJsonRaw = `[
             },
             {
                 "value": "sqs",
+                "comment": ""
+            },
+            {
+                "value": "awsstepfunc",
                 "comment": ""
             }
         ],
@@ -3601,7 +3663,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1576595838135,
-        "checksum": "a985d82e2048b867bf3590591f5afaab"
+        "date_generated": 1577473215351,
+        "checksum": "9aa3db77f6530d7652898e94f5a1e236"
     }
 ]`

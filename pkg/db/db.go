@@ -10,6 +10,12 @@ var NotFound = fmt.Errorf("Not Found")
 var AlreadyExists = fmt.Errorf("Entity already exists")
 var IncorrectPreviousVersion = fmt.Errorf("Incorrect PreviousVersion")
 
+const (
+	RolePlacement = "placement"
+	RoleAutoScale = "autoscale"
+	RoleCron      = "cron"
+)
+
 type Db interface {
 	Migrate() error
 

@@ -10,6 +10,8 @@ import (
 	"github.com/coopernurse/maelstrom/pkg/common"
 	"github.com/coopernurse/maelstrom/pkg/config"
 	"github.com/coopernurse/maelstrom/pkg/db"
+	"github.com/coopernurse/maelstrom/pkg/evsource/cron"
+	"github.com/coopernurse/maelstrom/pkg/evsource/poller"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	"github.com/coopernurse/maelstrom/pkg/v1"
@@ -273,12 +275,12 @@ func main() {
 
 	log.Info("maelstromd: starting HTTP servers", "publicPort", conf.PublicPort, "privatePort", conf.PrivatePort)
 
-	cronSvc := maelstrom.NewCronService(db, privateGateway, cancelCtx, nodeSvcImpl.NodeId(),
+	cronSvc := evcron.NewCronService(db, privateGateway, cancelCtx, nodeSvcImpl.NodeId(),
 		time.Second*time.Duration(conf.CronRefreshSeconds))
 	daemonWG.Add(1)
 	go cronSvc.Run(daemonWG, false)
 
-	evPoller := maelstrom.NewEvPoller(nodeSvcImpl.NodeId(), cancelCtx, db, dispatcher, awsSession)
+	evPoller := poller.NewEvPoller(nodeSvcImpl.NodeId(), cancelCtx, db, privateGateway, dispatcher, awsSession)
 	daemonWG.Add(1)
 	go evPoller.Run(daemonWG)
 

@@ -6,6 +6,12 @@ import (
 	"strings"
 )
 
+type StringPtr []*string
+
+func (s StringPtr) Len() int           { return len(s) }
+func (s StringPtr) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s StringPtr) Less(i, j int) bool { return *s[i] < *s[j] }
+
 var interpolateRE = regexp.MustCompile(`(?m)(\$?\${[^}]+})`)
 
 func parseToken(tok string) (key string, defaultVal string, emptyToDefault bool) {

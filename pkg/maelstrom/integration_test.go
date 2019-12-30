@@ -127,3 +127,12 @@ func TestRoutesRequestsToOldComponentDuringUpdates(t *testing.T) {
 			ThenAllHTTPRequestsCompletedWithoutDelay()
 	})
 }
+
+func TestCronStartsContainerWhenTriggered(t *testing.T) {
+	wrapTest(t, func() {
+		GivenNoMaelstromContainers(t).
+			WhenCronEventSourceRegistered("* * * * * *").
+			WhenCronServiceStartedWithSeconds().
+			ThenContainerStartsWithin(15 * time.Second)
+	})
+}

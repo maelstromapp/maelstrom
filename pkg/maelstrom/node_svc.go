@@ -26,10 +26,6 @@ import (
 	"time"
 )
 
-const rolePlacement = "placement"
-const roleAutoScale = "autoscale"
-const roleCron = "cron"
-
 type ShutdownFunc func()
 
 type placeComponentResult struct {
@@ -225,16 +221,16 @@ func (n *NodeServiceImpl) PlaceComponent(input v1.PlaceComponentInput) (v1.Place
 	acquired := false
 	deadline := time.Now().Add(70 * time.Second)
 	for !acquired && time.Now().Before(deadline) {
-		roleOk, roleNode, err := n.db.AcquireOrRenewRole(rolePlacement, n.nodeId, time.Minute)
+		roleOk, roleNode, err := n.db.AcquireOrRenewRole(db.RolePlacement, n.nodeId, time.Minute)
 		if err != nil {
-			log.Warn("nodesvc: db.AcquireOrRenewRole error", "component", input.ComponentName, "role", rolePlacement,
+			log.Warn("nodesvc: db.AcquireOrRenewRole error", "component", input.ComponentName, "role", db.RolePlacement,
 				"err", err)
 		} else {
 			acquired = roleOk
 			if !roleOk {
 				if roleNode == n.nodeId {
 					log.Warn("nodesvc: db.AcquireOrRenewRole returned false, but also returned our nodeId - will retry",
-						"component", input.ComponentName, "role", rolePlacement, "node", n.nodeId)
+						"component", input.ComponentName, "role", db.RolePlacement, "node", n.nodeId)
 				} else {
 					peerSvc := n.cluster.GetNodeServiceById(roleNode)
 					if peerSvc == nil {
@@ -254,10 +250,10 @@ func (n *NodeServiceImpl) PlaceComponent(input v1.PlaceComponentInput) (v1.Place
 
 	if !acquired {
 		msg := "nodesvc: timeout trying to acquire or delegate placement"
-		log.Error(msg, "component", input.ComponentName, "role", rolePlacement)
+		log.Error(msg, "component", input.ComponentName, "role", db.RolePlacement)
 		return v1.PlaceComponentOutput{}, &barrister.JsonRpcError{Code: int(DbError), Message: msg}
 	}
-	defer logErr(n.db.ReleaseRole(rolePlacement, n.nodeId), "release "+rolePlacement+" for nodeId: "+n.nodeId)
+	defer logErr(n.db.ReleaseRole(db.RolePlacement, n.nodeId), "release "+db.RolePlacement+" for nodeId: "+n.nodeId)
 
 	var waitCh chan placeComponentResult
 
@@ -473,9 +469,9 @@ func (n *NodeServiceImpl) waitUntilComponentRunning(node v1.NodeStatus, status *
 }
 
 func (n *NodeServiceImpl) autoscale() {
-	roleOk, _, err := n.db.AcquireOrRenewRole(roleAutoScale, n.nodeId, time.Minute)
+	roleOk, _, err := n.db.AcquireOrRenewRole(db.RoleAutoScale, n.nodeId, time.Minute)
 	if err != nil {
-		log.Error("nodesvc: autoscale AcquireOrRenewRole error", "role", roleAutoScale, "err", err)
+		log.Error("nodesvc: autoscale AcquireOrRenewRole error", "role", db.RoleAutoScale, "err", err)
 		return
 	}
 	if !roleOk {
@@ -727,7 +723,7 @@ func (n *NodeServiceImpl) RunAutoscaleLoop(interval time.Duration, ctx context.C
 			n.autoscale()
 		case <-ctx.Done():
 			// release role (will no-op if we don't hold the role lock)
-			logErr(n.db.ReleaseRole(roleAutoScale, n.nodeId), "release "+roleAutoScale+" for nodeId: "+n.nodeId)
+			logErr(n.db.ReleaseRole(db.RoleAutoScale, n.nodeId), "release "+db.RoleAutoScale+" for nodeId: "+n.nodeId)
 
 			log.Info("nodesvc: autoscale loop shutdown gracefully")
 			return

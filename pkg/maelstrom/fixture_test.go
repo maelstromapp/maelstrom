@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/coopernurse/maelstrom/pkg/common"
 	"github.com/coopernurse/maelstrom/pkg/db"
+	"github.com/coopernurse/maelstrom/pkg/evsource/cron"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/docker/docker/api/types"
@@ -33,7 +34,7 @@ const testImageName = "docker.io/coopernurse/go-hello-http:latest"
 const testGatewayUrl = "http://127.0.0.1:8000"
 
 var defaultComponent v1.Component
-var cronService *CronService
+var cronService *evcron.CronService
 var contextCancelFx func()
 var dockerClient *docker.Client
 var pinger *httpPinger
@@ -331,7 +332,7 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *db.SqlDb) *Fix
 	gateway := NewGateway(resolver, nodeSvcImpl.Dispatcher(), false, outboundIp.String())
 	cancelCtx, cancelFx := context.WithCancel(context.Background())
 	contextCancelFx = cancelFx
-	cronService = NewCronService(sqlDb, gateway, cancelCtx, "testnode", time.Second)
+	cronService = evcron.NewCronService(sqlDb, gateway, cancelCtx, "testnode", time.Second)
 
 	return &Fixture{
 		t:              t,
@@ -352,7 +353,7 @@ type Fixture struct {
 	component        v1.Component
 	v1Impl           *MaelServiceImpl
 	nodeSvcImpl      *NodeServiceImpl
-	cronService      *CronService
+	cronService      *evcron.CronService
 	nextContainerId  string
 	beforeContainers []types.Container
 	successfulReqs   *int64

@@ -13,3 +13,10 @@ func MaxInt64(vals ...int64) int64 {
 	}
 	return max
 }
+
+func DefaultInt64(v int64, defaultVal int64) int64 {
+	if v == 0 {
+		return defaultVal
+	}
+	return v
+}

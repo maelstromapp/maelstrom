@@ -1,4 +1,4 @@
-package maelstrom
+package evcron
 
 import (
 	"bytes"
@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-func NewCronService(db db.Db, gateway *Gateway, ctx context.Context, nodeId string, refreshRate time.Duration) *CronService {
+func NewCronService(db db.Db, gateway http.Handler, ctx context.Context, nodeId string, refreshRate time.Duration) *CronService {
 	return &CronService{
 		db:           db,
 		gateway:      gateway,
@@ -30,7 +30,7 @@ func NewCronService(db db.Db, gateway *Gateway, ctx context.Context, nodeId stri
 
 type CronService struct {
 	db           db.Db
-	gateway      *Gateway
+	gateway      http.Handler
 	ctx          context.Context
 	nodeId       string
 	acquiredRole bool
@@ -93,7 +93,7 @@ func (c *CronService) createCronInvoker(es v1.EventSource) func() {
 func (c *CronService) acquireRoleOrStop() bool {
 	previous := c.acquiredRole
 	c.acquiredRole = false
-	roleOk, roleNode, err := c.db.AcquireOrRenewRole(roleCron, c.nodeId, time.Minute)
+	roleOk, roleNode, err := c.db.AcquireOrRenewRole(db.RoleCron, c.nodeId, time.Minute)
 	if err == nil {
 		c.acquiredRole = roleOk
 

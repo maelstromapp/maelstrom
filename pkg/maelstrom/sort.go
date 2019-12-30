@@ -67,12 +67,6 @@ func (s ComponentTargetByCompName) Len() int           { return len(s) }
 func (s ComponentTargetByCompName) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 func (s ComponentTargetByCompName) Less(i, j int) bool { return s[i].ComponentName < s[j].ComponentName }
 
-type StringPtr []*string
-
-func (s StringPtr) Len() int           { return len(s) }
-func (s StringPtr) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-func (s StringPtr) Less(i, j int) bool { return *s[i] < *s[j] }
-
 type projectInfoByName []v1.ProjectInfo
 
 func (s projectInfoByName) Len() int           { return len(s) }

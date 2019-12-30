@@ -6,7 +6,8 @@ import (
 
 func StrToEventSourceType(esType string) (EventSourceType, error) {
 	es := EventSourceType(esType)
-	all := []EventSourceType{EventSourceTypeSqs, EventSourceTypeCron, EventSourceTypeHttp}
+	all := []EventSourceType{EventSourceTypeSqs, EventSourceTypeCron, EventSourceTypeHttp,
+		EventSourceTypeAwsstepfunc}
 	for _, t := range all {
 		if t == es {
 			return t, nil
@@ -21,6 +22,8 @@ func GetEventSourceType(e EventSource) EventSourceType {
 		return EventSourceTypeCron
 	} else if e.Sqs != nil {
 		return EventSourceTypeSqs
+	} else if e.Awsstepfunc != nil {
+		return EventSourceTypeAwsstepfunc
 	} else {
 		panic("Unknown eventType for EventSource")
 	}

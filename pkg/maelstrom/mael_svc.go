@@ -491,7 +491,7 @@ func validateEventSource(errPrefix string, es v1.EventSource) (string, error) {
 	}
 
 	// * 1001 - No event source sub-type is provided
-	if es.Http == nil && es.Cron == nil && es.Sqs == nil {
+	if es.Http == nil && es.Cron == nil && es.Sqs == nil && es.Awsstepfunc == nil {
 		return "", newRpcErr(1001, "No event source sub-type provided (e.g. http)")
 	}
 
