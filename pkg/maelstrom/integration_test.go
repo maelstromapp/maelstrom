@@ -72,9 +72,10 @@ func TestStopsContainerIfIdle(t *testing.T) {
 func TestRestartsContainerWhenComponentUpdated(t *testing.T) {
 	wrapTest(t, func() {
 		GivenExistingContainer(t).
-			WhenComponentIsUpdated().
 			WhenHTTPRequestReceived().
-			ThenContainerIsStartedWithNewVersion()
+			ThenContainerIsStarted().
+			WhenComponentIsUpdated().
+			ThenContainerIsStartedWithNewVersionWithin(10 * time.Second)
 	})
 }
 

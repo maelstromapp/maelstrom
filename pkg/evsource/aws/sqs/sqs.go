@@ -38,7 +38,6 @@ func NewPollCreator(es v1.EventSource, awsSession *session.Session, gateway http
 		}
 		return nil, nil
 	} else {
-		log.Info("creating sqs poller", "component", es.ComponentName)
 		return &SqsPollCreator{
 			es:        es,
 			sqsClient: sqsClient,

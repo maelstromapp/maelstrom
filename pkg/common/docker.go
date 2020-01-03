@@ -1,7 +1,10 @@
 package common
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/docker/docker/api/types"
@@ -13,7 +16,9 @@ import (
 	"github.com/docker/go-units"
 	"github.com/mgutz/logxi/v1"
 	"github.com/pkg/errors"
+	"io/ioutil"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -390,4 +395,58 @@ func NormalizeImageName(name string) string {
 		return name + ":latest"
 	}
 	return name
+}
+
+func PullImage(dockerClient *docker.Client, c v1.Component) error {
+	if len(c.Docker.PullCommand) == 0 {
+		// normal pull
+		authStr, err := pullImageAuth(c)
+		if err != nil {
+			return err
+		}
+		out, err := dockerClient.ImagePull(context.Background(), c.Docker.Image,
+			types.ImagePullOptions{RegistryAuth: authStr})
+		if err == nil {
+			defer CheckClose(out, &err)
+			_, err = ioutil.ReadAll(out)
+		}
+		return err
+	} else {
+		// custom pull
+
+		// rewrite placeholder
+		for i, s := range c.Docker.PullCommand {
+			if s == "<image>" {
+				c.Docker.PullCommand[i] = c.Docker.Image
+			}
+		}
+
+		// run command
+		var outbuf, errbuf bytes.Buffer
+		cmd := exec.Command(c.Docker.PullCommand[0], c.Docker.PullCommand[1:]...)
+		cmd.Stdout = &outbuf
+		cmd.Stderr = &errbuf
+		err := cmd.Run()
+		if err != nil {
+			return fmt.Errorf("component: error running pull command: '%v' err=%v stdout=%s stderr=%s",
+				c.Docker.PullCommand, err, outbuf.String(), errbuf.String())
+		}
+		return nil
+	}
+}
+
+func pullImageAuth(c v1.Component) (string, error) {
+	if c.Docker.PullUsername == "" && c.Docker.PullPassword == "" {
+		return "", nil
+	}
+	authConfig := types.AuthConfig{
+		Username: c.Docker.PullUsername,
+		Password: c.Docker.PullPassword,
+	}
+	encodedJSON, err := json.Marshal(authConfig)
+	if err != nil {
+		return "", err
+	}
+	authStr := base64.URLEncoding.EncodeToString(encodedJSON)
+	return authStr, nil
 }

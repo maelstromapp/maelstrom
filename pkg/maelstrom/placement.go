@@ -62,17 +62,23 @@ func (p *PlacementOption) RamUsed() int64 {
 func (p *PlacementOption) ContainerCountByComponent() (byComp map[string]int, total int) {
 	byComp = map[string]int{}
 	total = 0
+
+	// first add counts that are currently running
+	for _, ci := range p.TargetNode.RunningComponents {
+		byComp[ci.ComponentName] += 1
+		total++
+	}
+
+	// then adjust for any components that will be scaled up/down
 	for _, tc := range p.Input.TargetCounts {
+		oldCount, ok := byComp[tc.ComponentName]
+		if ok {
+			total -= oldCount
+		}
 		byComp[tc.ComponentName] = int(tc.TargetCount)
 		total += int(tc.TargetCount)
 	}
-	for _, ci := range p.TargetNode.RunningComponents {
-		_, ok := byComp[ci.ComponentName]
-		if !ok {
-			byComp[ci.ComponentName] += 1
-			total += 1
-		}
-	}
+
 	return
 }
 

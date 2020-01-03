@@ -9,11 +9,11 @@ import (
 	"github.com/coopernurse/maelstrom/pkg/cert"
 	"github.com/coopernurse/maelstrom/pkg/common"
 	"github.com/coopernurse/maelstrom/pkg/config"
+	"github.com/coopernurse/maelstrom/pkg/converge"
 	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/evsource/cron"
 	"github.com/coopernurse/maelstrom/pkg/evsource/poller"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom"
-	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	docker "github.com/docker/docker/client"
 	"github.com/mgutz/logxi/v1"
@@ -169,7 +169,7 @@ func main() {
 		log.Warn("maelstromd: unable to init aws session", "err", err.Error())
 	}
 
-	pullState := component.NewPullState(dockerClient)
+	pullState := maelstrom.NewPullState(dockerClient)
 	imagePuller := maelstrom.NewImagePuller(dockerClient, db, pullState)
 
 	nodeSvcImpl, err := maelstrom.NewNodeServiceImplFromDocker(db, dockerClient, conf.PrivatePort, peerUrl,
@@ -178,7 +178,9 @@ func main() {
 		log.Error("maelstromd: cannot create NodeService", "err", err)
 		os.Exit(2)
 	}
-	dispatcher := nodeSvcImpl.Dispatcher()
+
+	convergeReg := nodeSvcImpl.GetConvergeRegistry()
+	routerReg := convergeReg.GetRouterRegistry()
 
 	if conf.DockerPruneMinutes > 0 {
 		dockerPruner := maelstrom.NewDockerPruner(dockerClient, db, cancelCtx, conf.DockerPruneUnregImages,
@@ -209,12 +211,12 @@ func main() {
 	}
 	log.Info("maelstromd: created NodeService", nodeSvcImpl.LogPairs()...)
 
-	dockerMonitor := common.NewDockerImageMonitor(dockerClient, dispatcher, cancelCtx)
+	dockerMonitor := common.NewDockerImageMonitor(dockerClient, convergeReg, cancelCtx)
 	dockerMonitor.RunAsync(daemonWG)
 
-	publicSvr := maelstrom.NewGateway(resolver, dispatcher, true, outboundIp.String())
+	publicSvr := maelstrom.NewGateway(resolver, routerReg, true, outboundIp.String())
 
-	componentSubscribers := []maelstrom.ComponentSubscriber{dispatcher, resolver, imagePuller}
+	componentSubscribers := []maelstrom.ComponentSubscriber{convergeReg, resolver, imagePuller}
 
 	v1Idl := barrister.MustParseIdlJson([]byte(v1.IdlJsonRaw))
 	v1Impl := maelstrom.NewMaelServiceImpl(db, componentSubscribers, certWrapper, nodeSvcImpl.NodeId(),
@@ -224,7 +226,7 @@ func main() {
 
 	nodeSvcImpl.Cluster().SetLocalMaelstromService(v1Impl)
 
-	privateGateway := maelstrom.NewGateway(resolver, dispatcher, false, outboundIp.String())
+	privateGateway := maelstrom.NewGateway(resolver, routerReg, false, outboundIp.String())
 	privateSvrMux := http.NewServeMux()
 	if conf.Pprof {
 		log.Info("maelstromd: binding pprof routes to /_mael/pprof/")
@@ -280,12 +282,12 @@ func main() {
 	daemonWG.Add(1)
 	go cronSvc.Run(daemonWG, false)
 
-	evPoller := poller.NewEvPoller(nodeSvcImpl.NodeId(), cancelCtx, db, privateGateway, dispatcher, awsSession)
+	evPoller := poller.NewEvPoller(nodeSvcImpl.NodeId(), cancelCtx, db, privateGateway, routerReg, awsSession)
 	daemonWG.Add(1)
 	go evPoller.Run(daemonWG)
 
 	daemonWG.Add(1)
-	go HandleShutdownSignal(servers, dispatcher, conf.ShutdownPauseSeconds, cancelFx, shutdownCh, daemonWG)
+	go HandleShutdownSignal(servers, conf.ShutdownPauseSeconds, convergeReg, cancelFx, shutdownCh, daemonWG)
 
 	daemonWG.Wait()
 	err = db.ReleaseAllRoles(nodeSvcImpl.NodeId())
@@ -295,7 +297,7 @@ func main() {
 	log.Info("maelstromd: exiting")
 }
 
-func HandleShutdownSignal(svrs []*http.Server, dispatcher *component.Dispatcher, pauseSeconds int,
+func HandleShutdownSignal(svrs []*http.Server, pauseSeconds int, convergeReg *converge.Registry,
 	cancelFx context.CancelFunc, shutdownCh chan maelstrom.ShutdownFunc, wg *sync.WaitGroup) {
 	defer wg.Done()
 	sigCh := make(chan os.Signal, 1)
@@ -331,8 +333,8 @@ func HandleShutdownSignal(svrs []*http.Server, dispatcher *component.Dispatcher,
 		time.Sleep(time.Second * time.Duration(pauseSeconds))
 	}
 
-	log.Info("maelstromd: stopping dispatcher and containers")
-	dispatcher.Shutdown()
+	log.Info("maelstromd: stopping converge registry and containers")
+	convergeReg.Shutdown()
 
 	if onShutdownFx != nil {
 		onShutdownFx()

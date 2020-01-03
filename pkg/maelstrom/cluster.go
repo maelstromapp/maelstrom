@@ -67,6 +67,11 @@ func (c *Cluster) SetNode(node v1.NodeStatus) bool {
 				"peerNode", common.TruncNodeId(node.NodeId), "version", node.Version)
 		}
 		c.notifyAll()
+	} else {
+		if log.IsDebug() {
+			log.Debug("cluster: SetNode NOT modified", "peerNode", common.TruncNodeId(node.NodeId),
+				"version", node.Version)
+		}
 	}
 	return modified
 }
@@ -104,6 +109,14 @@ func (c *Cluster) RemoveAndBroadcast() {
 func (c *Cluster) broadcastStatusChangeAsync(input v1.StatusChangedInput, logPrefix string) {
 	for _, svc := range c.GetRemoteNodeServices() {
 		go func(s v1.NodeService) {
+			if log.IsDebug() {
+				var version int64
+				if input.Status != nil {
+					version = input.Status.Version
+				}
+				log.Debug("cluster: broadcastStatusChangeAsync", "version", version,
+					"exiting", input.Exiting)
+			}
 			_, err := s.StatusChanged(input)
 			if err != nil {
 				log.Error("cluster: "+logPrefix+" error calling StatusChanged", "err", err)

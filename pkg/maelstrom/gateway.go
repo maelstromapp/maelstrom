@@ -1,17 +1,22 @@
 package maelstrom
 
 import (
+	"context"
 	"github.com/coopernurse/maelstrom/pkg/db"
-	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
+	"github.com/coopernurse/maelstrom/pkg/revproxy"
+	"github.com/coopernurse/maelstrom/pkg/router"
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/mgutz/logxi/v1"
 	"net/http"
+	"strconv"
+	"time"
 )
 
-func NewGateway(r ComponentResolver, dispatcher *component.Dispatcher, public bool,
+func NewGateway(r ComponentResolver, routerReg *router.Registry, public bool,
 	myIpAddr string) *Gateway {
 	return &Gateway{
 		compResolver: r,
-		dispatcher:   dispatcher,
+		routerReg:    routerReg,
 		public:       public,
 		myIpAddr:     myIpAddr,
 	}
@@ -19,7 +24,7 @@ func NewGateway(r ComponentResolver, dispatcher *component.Dispatcher, public bo
 
 type Gateway struct {
 	compResolver ComponentResolver
-	dispatcher   *component.Dispatcher
+	routerReg    *router.Registry
 	public       bool
 	myIpAddr     string
 }
@@ -51,7 +56,65 @@ func (g *Gateway) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	xForward += g.myIpAddr
 	req.Header.Set("X-Forwarded-For", xForward)
 
-	g.dispatcher.Route(rw, req, &comp, g.public)
+	g.Route(rw, req, &comp, g.public)
+}
+
+func (g *Gateway) Route(rw http.ResponseWriter, req *http.Request, comp *v1.Component, publicGateway bool) {
+	// Set Deadline
+	var reqStartNano int64
+	var deadlineNano int64
+	if !publicGateway {
+		deadlineStr := req.Header.Get("MAELSTROM-DEADLINE-NANO")
+		if deadlineStr != "" {
+			deadlineNano, _ = strconv.ParseInt(deadlineStr, 10, 64)
+		}
+		reqStartStr := req.Header.Get("MAELSTROM-START-NANO")
+		if reqStartStr != "" {
+			reqStartNano, _ = strconv.ParseInt(reqStartStr, 10, 64)
+		}
+	}
+
+	deadline := componentReqDeadline(deadlineNano, comp)
+	ctx, ctxCancel := context.WithDeadline(context.Background(), deadline)
+	if req.Header.Get("MAELSTROM-DEADLINE-NANO") == "" {
+		req.Header.Set("MAELSTROM-DEADLINE-NANO", strconv.FormatInt(deadline.UnixNano(), 10))
+	}
+
+	// Send request to dispatcher
+	preferLocal := req.Header.Get("MAELSTROM-RELAY-PATH") != ""
+	compReq := revproxy.NewRequest(req, rw, comp, preferLocal)
+	if reqStartNano != 0 && reqStartNano < compReq.StartTime.UnixNano() {
+		compReq.StartTime = time.Unix(0, reqStartNano)
+	}
+	if req.Header.Get("MAELSTROM-START-NANO") == "" {
+		req.Header.Set("MAELSTROM-START-NANO", strconv.FormatInt(compReq.StartTime.UnixNano(), 10))
+	}
+	g.routerReg.ByComponent(comp.Name).Route(ctx, compReq)
+
+	// Block on result, or timeout
+	select {
+	case <-compReq.Done:
+		ctxCancel()
+		return
+	case <-ctx.Done():
+		msg := "gateway: Timeout proxying component: " + comp.Name
+		log.Warn(msg, "component", comp.Name, "version", comp.Version)
+		respondText(rw, http.StatusGatewayTimeout, msg)
+		return
+	}
+}
+
+func componentReqDeadline(deadlineNanoFromHeader int64, comp *v1.Component) time.Time {
+	if deadlineNanoFromHeader == 0 {
+		maxDur := comp.MaxDurationSeconds
+		if maxDur <= 0 {
+			maxDur = 300
+		}
+		startTime := time.Now()
+		return startTime.Add(time.Duration(maxDur) * time.Second)
+	} else {
+		return time.Unix(0, deadlineNanoFromHeader)
+	}
 }
 
 func respondText(rw http.ResponseWriter, statusCode int, body string) {

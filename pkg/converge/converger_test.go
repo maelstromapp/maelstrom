@@ -1,14 +1,13 @@
-package component
+package converge
 
 import (
-	"context"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
 func TestConvergePlanNoContainers(t *testing.T) {
-	conv := NewConverger(ComponentTarget{}, context.Background())
+	conv := NewConverger(ComponentTarget{})
 
 	target := newTarget(0, 1, v1.StartParallelismParallel, v1.RestartOrderStartstop)
 	expected := newConvergePlan(false)
@@ -20,7 +19,7 @@ func TestConvergePlanNoContainers(t *testing.T) {
 }
 
 func TestConvergePlanScaleDown(t *testing.T) {
-	conv := NewConverger(ComponentTarget{}, context.Background())
+	conv := NewConverger(ComponentTarget{})
 	target := newTarget(0, 1, v1.StartParallelismParallel, v1.RestartOrderStartstop)
 
 	// 2 running containers
@@ -37,7 +36,7 @@ func TestConvergePlanScaleDown(t *testing.T) {
 }
 
 func TestConvergePlanRollingDeploy(t *testing.T) {
-	conv := NewConverger(ComponentTarget{}, context.Background())
+	conv := NewConverger(ComponentTarget{})
 
 	// v1 - 2 running containers
 	target := newTarget(2, 1, v1.StartParallelismParallel, v1.RestartOrderStartstop)

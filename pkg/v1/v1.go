@@ -9,7 +9,14 @@ import (
 
 const BarristerVersion string = "0.1.6"
 const BarristerChecksum string = "9aa3db77f6530d7652898e94f5a1e236"
-const BarristerDateGenerated int64 = 1577473215351000000
+const BarristerDateGenerated int64 = 1577718957314000000
+
+type RestartOrder string
+
+const (
+	RestartOrderStartstop RestartOrder = "startstop"
+	RestartOrderStopstart              = "stopstart"
+)
 
 type EventSourceType string
 
@@ -26,13 +33,6 @@ const (
 	StartParallelismParallel    StartParallelism = "parallel"
 	StartParallelismSeries                       = "series"
 	StartParallelismSeriesfirst                  = "seriesfirst"
-)
-
-type RestartOrder string
-
-const (
-	RestartOrderStartstop RestartOrder = "startstop"
-	RestartOrderStopstart              = "stopstart"
 )
 
 type Project struct {
@@ -3663,7 +3663,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1577473215351,
+        "date_generated": 1577718957314,
         "checksum": "9aa3db77f6530d7652898e94f5a1e236"
     }
 ]`

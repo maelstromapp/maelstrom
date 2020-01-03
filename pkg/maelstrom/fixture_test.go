@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/converge"
 	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/evsource/cron"
-	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
@@ -200,7 +200,6 @@ func (d *dockerMonitor) monitorEventLoop() {
 					containerId: m.ID,
 				})
 			}
-			fmt.Printf("%+v\n", m)
 		}
 	}
 }
@@ -326,10 +325,11 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *db.SqlDb) *Fix
 	}
 
 	nodeSvcImpl, err := NewNodeServiceImplFromDocker(sqlDb, dockerClient, 8374, "", -1, "", shutdownCh, nil,
-		"", component.NewPullState(dockerClient))
+		"", NewPullState(dockerClient))
 	assert.Nil(t, err, "NewNodeServiceImplFromDocker err != nil: %v", err)
 
-	gateway := NewGateway(resolver, nodeSvcImpl.Dispatcher(), false, outboundIp.String())
+	gateway := NewGateway(resolver, nodeSvcImpl.GetConvergeRegistry().GetRouterRegistry(),
+		false, outboundIp.String())
 	cancelCtx, cancelFx := context.WithCancel(context.Background())
 	contextCancelFx = cancelFx
 	cronService = evcron.NewCronService(sqlDb, gateway, cancelCtx, "testnode", time.Second)
@@ -337,6 +337,7 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *db.SqlDb) *Fix
 	return &Fixture{
 		t:              t,
 		dockerClient:   dockerClient,
+		gateway:        gateway,
 		successfulReqs: &successfulReqs,
 		v1Impl:         NewMaelServiceImpl(sqlDb, nil, nil, nodeSvcImpl.nodeId, nodeSvcImpl.Cluster()),
 		nodeSvcImpl:    nodeSvcImpl,
@@ -350,6 +351,7 @@ func newFixture(t *testing.T, dockerClient *docker.Client, sqlDb *db.SqlDb) *Fix
 type Fixture struct {
 	t                *testing.T
 	dockerClient     *docker.Client
+	gateway          *Gateway
 	component        v1.Component
 	v1Impl           *MaelServiceImpl
 	nodeSvcImpl      *NodeServiceImpl
@@ -377,8 +379,6 @@ func GivenExistingContainerWith(t *testing.T, mutateFx func(c *v1.Component)) *F
 	mutateFx(&defaultComponent)
 	containerId, err := common.StartContainer(dockerClient, &defaultComponent, testGatewayUrl)
 
-	fmt.Printf("GivenExistingContainer startContainer: %s\n", containerId)
-
 	f := newFixture(t, dockerClient, sqlDb)
 	assert.Nil(t, err, "startContainer err != nil: %v", err)
 	f.nextContainerId = containerId
@@ -405,7 +405,7 @@ func (f *Fixture) makeHttpRequest(url string) *httptest.ResponseRecorder {
 	req, err := http.NewRequest("GET", url, nil)
 	rw := httptest.NewRecorder()
 	assert.Nil(f.t, err, "http.NewRequest err != nil: %v", err)
-	f.nodeSvcImpl.Dispatcher().Route(rw, req, &f.component, false)
+	f.gateway.Route(rw, req, &f.component, false)
 	return rw
 }
 
@@ -462,7 +462,6 @@ func (f *Fixture) WhenContainerIsHealthy() *Fixture {
 		} else {
 			rw := f.makeHttpRequest("http://127.0.0.1:12345/")
 			if rw.Result().StatusCode == 200 && rw.Body.String() != "" {
-				fmt.Printf("container healthy: %s\n", rw.Body.String())
 				break
 			} else {
 				time.Sleep(100 * time.Millisecond)
@@ -477,10 +476,10 @@ func (f *Fixture) WhenNLongRunningRequestsMade(n int) *Fixture {
 		f.asyncReqWG.Add(1)
 		go func() {
 			defer f.asyncReqWG.Done()
-			log.Info("fixture_test: requesting /sleep")
+			fmt.Println("fixture_test: requesting /sleep")
 			start := time.Now()
 			rw := f.makeHttpRequest("http://127.0.0.1:12345/sleep?seconds=5")
-			log.Info("fixture_test: done requesting /sleep", "status", rw.Result().StatusCode,
+			fmt.Println("fixture_test: done requesting /sleep", "status", rw.Result().StatusCode,
 				"body", rw.Body.String())
 			if rw.Result().StatusCode == 200 && rw.Body.String() != "" {
 				elapsedMillis := time.Now().Sub(start) / 1e6
@@ -494,15 +493,11 @@ func (f *Fixture) WhenNLongRunningRequestsMade(n int) *Fixture {
 }
 
 func (f *Fixture) WhenStopRequestReceived() *Fixture {
-	info := f.nodeSvcImpl.Dispatcher().ComponentInfo()
-	f.nodeSvcImpl.Dispatcher().Scale(&component.ScaleInput{
-		TargetVersion: info.Version,
-		TargetCounts: []component.ScaleTarget{
-			{
-				Component:         &f.component,
-				TargetCount:       0,
-				RequiredMemoryMiB: 0,
-			},
+	version, _ := f.nodeSvcImpl.GetConvergeRegistry().GetState()
+	f.nodeSvcImpl.GetConvergeRegistry().SetTargets(version, []converge.ComponentTarget{
+		{
+			Component: &f.component,
+			Count:     0,
 		},
 	})
 	return f
@@ -525,7 +520,7 @@ func (f *Fixture) WhenAutoscaleRuns() *Fixture {
 
 func (f *Fixture) WhenComponentIsUpdated() *Fixture {
 	f.component.Version++
-	f.nodeSvcImpl.Dispatcher().OnComponentNotification(v1.DataChangedUnion{
+	f.nodeSvcImpl.GetConvergeRegistry().OnComponentNotification(v1.DataChangedUnion{
 		PutComponent: &f.component,
 	})
 	return f
@@ -567,6 +562,18 @@ func (f *Fixture) ThenContainerIsStarted() *Fixture {
 
 func (f *Fixture) ThenContainerIsStartedWithNewVersion() *Fixture {
 	assert.True(f.t, f.componentContainerExists(), "component container is not running!")
+	return f
+}
+
+func (f *Fixture) ThenContainerIsStartedWithNewVersionWithin(dur time.Duration) *Fixture {
+	deadline := time.Now().Add(dur)
+	for time.Now().Before(deadline) {
+		if f.componentContainerExists() {
+			return f
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	f.t.Errorf("new container did not start before deadline elapsed")
 	return f
 }
 
@@ -626,7 +633,7 @@ func (f *Fixture) ThenNoNewContainerStarted() *Fixture {
 
 func (f *Fixture) ThenSuccessfulRequestCountEquals(x int) *Fixture {
 	f.asyncReqWG.Wait()
-	assert.Equal(f.t, *f.successfulReqs, int64(x))
+	assert.Equal(f.t, int64(x), *f.successfulReqs)
 	return f
 }
 

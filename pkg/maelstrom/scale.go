@@ -369,6 +369,10 @@ func findCompToMove(placementByNode map[string]*PlacementOption, otherNodeId str
 	freeMemoryMiB int64) (*PlacementOption, string, int64) {
 	for _, placementOption := range placementByNode {
 		runningComps, totalContainers := placementOption.ContainerCountByComponent()
+		if log.IsDebug() {
+			log.Debug("scale: findCompToMove", "totalContainers", totalContainers, "running", runningComps,
+				"nodeId", common.TruncNodeId(placementOption.TargetNode.NodeId))
+		}
 		if placementOption.TargetNode.NodeId != otherNodeId && totalContainers > 1 {
 			for _, rc := range placementOption.TargetNode.RunningComponents {
 				if runningComps[rc.ComponentName] > 0 && rc.MemoryReservedMiB <= freeMemoryMiB {

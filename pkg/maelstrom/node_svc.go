@@ -11,8 +11,9 @@ import (
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	"github.com/coopernurse/barrister-go"
 	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/converge"
 	"github.com/coopernurse/maelstrom/pkg/db"
-	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
+	"github.com/coopernurse/maelstrom/pkg/router"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	docker "github.com/docker/docker/client"
 	log "github.com/mgutz/logxi/v1"
@@ -20,6 +21,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os/exec"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -35,7 +37,7 @@ type placeComponentResult struct {
 
 func NewNodeServiceImplFromDocker(db db.Db, dockerClient *docker.Client, privatePort int,
 	peerUrl string, totalMemAllowed int64, instanceId string, shutdownCh chan ShutdownFunc,
-	awsSession *session.Session, terminateCommand string, pullState *component.PullState) (*NodeServiceImpl, error) {
+	awsSession *session.Session, terminateCommand string, pullState *PullState) (*NodeServiceImpl, error) {
 
 	maelstromHost, err := common.ResolveMaelstromHost(dockerClient)
 	if err != nil {
@@ -50,34 +52,41 @@ func NewNodeServiceImplFromDocker(db db.Db, dockerClient *docker.Client, private
 	nodeId := info.ID
 
 	nodeSvc := &NodeServiceImpl{
-		dispatcher:       nil,
-		db:               db,
-		nodeId:           nodeId,
-		peerUrl:          peerUrl,
-		instanceId:       instanceId,
-		totalMemAllowed:  totalMemAllowed,
-		startTimeMillis:  common.TimeToMillis(time.Now()),
-		numCPUs:          int64(info.NCPU),
-		loadStatusLock:   &sync.Mutex{},
-		placeCompLock:    &sync.Mutex{},
-		placeCompWaiters: make(map[string][]chan placeComponentResult),
-		shutdownCh:       shutdownCh,
-		awsSession:       awsSession,
-		terminateCommand: terminateCommand,
+		db:                           db,
+		dockerClient:                 dockerClient,
+		pullState:                    pullState,
+		nodeId:                       nodeId,
+		peerUrl:                      peerUrl,
+		instanceId:                   instanceId,
+		totalMemAllowed:              totalMemAllowed,
+		startTimeMillis:              common.TimeToMillis(time.Now()),
+		numCPUs:                      int64(info.NCPU),
+		loadStatusLock:               &sync.Mutex{},
+		placeCompLock:                &sync.Mutex{},
+		clusterUpdateLock:            &sync.Mutex{},
+		placeCompWaiters:             make(map[string][]chan placeComponentResult),
+		shutdownCh:                   shutdownCh,
+		awsSession:                   awsSession,
+		terminateCommand:             terminateCommand,
+		urlInstanceCountsByComponent: make(map[string]map[string]int),
 	}
 
-	compLock := NewCompLocker(db, nodeId)
+	routerReg := router.NewRegistry(nodeId, nodeSvc.TryPlaceComponent)
 
-	log.Info("maelstromd: creating dispatcher", "maelstromUrl", maelstromUrl)
-	dispatcher, err := component.NewDispatcher(nodeSvc, dockerClient, maelstromUrl, nodeId, pullState,
-		compLock.startLockAcquire, compLock.postStartContainer, nodeSvc.OnContainersChanged)
+	compLock := converge.NewCompLocker(db, nodeId)
+	convergeReg := converge.NewRegistry(dockerClient, routerReg, maelstromUrl,
+		nodeSvc.pullImage, compLock.StartLockAcquire,
+		compLock.PostStartContainer, func(count int) { nodeSvc.OnContainersChanged() })
+	nodeSvc.convergeReg = convergeReg
+
+	err = convergeReg.RemoveStaleContainers()
 	if err != nil {
 		return nil, err
 	}
-	nodeSvc.dispatcher = dispatcher
 
 	nodeSvc.cluster = NewCluster(nodeId, nodeSvc)
-	nodeSvc.cluster.AddObserver(nodeSvc.dispatcher)
+	nodeSvc.cluster.AddObserver(nodeSvc)
+
 	_, err = nodeSvc.resolveAndBroadcastNodeStatus(context.Background())
 	if err != nil {
 		return nil, err
@@ -86,32 +95,33 @@ func NewNodeServiceImplFromDocker(db db.Db, dockerClient *docker.Client, private
 }
 
 type NodeServiceImpl struct {
-	dispatcher *component.Dispatcher
-	db         db.Db
-	cluster    *Cluster
+	db           db.Db
+	dockerClient *docker.Client
+	convergeReg  *converge.Registry
+	cluster      *Cluster
+	pullState    *PullState
 	// nodeId is the maelstrom node id used to uniquely identify this node in the cluster
 	// it is currently the docker node id and is derived from the docker daemon at startup
 	nodeId string
 	// instanceId is an optional string used to identify the host machine
 	// this is typically an identifier set by the cloud provider (e.g. AWS EC2 Instance ID)
-	instanceId       string
-	peerUrl          string
-	totalMemAllowed  int64
-	startTimeMillis  int64
-	numCPUs          int64
-	loadStatusLock   *sync.Mutex
-	placeCompLock    *sync.Mutex
-	placeCompWaiters map[string][]chan placeComponentResult
-	shutdownCh       chan ShutdownFunc
-	awsSession       *session.Session
-	terminateCommand string
+	instanceId        string
+	peerUrl           string
+	totalMemAllowed   int64
+	startTimeMillis   int64
+	numCPUs           int64
+	loadStatusLock    *sync.Mutex
+	placeCompLock     *sync.Mutex
+	clusterUpdateLock *sync.Mutex
+	placeCompWaiters  map[string][]chan placeComponentResult
+	shutdownCh        chan ShutdownFunc
+	awsSession        *session.Session
+	terminateCommand  string
+
+	urlInstanceCountsByComponent map[string]map[string]int
 
 	// if node.observedAt is older than this duration we'll consider it stale and remove it
 	NodeLiveness time.Duration
-}
-
-func (n *NodeServiceImpl) Dispatcher() *component.Dispatcher {
-	return n.dispatcher
 }
 
 func (n *NodeServiceImpl) NodeId() string {
@@ -122,8 +132,54 @@ func (n *NodeServiceImpl) Cluster() *Cluster {
 	return n.cluster
 }
 
+func (n *NodeServiceImpl) GetConvergeRegistry() *converge.Registry {
+	return n.convergeReg
+}
+
 func (n *NodeServiceImpl) LogPairs() []interface{} {
-	return []interface{}{"nodeId", n.nodeId, "peerUrl", n.peerUrl, "numCPUs", n.numCPUs}
+	return []interface{}{"nodeId", n.nodeId, "peerUrl", n.peerUrl, "numCPUs", n.numCPUs, "totalMem", n.totalMemAllowed}
+}
+
+func (n *NodeServiceImpl) OnClusterUpdated(nodes map[string]v1.NodeStatus) {
+	n.clusterUpdateLock.Lock()
+	defer n.clusterUpdateLock.Unlock()
+
+	if log.IsDebug() {
+		for nodeId, status := range nodes {
+			log.Debug("nodesvc: cluster update", "nodeId", nodeId, "running", status.RunningComponents)
+		}
+	}
+	routerReg := n.convergeReg.GetRouterRegistry()
+	remoteCountsByComp := toRemoteCountsByComponent(nodes, n.nodeId)
+	for compName, urlToInstanceCounts := range remoteCountsByComp {
+		if log.IsDebug() {
+			log.Debug("nodesvc: cluster update", "component", compName, "urlToInst", urlToInstanceCounts)
+		}
+		if !reflect.DeepEqual(urlToInstanceCounts, n.urlInstanceCountsByComponent[compName]) {
+			comp, err := n.db.GetComponent(compName)
+			if err == nil {
+				maxConcur := int(comp.MaxConcurrency)
+				if maxConcur <= 0 {
+					maxConcur = 1
+				}
+				urlToHandlerCount := make(map[string]int)
+				for url, instances := range urlToInstanceCounts {
+					urlToHandlerCount[url] = instances * maxConcur
+				}
+				routerReg.ByComponent(compName).SetRemoteHandlerCounts(urlToHandlerCount)
+				n.urlInstanceCountsByComponent[compName] = urlToInstanceCounts
+			} else {
+				log.Error("nodesvc: error getting component in OnClusterUpdated", "component", compName,
+					"err", err)
+			}
+		}
+	}
+	for compName, _ := range n.urlInstanceCountsByComponent {
+		if remoteCountsByComp[compName] == nil {
+			routerReg.ByComponent(compName).SetRemoteHandlerCounts(map[string]int{})
+			delete(n.urlInstanceCountsByComponent, compName)
+		}
+	}
 }
 
 func (n *NodeServiceImpl) ListNodeStatus(input v1.ListNodeStatusInput) (v1.ListNodeStatusOutput, error) {
@@ -196,7 +252,7 @@ func (n *NodeServiceImpl) refreshNodes() ([]v1.NodeStatus, error) {
 }
 
 func (n *NodeServiceImpl) GetStatus(input v1.GetNodeStatusInput) (v1.GetNodeStatusOutput, error) {
-	status, err := n.resolveNodeStatus(context.Background())
+	status, err := n.resolveNodeStatus()
 	if err != nil {
 		code := MiscError
 		msg := "nodesvc: GetStatus - error loading node status"
@@ -213,6 +269,13 @@ func (n *NodeServiceImpl) StatusChanged(input v1.StatusChangedInput) (v1.StatusC
 		n.cluster.SetNode(*input.Status)
 	}
 	return v1.StatusChangedOutput{NodeId: input.NodeId}, nil
+}
+
+func (n *NodeServiceImpl) TryPlaceComponent(componentName string) {
+	_, err := n.PlaceComponent(v1.PlaceComponentInput{ComponentName: componentName})
+	if err != nil {
+		log.Error("nodesvc: PlaceComponent error", "component", componentName, "err", err)
+	}
 }
 
 func (n *NodeServiceImpl) PlaceComponent(input v1.PlaceComponentInput) (v1.PlaceComponentOutput, error) {
@@ -255,6 +318,8 @@ func (n *NodeServiceImpl) PlaceComponent(input v1.PlaceComponentInput) (v1.Place
 	}
 	defer logErr(n.db.ReleaseRole(db.RolePlacement, n.nodeId), "release "+db.RolePlacement+" for nodeId: "+n.nodeId)
 
+	log.Info("nodesvc: got lock: " + input.ComponentName)
+
 	var waitCh chan placeComponentResult
 
 	n.placeCompLock.Lock()
@@ -284,6 +349,7 @@ func (n *NodeServiceImpl) PlaceComponent(input v1.PlaceComponentInput) (v1.Place
 		return out, err
 	} else {
 		// placement is in progress - wait for completion
+		log.Info("nodesvc: waiting for placement: " + input.ComponentName)
 		return waitForPlacement(waitCh)
 	}
 }
@@ -303,6 +369,7 @@ func waitForPlacement(waitCh chan placeComponentResult) (v1.PlaceComponentOutput
 
 func (n *NodeServiceImpl) placeComponentInternal(input v1.PlaceComponentInput) (v1.PlaceComponentOutput, error) {
 	// get component
+	log.Info("nodesvc: placeComponentInternal start: " + input.ComponentName)
 	comp, err := n.db.GetComponent(input.ComponentName)
 	if err == db.NotFound {
 		return v1.PlaceComponentOutput{}, &barrister.JsonRpcError{
@@ -448,7 +515,7 @@ func (n *NodeServiceImpl) placeComponentTryOnce(componentName string, requiredRA
 
 func (n *NodeServiceImpl) waitUntilComponentRunning(node v1.NodeStatus, status *v1.NodeStatus,
 	comp v1.Component) (*v1.NodeStatus, bool) {
-	seconds := healthCheckSeconds(comp.Docker)
+	seconds := v1.HealthCheckSeconds(comp.Docker)
 	deadline := time.Now().Add(time.Second * time.Duration(seconds))
 	for time.Now().Before(deadline) {
 		for _, c := range status.RunningComponents {
@@ -503,37 +570,33 @@ func (n *NodeServiceImpl) autoscale() {
 }
 
 func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput) (v1.StartStopComponentsOutput, error) {
-	scaleTargets := make([]component.ScaleTarget, len(input.TargetCounts))
+	scaleTargets := make([]converge.ComponentTarget, len(input.TargetCounts))
 	for i, tc := range input.TargetCounts {
 		comp, err := n.db.GetComponent(tc.ComponentName)
 		if err != nil {
 			return v1.StartStopComponentsOutput{},
 				rpcErr(err, MiscError, "nodesvc: GetComponent failed for: "+tc.ComponentName)
 		}
-		scaleTargets[i] = component.ScaleTarget{
-			Component:         &comp,
-			TargetCount:       tc.TargetCount,
-			RequiredMemoryMiB: tc.RequiredMemoryMiB,
+		scaleTargets[i] = converge.ComponentTarget{
+			Component: &comp,
+			Count:     int(tc.TargetCount),
 		}
 	}
 
-	scaleOut := n.dispatcher.Scale(&component.ScaleInput{
-		TargetVersion: input.TargetVersion,
-		TargetCounts:  scaleTargets,
-	})
+	versionMatch := n.convergeReg.SetTargets(input.TargetVersion, scaleTargets)
 
-	status, err := n.resolveNodeStatus(context.Background())
+	status, err := n.resolveNodeStatus()
 	if err != nil {
 		return v1.StartStopComponentsOutput{},
 			rpcErr(err, MiscError, "nodesvc: StartStopComponents:resolveNodeStatus failed")
 	}
 
 	return v1.StartStopComponentsOutput{
-		TargetVersionMismatch: scaleOut.TargetVersionMismatch,
+		TargetVersionMismatch: !versionMatch,
 		TargetStatus:          &status,
-		Started:               scaleOut.Started,
-		Stopped:               scaleOut.Stopped,
-		Errors:                scaleOut.Errors,
+		Started:               []v1.ComponentDelta{},
+		Stopped:               []v1.ComponentDelta{},
+		Errors:                []v1.ComponentDeltaError{},
 	}, nil
 }
 
@@ -734,11 +797,11 @@ func (n *NodeServiceImpl) RunAutoscaleLoop(interval time.Duration, ctx context.C
 func (n *NodeServiceImpl) RunNodeStatusLoop(interval time.Duration, ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	logTicker := time.Tick(interval)
-	n.logStatusAndRefreshClusterNodeList(ctx)
+	n.logStatusAndRefreshClusterNodeList()
 	for {
 		select {
 		case <-logTicker:
-			n.logStatusAndRefreshClusterNodeList(ctx)
+			n.logStatusAndRefreshClusterNodeList()
 		case <-ctx.Done():
 			if n.nodeId != "" {
 				_, err := n.db.RemoveNodeStatus(n.nodeId)
@@ -753,8 +816,8 @@ func (n *NodeServiceImpl) RunNodeStatusLoop(interval time.Duration, ctx context.
 	}
 }
 
-func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context) {
-	err := n.logStatus(ctx)
+func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList() {
+	err := n.logStatus()
 	if err != nil && !docker.IsErrContainerNotFound(err) {
 		log.Error("nodesvc: error logging status", "err", err)
 	}
@@ -817,8 +880,8 @@ func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList(ctx context.Context
 	n.cluster.SetAllNodes(keep)
 }
 
-func (n *NodeServiceImpl) logStatus(ctx context.Context) error {
-	status, err := n.resolveNodeStatus(ctx)
+func (n *NodeServiceImpl) logStatus() error {
+	status, err := n.resolveNodeStatus()
 	if err != nil {
 		return err
 	}
@@ -829,7 +892,7 @@ func (n *NodeServiceImpl) resolveAndBroadcastNodeStatus(ctx context.Context) (v1
 	n.loadStatusLock.Lock()
 	defer n.loadStatusLock.Unlock()
 
-	status, err := n.resolveNodeStatus(ctx)
+	status, err := n.resolveNodeStatus()
 	if err != nil {
 		return status, err
 	}
@@ -843,16 +906,16 @@ func (n *NodeServiceImpl) resolveAndBroadcastNodeStatus(ctx context.Context) (v1
 	return status, nil
 }
 
-func (n *NodeServiceImpl) resolveNodeStatus(ctx context.Context) (v1.NodeStatus, error) {
-	infoResp := n.dispatcher.ComponentInfo()
+func (n *NodeServiceImpl) resolveNodeStatus() (v1.NodeStatus, error) {
+	version, infos := n.convergeReg.GetState()
 	nodeStatus := v1.NodeStatus{
 		NodeId:            n.nodeId,
 		PeerUrl:           n.peerUrl,
 		StartedAt:         n.startTimeMillis,
 		ObservedAt:        common.NowMillis(),
 		NumCPUs:           n.numCPUs,
-		Version:           infoResp.Version,
-		RunningComponents: infoResp.Info,
+		Version:           version,
+		RunningComponents: infos,
 	}
 
 	meminfo, err := linuxproc.ReadMemInfo("/proc/meminfo")
@@ -884,6 +947,27 @@ func (n *NodeServiceImpl) resolveNodeStatus(ctx context.Context) (v1.NodeStatus,
 	return nodeStatus, nil
 }
 
+func (n *NodeServiceImpl) pullImage(comp *v1.Component) error {
+	pull := comp.Docker.PullImageOnStart || comp.Docker.PullImageOnPut
+	force := comp.Docker.PullImageOnStart
+	if !force {
+		exists, err := common.ImageExistsLocally(n.dockerClient, comp.Docker.Image)
+		if err == nil {
+			// if image isn't present locally, pull it now
+			if !exists {
+				pull = true
+				force = true
+			}
+		} else {
+			return errors.Wrap(err, "unable to list images")
+		}
+	}
+	if pull {
+		n.pullState.Pull(*comp, force)
+	}
+	return nil
+}
+
 func rpcErr(err error, code ErrorCode, msg string) error {
 	log.Error(msg, "code", code, "err", err)
 	return &barrister.JsonRpcError{Code: int(code), Message: msg}
@@ -905,10 +989,19 @@ func healthCheckPeer(node v1.NodeStatus, okNodeChan chan<- v1.NodeStatus, wg *sy
 	}
 }
 
-func healthCheckSeconds(d *v1.DockerComponent) int64 {
-	seconds := d.HttpStartHealthCheckSeconds
-	if seconds <= 0 {
-		seconds = 60
+func toRemoteCountsByComponent(nodes map[string]v1.NodeStatus, myNodeId string) map[string]map[string]int {
+	remoteCountsByComponent := make(map[string]map[string]int)
+	for _, node := range nodes {
+		if node.NodeId != myNodeId {
+			for _, rc := range node.RunningComponents {
+				remoteCounts, ok := remoteCountsByComponent[rc.ComponentName]
+				if !ok {
+					remoteCounts = make(map[string]int)
+					remoteCountsByComponent[rc.ComponentName] = remoteCounts
+				}
+				remoteCounts[node.PeerUrl] = remoteCounts[node.PeerUrl] + 1
+			}
+		}
 	}
-	return seconds
+	return remoteCountsByComponent
 }

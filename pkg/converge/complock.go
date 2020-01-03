@@ -1,9 +1,8 @@
-package maelstrom
+package converge
 
 import (
 	"context"
 	"github.com/coopernurse/maelstrom/pkg/db"
-	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	"github.com/pkg/errors"
 	"time"
@@ -21,14 +20,14 @@ func NewCompLocker(db db.Db, nodeId string) *CompLocker {
 	}
 }
 
-func (c *CompLocker) startLockAcquire(ctx context.Context, comp *v1.Component) (bool, error) {
+func (c *CompLocker) StartLockAcquire(ctx context.Context, comp *v1.Component) (bool, error) {
 	if comp.StartParallelism == v1.StartParallelismParallel {
 		// no lock required
 		return false, nil
 	}
 
 	roleId := compLockerRoleId(comp)
-	lockDur := time.Second * time.Duration(healthCheckSeconds(comp.Docker)+1)
+	lockDur := time.Second * time.Duration(v1.HealthCheckSeconds(comp.Docker)+1)
 	for {
 
 		if comp.StartParallelism == v1.StartParallelismSeriesfirst {
@@ -56,14 +55,14 @@ func (c *CompLocker) startLockAcquire(ctx context.Context, comp *v1.Component) (
 		ticker := time.NewTicker(5 * time.Second)
 		select {
 		case <-ctx.Done():
-			return false, component.ErrConvergeContextCanceled
+			return false, ErrConvergeContextCanceled
 		case <-ticker.C:
 			// try again
 		}
 	}
 }
 
-func (c *CompLocker) postStartContainer(comp *v1.Component, releaseLock bool, success bool) error {
+func (c *CompLocker) PostStartContainer(comp *v1.Component, releaseLock bool, success bool) error {
 	if success {
 		err := c.db.IncrementComponentDeployCount(comp.Name, comp.Version)
 		if err != nil {

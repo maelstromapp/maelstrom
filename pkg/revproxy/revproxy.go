@@ -1,4 +1,4 @@
-package component
+package revproxy
 
 import (
 	"context"
@@ -8,15 +8,17 @@ import (
 	"time"
 )
 
-func localRevProxy(reqCh <-chan *RequestInput, statCh chan<- time.Duration, proxy *httputil.ReverseProxy,
+func LocalRevProxy(reqCh <-chan *Request, statCh chan<- time.Duration, proxy *httputil.ReverseProxy,
 	ctx context.Context, wg *sync.WaitGroup) {
-	revProxyLoop(reqCh, statCh, proxy, ctx, wg, "", "")
+	RevProxyLoop(reqCh, statCh, proxy, ctx, wg, "", "")
 }
 
-func revProxyLoop(reqCh <-chan *RequestInput, statCh chan<- time.Duration,
+func RevProxyLoop(reqCh <-chan *Request, statCh chan<- time.Duration,
 	proxy *httputil.ReverseProxy, ctx context.Context, wg *sync.WaitGroup, myNodeId string, componentName string) {
 
-	defer wg.Done()
+	if wg != nil {
+		defer wg.Done()
+	}
 
 	for {
 		select {
@@ -32,7 +34,7 @@ func revProxyLoop(reqCh <-chan *RequestInput, statCh chan<- time.Duration,
 	}
 }
 
-func handleReq(req *RequestInput, myNodeId string, componentName string, proxy *httputil.ReverseProxy,
+func handleReq(req *Request, myNodeId string, componentName string, proxy *httputil.ReverseProxy,
 	statCh chan<- time.Duration, ctx context.Context) {
 
 	defer func() {
@@ -55,7 +57,7 @@ func handleReq(req *RequestInput, myNodeId string, componentName string, proxy *
 		// so that receiving node can set the request deadline appropriately to account for time already spent
 	}
 
-	proxy.ServeHTTP(req.Resp, req.Req)
+	proxy.ServeHTTP(req.Rw, req.Req)
 	req.Done <- true
 	if statCh != nil {
 		select {

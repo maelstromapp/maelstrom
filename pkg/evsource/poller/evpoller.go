@@ -8,7 +8,7 @@ import (
 	"github.com/coopernurse/maelstrom/pkg/evsource"
 	evsqs "github.com/coopernurse/maelstrom/pkg/evsource/aws/sqs"
 	evstepfunc "github.com/coopernurse/maelstrom/pkg/evsource/aws/stepfunc"
-	"github.com/coopernurse/maelstrom/pkg/maelstrom/component"
+	"github.com/coopernurse/maelstrom/pkg/router"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	log "github.com/mgutz/logxi/v1"
 	"math"
@@ -17,14 +17,14 @@ import (
 	"time"
 )
 
-func NewEvPoller(myNodeId string, ctx context.Context, db db.Db, gateway http.Handler, dispatcher *component.Dispatcher,
+func NewEvPoller(myNodeId string, ctx context.Context, db db.Db, gateway http.Handler, routerReg *router.Registry,
 	awsSession *session.Session) *EvPoller {
 	return &EvPoller{
 		myNodeId:    myNodeId,
 		ctx:         ctx,
 		db:          db,
 		gateway:     gateway,
-		dispatcher:  dispatcher,
+		routerReg:   routerReg,
 		awsSession:  awsSession,
 		activeRoles: make(map[string]context.CancelFunc),
 		pollerDone:  make(chan string),
@@ -37,7 +37,7 @@ type EvPoller struct {
 	ctx         context.Context
 	db          db.Db
 	gateway     http.Handler
-	dispatcher  *component.Dispatcher
+	routerReg   *router.Registry
 	awsSession  *session.Session
 	activeRoles map[string]context.CancelFunc
 	pollerDone  chan string
@@ -115,18 +115,9 @@ func (e *EvPoller) reload() {
 
 func (e *EvPoller) startPollerGroup(pollCreator evsource.PollCreator, validRoleIds map[string]bool) {
 	componentName := pollCreator.ComponentName()
-	comp, err := e.db.GetComponent(componentName)
-	if err != nil {
-		log.Error("evpoller: Unable to load component", "component", componentName, "err", err)
-		return
-	}
-	instancesRunning, err := e.dispatcher.InstanceCountForComponent(comp)
-	if err != nil {
-		log.Error("evpoller: Unable to get instance count for component", "component", componentName, "err", err)
-		return
-	}
+	activeHandlers := e.routerReg.ByComponent(componentName).GetHandlerCount()
 
-	maxConcurrency := toMaxConcurrency(pollCreator.MaxConcurrency(), int(comp.MaxConcurrency), instancesRunning)
+	maxConcurrency := toMaxConcurrency(pollCreator.MaxConcurrency(), int(activeHandlers))
 	roleIdConcurs := toRoleIdConcurrency(pollCreator, maxConcurrency)
 
 	for _, rc := range roleIdConcurs {
@@ -185,16 +176,16 @@ func toRoleIdConcurrency(pollCreator evsource.PollCreator, maxConcurrency int) [
 	return roleIdConcur
 }
 
-func toMaxConcurrency(defaultMaxConcurrency int, maxConcurPerInst int, instancesRunning int) int {
-	if maxConcurPerInst <= 0 {
-		maxConcurPerInst = 1
+func toMaxConcurrency(pollerMaxConcurrency int, activeHandlers int) int {
+	if pollerMaxConcurrency <= 0 {
+		pollerMaxConcurrency = 1
 	}
-	if instancesRunning <= 0 {
-		instancesRunning = 1
+	if activeHandlers <= 0 {
+		activeHandlers = 1
 	}
-	maxConcur := instancesRunning * maxConcurPerInst
-	if maxConcur > defaultMaxConcurrency {
-		maxConcur = defaultMaxConcurrency
+	maxConcur := activeHandlers
+	if activeHandlers > pollerMaxConcurrency {
+		maxConcur = pollerMaxConcurrency
 	}
 	return maxConcur
 }

@@ -1,4 +1,4 @@
-package component
+package revproxy
 
 import "sync"
 

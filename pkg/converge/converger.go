@@ -1,4 +1,4 @@
-package component
+package converge
 
 import (
 	"context"
@@ -87,8 +87,8 @@ type Converger struct {
 	convergePostStartContainer      ConvergePostStartContainer
 }
 
-func NewConverger(currentTarget ComponentTarget, parentCtx context.Context) *Converger {
-	ctx, ctxCancel := context.WithCancel(parentCtx)
+func NewConverger(currentTarget ComponentTarget) *Converger {
+	ctx, ctxCancel := context.WithCancel(context.Background())
 	return &Converger{
 		currentTarget: currentTarget,
 		ctx:           ctx,
@@ -97,15 +97,6 @@ func NewConverger(currentTarget ComponentTarget, parentCtx context.Context) *Con
 		lock:          &sync.Mutex{},
 		wg:            &sync.WaitGroup{},
 	}
-}
-
-func (c *Converger) WithComponentCallbacks(comp *Component) *Converger {
-	return c.WithPullImage(comp.pullImage).
-		WithStartContainer(comp.startContainerAndHealthCheck).
-		WithStopContainer(comp.stopContainer).
-		WithStartLockAcquire(comp.startLockAcquire).
-		WithPostStartContainer(comp.postStartContainer).
-		WithNotifyContainersChanged(comp.NotifyContainersChanged)
 }
 
 func (c *Converger) WithTarget(target ComponentTarget) *Converger {
@@ -141,6 +132,12 @@ func (c *Converger) WithPostStartContainer(fx ConvergePostStartContainer) *Conve
 func (c *Converger) WithNotifyContainersChanged(fx ConvergeNotifyContainersChanged) *Converger {
 	c.convergeNotifyContainersChanged = fx
 	return c
+}
+
+func (c *Converger) SetComponent(comp *v1.Component) {
+	target := c.GetTarget()
+	target.Component = comp
+	c.SetTarget(target)
 }
 
 func (c *Converger) SetTarget(target ComponentTarget) {

@@ -1,6 +1,7 @@
-package component
+package maelstrom
 
 import (
+	"github.com/coopernurse/maelstrom/pkg/common"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	docker "github.com/docker/docker/client"
 	log "github.com/mgutz/logxi/v1"
@@ -27,7 +28,7 @@ func (p *PullState) Pull(c v1.Component, forcePull bool) {
 	p.lock.Unlock()
 
 	if ver != c.Version || forcePull {
-		err := pullImage(p.dockerClient, c)
+		err := common.PullImage(p.dockerClient, c)
 		if err != nil {
 			log.Warn("component: unable to pull image", "err", err.Error(), "component", c.Name,
 				"image", c.Docker.Image)
