@@ -70,16 +70,40 @@ func (p *PlacementOption) ContainerCountByComponent() (byComp map[string]int, to
 	}
 
 	// then adjust for any components that will be scaled up/down
-	for _, tc := range p.Input.TargetCounts {
-		oldCount, ok := byComp[tc.ComponentName]
-		if ok {
-			total -= oldCount
+	if p.Input != nil {
+		for _, tc := range p.Input.TargetCounts {
+			oldCount, ok := byComp[tc.ComponentName]
+			if ok {
+				total -= oldCount
+			}
+			byComp[tc.ComponentName] = int(tc.TargetCount)
+			total += int(tc.TargetCount)
 		}
-		byComp[tc.ComponentName] = int(tc.TargetCount)
-		total += int(tc.TargetCount)
 	}
 
 	return
+}
+
+func (p *PlacementOption) ramForComponent(componentName string) int64 {
+	maxRam := int64(0)
+	if p.TargetNode != nil {
+		for _, ci := range p.TargetNode.RunningComponents {
+			if componentName == ci.ComponentName && ci.MemoryReservedMiB > maxRam {
+				maxRam = ci.MemoryReservedMiB
+			}
+		}
+	}
+	if p.Input != nil {
+		for _, tc := range p.Input.TargetCounts {
+			if componentName == tc.ComponentName && tc.RequiredMemoryMiB > maxRam {
+				maxRam = tc.RequiredMemoryMiB
+			}
+		}
+	}
+	if maxRam == 0 {
+		maxRam = 128
+	}
+	return maxRam
 }
 
 func (p *PlacementOption) scaleDownCount() int {
@@ -213,7 +237,8 @@ func BestStopComponentOption(placementByNode map[string]*PlacementOption, compon
 	for _, placementOption := range placementByNode {
 		countByComp, _ := placementOption.ContainerCountByComponent()
 		if countByComp[componentName] > 0 {
-			modifiedOption := placementOption.cloneWithTargetDelta(componentName, -1, 0)
+			requiredRam := placementOption.ramForComponent(componentName)
+			modifiedOption := placementOption.cloneWithTargetDelta(componentName, -1, requiredRam)
 			options = append(options, modifiedOption)
 		}
 	}

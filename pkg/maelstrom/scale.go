@@ -344,6 +344,8 @@ func computeScaleStartStopInputs(nodes []v1.NodeStatus, deltas []componentDelta)
 		if ramUsed == 0 {
 			fromOption, compName, requiredRam := findCompToMove(optionByNode, node.NodeId, node.TotalMemoryMiB)
 			if fromOption != nil {
+				log.Info("scale: rebalancing component", "component", compName, "requiredRam", requiredRam,
+					"toNode", common.TruncNodeId(node.NodeId), "freeRam", node.TotalMemoryMiB)
 				cloned := fromOption.cloneWithTargetDelta(compName, -1, requiredRam)
 				fromOption.Input.TargetCounts = cloned.Input.TargetCounts
 
@@ -375,13 +377,15 @@ func findCompToMove(placementByNode map[string]*PlacementOption, otherNodeId str
 		}
 		if placementOption.TargetNode.NodeId != otherNodeId && totalContainers > 1 {
 			for _, rc := range placementOption.TargetNode.RunningComponents {
-				if runningComps[rc.ComponentName] > 0 && rc.MemoryReservedMiB <= freeMemoryMiB {
-					return placementOption, rc.ComponentName, rc.MemoryReservedMiB
+				ramRequired := placementOption.ramForComponent(rc.ComponentName)
+				if runningComps[rc.ComponentName] > 0 && ramRequired <= freeMemoryMiB {
+					return placementOption, rc.ComponentName, ramRequired
 				}
 			}
 			for _, tc := range placementOption.Input.TargetCounts {
-				if runningComps[tc.ComponentName] > 0 && tc.RequiredMemoryMiB <= freeMemoryMiB {
-					return placementOption, tc.ComponentName, tc.RequiredMemoryMiB
+				ramRequired := placementOption.ramForComponent(tc.ComponentName)
+				if runningComps[tc.ComponentName] > 0 && ramRequired <= freeMemoryMiB {
+					return placementOption, tc.ComponentName, ramRequired
 				}
 			}
 		}

@@ -14,6 +14,54 @@ import (
 	"time"
 )
 
+func TestFindCompToMove(t *testing.T) {
+	placementByNode := map[string]*PlacementOption{
+		"n1": {
+			TargetNode: &v1.NodeStatus{
+				NodeId: "n2",
+				RunningComponents: []v1.ComponentInfo{
+					{
+						ComponentName:     "c1",
+						MemoryReservedMiB: 256,
+					},
+					{
+						ComponentName:     "c2",
+						MemoryReservedMiB: 64,
+					},
+				},
+			},
+			Input: &v1.StartStopComponentsInput{
+				TargetCounts: []v1.ComponentTarget{
+					{
+						ComponentName:     "c1",
+						RequiredMemoryMiB: 0,
+						TargetCount:       1,
+					},
+				},
+			},
+		},
+		"n2": {
+			TargetNode: &v1.NodeStatus{
+				NodeId:            "n2",
+				RunningComponents: []v1.ComponentInfo{},
+			},
+			Input: nil,
+		},
+	}
+
+	_, compName, requiredRam := findCompToMove(placementByNode, "n3", 0)
+	assert.Equal(t, "", compName)
+	assert.Equal(t, int64(0), requiredRam)
+
+	_, compName, requiredRam = findCompToMove(placementByNode, "n3", 64)
+	assert.Equal(t, "c2", compName)
+	assert.Equal(t, int64(64), requiredRam)
+
+	_, compName, requiredRam = findCompToMove(placementByNode, "n3", 256)
+	assert.Equal(t, "c1", compName)
+	assert.Equal(t, int64(256), requiredRam)
+}
+
 func TestPropertyNeverExceedsTotalMemory(t *testing.T) {
 	f := func(nodeComps NodesAndComponents) bool {
 		input := nodeComps.Input
