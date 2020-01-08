@@ -167,7 +167,8 @@ func (c *Converger) OnDockerEvent(event *common.DockerEvent) {
 	if event.ContainerExited != nil && event.ContainerExited.ContainerId != "" {
 		c.stopAndRemoveContainer(0, event.ContainerExited.ContainerId, "container exited")
 		run = true
-	} else if event.ImageUpdated != nil && c.GetTarget().Component.Docker.Image == event.ImageUpdated.ImageName {
+	} else if event.ImageUpdated != nil && common.NormalizeImageName(c.GetTarget().Component.Docker.Image) ==
+		common.NormalizeImageName(event.ImageUpdated.ImageName) {
 		c.markContainersForTermination(reasonImageUpdated)
 		run = true
 	}

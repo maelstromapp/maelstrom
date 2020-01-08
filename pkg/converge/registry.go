@@ -83,10 +83,10 @@ func (r *Registry) Shutdown() {
 
 func (r *Registry) OnDockerEvent(msg common.DockerEvent) {
 	r.lock.Lock()
-	comps := r.byCompName
+	convergers := r.byCompName
 	r.lock.Unlock()
 
-	for _, c := range comps {
+	for _, c := range convergers {
 		c.OnDockerEvent(&msg)
 	}
 }
