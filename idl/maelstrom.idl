@@ -861,6 +861,10 @@ struct StartStopComponentsInput {
     // If true, targetStatus will be populated after performing changes
     // Optional. default=false
     returnStatus        bool     [optional]
+
+    // If true, block until target applies targetCounts
+    // Optional. default=false
+    block               bool     [optional]
 }
 
 struct StartStopComponentsOutput {

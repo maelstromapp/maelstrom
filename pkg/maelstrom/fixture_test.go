@@ -499,7 +499,7 @@ func (f *Fixture) WhenStopRequestReceived() *Fixture {
 			Component: &f.component,
 			Count:     0,
 		},
-	})
+	}, true)
 	return f
 }
 

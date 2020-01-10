@@ -107,6 +107,12 @@ func (p *PlacementOption) ramForComponent(componentName string) int64 {
 }
 
 func (p *PlacementOption) scaleDownCount() int {
+	_, scaleDown := p.scaleUpDownCounts()
+	return scaleDown
+}
+
+func (p *PlacementOption) scaleUpDownCounts() (int, int) {
+	scaleUp := 0
 	scaleDown := 0
 	byComp := map[string]int{}
 	for _, ci := range p.TargetNode.RunningComponents {
@@ -115,9 +121,11 @@ func (p *PlacementOption) scaleDownCount() int {
 	for _, tc := range p.Input.TargetCounts {
 		if tc.TargetCount < int64(byComp[tc.ComponentName]) {
 			scaleDown++
+		} else if tc.TargetCount > int64(byComp[tc.ComponentName]) {
+			scaleUp++
 		}
 	}
-	return scaleDown
+	return scaleUp, scaleDown
 }
 
 type PlacementOptionByNode []*PlacementOption

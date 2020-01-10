@@ -71,6 +71,23 @@ func CalcAutoscalePlacement(nodes []v1.NodeStatus, componentsByName map[string]v
 	return computeScaleStartStopInputs(nodes, deltas)
 }
 
+func groupOptionsByType(options []*PlacementOption) [][]*PlacementOption {
+	startOnly := make([]*PlacementOption, 0)
+	startStop := make([]*PlacementOption, 0)
+	stopOnly := make([]*PlacementOption, 0)
+	for _, opt := range options {
+		start, stop := opt.scaleUpDownCounts()
+		if start > 0 && stop > 0 {
+			startStop = append(startStop, opt)
+		} else if start > 0 {
+			startOnly = append(startOnly, opt)
+		} else {
+			stopOnly = append(stopOnly, opt)
+		}
+	}
+	return [][]*PlacementOption{startOnly, startStop, stopOnly}
+}
+
 func componentsByName(comps []v1.Component) map[string]v1.Component {
 	byName := map[string]v1.Component{}
 	for _, c := range comps {

@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -536,14 +537,11 @@ func (n *NodeServiceImpl) waitUntilComponentRunning(node v1.NodeStatus, status *
 }
 
 func (n *NodeServiceImpl) autoscale() {
-	roleOk, _, err := n.db.AcquireOrRenewRole(db.RoleAutoScale, n.nodeId, time.Minute)
-	if err != nil {
-		log.Error("nodesvc: autoscale AcquireOrRenewRole error", "role", db.RoleAutoScale, "err", err)
+	if !n.acquireAutoScaleRole(time.Minute) {
 		return
 	}
-	if !roleOk {
-		return
-	}
+
+	startTime := time.Now()
 
 	nodes := n.cluster.GetNodes()
 	componentsByName, err := loadActiveComponents(nodes, n.db)
@@ -553,20 +551,67 @@ func (n *NodeServiceImpl) autoscale() {
 	}
 
 	inputs := CalcAutoscalePlacement(nodes, componentsByName)
+	groups := groupOptionsByType(inputs)
 
-	for _, input := range inputs {
-		output, err := n.cluster.GetNodeService(*input.TargetNode).StartStopComponents(*input.Input)
-		if err == nil {
-			log.Info("autoscale: StartStopComponents success",
-				"targetNode", common.TruncNodeId(input.TargetNode.NodeId), "targetCounts", input.Input.TargetCounts)
-			if output.TargetStatus != nil {
-				n.cluster.SetNode(*output.TargetStatus)
+	success := true
+	for _, group := range groups {
+		if len(group) > 0 && success {
+			if n.acquireAutoScaleRole(3 * time.Minute) {
+				errCount := n.applyPlacementOptions(group)
+				if errCount > 0 {
+					success = false
+					log.Error("autoscale: group failed - aborting group loop", "errCount", errCount)
+				}
+			} else {
+				log.Warn("autoscale: lost autoscale role - aborting")
+				success = false
 			}
-		} else {
-			log.Error("autoscale: StartStopComponents failed", "err", err,
-				"targetNode", common.TruncNodeId(input.TargetNode.NodeId), "input", input)
 		}
 	}
+	if success {
+		log.Info("autoscale: autoscale successful", "inputs", len(inputs),
+			"elapsed", time.Now().Sub(startTime).String())
+	}
+}
+
+func (n *NodeServiceImpl) acquireAutoScaleRole(dur time.Duration) bool {
+	roleOk, _, err := n.db.AcquireOrRenewRole(db.RoleAutoScale, n.nodeId, dur)
+	if err != nil {
+		log.Error("nodesvc: autoscale AcquireOrRenewRole error", "role", db.RoleAutoScale, "err", err)
+		return false
+	}
+	return roleOk
+}
+
+func (n *NodeServiceImpl) applyPlacementOptions(group []*PlacementOption) int64 {
+	if len(group) == 0 {
+		return 0
+	}
+
+	wg := &sync.WaitGroup{}
+	var errCount int64
+	for _, input := range group {
+		wg.Add(1)
+		go func(input *PlacementOption) {
+			defer wg.Done()
+			input.Input.Block = true
+			output, err := n.cluster.GetNodeService(*input.TargetNode).StartStopComponents(*input.Input)
+			if err == nil {
+				log.Info("autoscale: StartStopComponents success",
+					"targetNode", common.TruncNodeId(input.TargetNode.NodeId),
+					"targetCounts", input.Input.TargetCounts)
+				if output.TargetStatus != nil {
+					n.cluster.SetNode(*output.TargetStatus)
+				}
+			} else {
+				atomic.AddInt64(&errCount, 1)
+				log.Error("autoscale: StartStopComponents failed", "err", err,
+					"targetNode", common.TruncNodeId(input.TargetNode.NodeId), "input", input)
+			}
+		}(input)
+	}
+	wg.Wait()
+	return atomic.LoadInt64(&errCount)
 }
 
 func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput) (v1.StartStopComponentsOutput, error) {
@@ -583,7 +628,7 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 		}
 	}
 
-	versionMatch := n.convergeReg.SetTargets(input.TargetVersion, scaleTargets)
+	versionMatch := n.convergeReg.SetTargets(input.TargetVersion, scaleTargets, input.Block)
 
 	status, err := n.resolveNodeStatus()
 	if err != nil {

@@ -157,11 +157,11 @@ func testScaleUpPlacesOnEmptyNode(t *testing.T) {
 
 func TestPlaceHighRAMComponent(t *testing.T) {
 	for i := 0; i < 300; i++ {
-		testFoo(t)
+		testPlaceHighRAM(t)
 	}
 }
 
-func testFoo(t *testing.T) {
+func testPlaceHighRAM(t *testing.T) {
 	// - test: 3 nodes, 2 w/o enough ram to run component, 1 with enough, but running other components.
 	//   should rebalance components from n3 to n1/2 and start big component on n3.
 

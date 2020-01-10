@@ -74,7 +74,7 @@ type Converger struct {
 	containers    []*Container
 	ctx           context.Context
 	ctxCancel     context.CancelFunc
-	runCh         chan bool
+	runCh         chan chan bool
 	lock          *sync.Mutex
 	wg            *sync.WaitGroup
 
@@ -93,7 +93,7 @@ func NewConverger(currentTarget ComponentTarget) *Converger {
 		currentTarget: currentTarget,
 		ctx:           ctx,
 		ctxCancel:     ctxCancel,
-		runCh:         make(chan bool),
+		runCh:         make(chan chan bool),
 		lock:          &sync.Mutex{},
 		wg:            &sync.WaitGroup{},
 	}
@@ -140,11 +140,13 @@ func (c *Converger) SetComponent(comp *v1.Component) {
 	c.SetTarget(target)
 }
 
-func (c *Converger) SetTarget(target ComponentTarget) {
+func (c *Converger) SetTarget(target ComponentTarget) chan bool {
 	c.lock.Lock()
 	c.currentTarget = target
 	c.lock.Unlock()
-	go func() { c.runCh <- true }()
+	doneCh := make(chan bool, 1)
+	go func() { c.runCh <- doneCh }()
+	return doneCh
 }
 
 func (c *Converger) GetTarget() (target ComponentTarget) {
@@ -175,7 +177,7 @@ func (c *Converger) OnDockerEvent(event *common.DockerEvent) {
 
 	if run {
 		// alert background goroutine to re-converge
-		go func() { c.runCh <- true }()
+		go func() { c.runCh <- make(chan bool, 1) }()
 	}
 }
 
@@ -209,7 +211,7 @@ func (c *Converger) markContainersForTermination(reason string) {
 		cn.terminateReason = reason
 	}
 	c.lock.Unlock()
-	go func() { c.runCh <- true }()
+	go func() { c.runCh <- make(chan bool, 1) }()
 }
 
 func (c *Converger) notifyContainersChanged() {
@@ -255,8 +257,9 @@ func (c *Converger) run() {
 	ticker := time.NewTicker(time.Minute)
 	for running {
 		select {
-		case <-c.runCh:
+		case doneCh := <-c.runCh:
 			c.converge()
+			doneCh <- true
 		case <-ticker.C:
 			c.converge()
 		case <-c.ctx.Done():

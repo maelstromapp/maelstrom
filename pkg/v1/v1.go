@@ -8,8 +8,16 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "9aa3db77f6530d7652898e94f5a1e236"
-const BarristerDateGenerated int64 = 1577718957314000000
+const BarristerChecksum string = "0b30299aa362323e1b112a9dda3313a4"
+const BarristerDateGenerated int64 = 1578665504812000000
+
+type StartParallelism string
+
+const (
+	StartParallelismParallel    StartParallelism = "parallel"
+	StartParallelismSeries                       = "series"
+	StartParallelismSeriesfirst                  = "seriesfirst"
+)
 
 type RestartOrder string
 
@@ -25,14 +33,6 @@ const (
 	EventSourceTypeCron                        = "cron"
 	EventSourceTypeSqs                         = "sqs"
 	EventSourceTypeAwsstepfunc                 = "awsstepfunc"
-)
-
-type StartParallelism string
-
-const (
-	StartParallelismParallel    StartParallelism = "parallel"
-	StartParallelismSeries                       = "series"
-	StartParallelismSeriesfirst                  = "seriesfirst"
 )
 
 type Project struct {
@@ -372,6 +372,7 @@ type StartStopComponentsInput struct {
 	TargetVersion int64             `json:"targetVersion"`
 	TargetCounts  []ComponentTarget `json:"targetCounts"`
 	ReturnStatus  bool              `json:"returnStatus,omitempty"`
+	Block         bool              `json:"block,omitempty"`
 }
 
 type StartStopComponentsOutput struct {
@@ -3358,6 +3359,13 @@ var IdlJsonRaw = `[
                 "optional": true,
                 "is_array": false,
                 "comment": "If true, targetStatus will be populated after performing changes\nOptional. default=false"
+            },
+            {
+                "name": "block",
+                "type": "bool",
+                "optional": true,
+                "is_array": false,
+                "comment": "If true, block until target applies targetCounts\nOptional. default=false"
             }
         ],
         "values": null,
@@ -3663,7 +3671,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1577718957314,
-        "checksum": "9aa3db77f6530d7652898e94f5a1e236"
+        "date_generated": 1578665504812,
+        "checksum": "0b30299aa362323e1b112a9dda3313a4"
     }
 ]`

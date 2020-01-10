@@ -10,6 +10,7 @@ import (
 	log "github.com/mgutz/logxi/v1"
 	"github.com/pkg/errors"
 	"sync"
+	"time"
 )
 
 func NewRegistry(dockerClient *docker.Client, routerReg *router.Registry, maelstromUrl string,
@@ -147,7 +148,7 @@ func (r *Registry) GetState() (version int64, compInfo []v1.ComponentInfo) {
 	return
 }
 
-func (r *Registry) SetTargets(version int64, targets []ComponentTarget) bool {
+func (r *Registry) SetTargets(version int64, targets []ComponentTarget, block bool) bool {
 	r.lock.Lock()
 	versionMatch := version == r.version
 	if versionMatch {
@@ -156,9 +157,21 @@ func (r *Registry) SetTargets(version int64, targets []ComponentTarget) bool {
 	r.lock.Unlock()
 
 	if versionMatch {
+		startTime := time.Now()
+		wg := &sync.WaitGroup{}
 		for _, t := range targets {
-			conv := r.ByComponent(t.Component)
-			conv.SetTarget(t)
+			wg.Add(1)
+			go func(t ComponentTarget) {
+				defer wg.Done()
+				conv := r.ByComponent(t.Component)
+				doneCh := conv.SetTarget(t)
+				<-doneCh
+			}(t)
+		}
+		if block {
+			log.Info("converge: blocking until converge completes")
+			wg.Wait()
+			log.Info("converge: converge completed", "elapsed", time.Now().Sub(startTime).String())
 		}
 	}
 	return versionMatch
