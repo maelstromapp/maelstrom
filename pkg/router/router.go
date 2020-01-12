@@ -117,7 +117,7 @@ func (r *Router) SetRemoteHandlerCounts(urlToHandlerCount map[string]int) {
 		u, err := url.Parse(targetUrl)
 		if err == nil {
 			for targetCount > len(cancelFuncs) {
-				cancelFunc = r.startRemoteHandler(u)
+				cancelFunc = r.startRemoteHandler(u, targetCount)
 				cancelFuncs = append(cancelFuncs, cancelFunc)
 				r.remoteHandlersByUrl[targetUrl] = cancelFuncs
 				change = true
@@ -150,11 +150,12 @@ func (r *Router) SetRemoteHandlerCounts(urlToHandlerCount map[string]int) {
 	}
 }
 
-func (r *Router) startRemoteHandler(targetUrl *url.URL) context.CancelFunc {
+func (r *Router) startRemoteHandler(targetUrl *url.URL, targetCount int) context.CancelFunc {
 	proxy := httputil.NewSingleHostReverseProxy(targetUrl)
 	proxy.BufferPool = r.bufferPool
 	proxy.Transport = &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy:               http.ProxyFromEnvironment,
+		MaxIdleConnsPerHost: targetCount,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,

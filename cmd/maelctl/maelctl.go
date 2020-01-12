@@ -99,7 +99,7 @@ func clusterPs(args docopt.Opts, nodeSvc v1.NodeService) {
 		if len(node.RunningComponents) > 0 {
 			if first {
 				first = false
-				fmt.Printf("%-30s  %-5s  %-14s  %-7s  %-15s  %-11s  %-6s  %-5s\n", "Component", "Ver", "Node ID", "Max RAM", "Last Request", "# Requests", "Concur", "Max Concur")
+				fmt.Printf("%-30s  %-5s  %-8s  %-14s  %-7s  %-15s  %-11s  %-8s\n", "Component", "Ver", "Status", "Node ID", "Max RAM", "Last Request", "# Requests", "Concur %")
 				fmt.Printf("-----------------------------------------------------------------------------------------------------------------\n")
 			}
 			for _, rc := range node.RunningComponents {
@@ -115,9 +115,14 @@ func clusterPs(args docopt.Opts, nodeSvc v1.NodeService) {
 					}
 					avgConcur = sumConcur / float64(len(rc.Activity))
 				}
-				fmt.Printf("%-30s  %-5d  %-14s  %-7d  %-15s  %-11d  %-6.2f  %-5d\n", trunc(rc.ComponentName, 30),
-					rc.ComponentVersion, trunc(node.NodeId, 14), rc.MemoryReservedMiB, lastReqAt, rc.TotalRequests,
-					avgConcur, rc.MaxConcurrency)
+				maxConcur := rc.MaxConcurrency
+				if maxConcur <= 0 {
+					maxConcur = 1
+				}
+				concurPct := 100.0 * (avgConcur / float64(maxConcur))
+				fmt.Printf("%-30s  %-5d  %-8s  %-14s  %-7d  %-15s  %-11d  %-8.2f\n", trunc(rc.ComponentName, 30),
+					rc.ComponentVersion, rc.Status, trunc(node.NodeId, 14), rc.MemoryReservedMiB, lastReqAt,
+					rc.TotalRequests, concurPct)
 			}
 		}
 	}

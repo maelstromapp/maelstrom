@@ -21,7 +21,6 @@ import (
 )
 
 type maelContainerId uint64
-type maelContainerStatus int
 
 func NewContainer(dockerClient *docker.Client, component *v1.Component, maelstromUrl string,
 	router *router.Router, id maelContainerId, bufferPool httputil.BufferPool, parentCtx context.Context) *Container {
@@ -36,6 +35,7 @@ func NewContainer(dockerClient *docker.Client, component *v1.Component, maelstro
 
 	c := &Container{
 		id:                     id,
+		status:                 v1.ComponentStatusStarting,
 		dockerClient:           dockerClient,
 		router:                 router,
 		runWg:                  &sync.WaitGroup{},
@@ -59,7 +59,7 @@ func NewContainer(dockerClient *docker.Client, component *v1.Component, maelstro
 
 type Container struct {
 	id     maelContainerId
-	status maelContainerStatus
+	status v1.ComponentStatus
 
 	// marker field - if non-empty, container should be terminated by converger
 	terminateReason string
@@ -108,6 +108,7 @@ func (c *Container) ComponentInfo() v1.ComponentInfo {
 	info := v1.ComponentInfo{
 		ComponentName:     c.component.Name,
 		ComponentVersion:  c.component.Version,
+		Status:            c.status,
 		MaxConcurrency:    c.component.MaxConcurrency,
 		MemoryReservedMiB: c.component.Docker.ReserveMemoryMiB,
 		StartTime:         common.TimeToMillis(c.startTime),
@@ -119,19 +120,11 @@ func (c *Container) ComponentInfo() v1.ComponentInfo {
 	return info
 }
 
-func (c *Container) CancelAndStop(reason string) {
+func (c *Container) JoinAndStop(reason string) {
 	log.Info("container: shutting down", "reason", reason, "containerId", common.StrTruncate(c.containerId, 8))
 
-	// cancel context - this will cause rev proxies and run loop to exit
-	// note that rev proxies may not fully drain reqCh - so this should only
-	// be called when doing a partial scale down
-	c.cancel()
+	c.setStatus(v1.ComponentStatusStopping)
 
-	// call join and stop so that we remove container
-	c.JoinAndStop(reason)
-}
-
-func (c *Container) JoinAndStop(reason string) {
 	// cancel context - this will terminate run loop
 	c.cancel()
 
@@ -143,6 +136,16 @@ func (c *Container) JoinAndStop(reason string) {
 
 	// remove container
 	c.stopContainerQuietly(reason)
+}
+
+func (c *Container) setStatus(newStatus v1.ComponentStatus) {
+	c.statLock.Lock()
+	if log.IsDebug() {
+		log.Debug("container: changing status", "from", c.status, "to", newStatus,
+			"containerId", common.StrTruncate(c.containerId, 8))
+	}
+	c.status = newStatus
+	c.statLock.Unlock()
 }
 
 func (c *Container) startAndHealthCheck(ctx context.Context) error {
@@ -159,7 +162,9 @@ func (c *Container) startAndHealthCheck(ctx context.Context) error {
 		}
 	}
 
-	if err != nil {
+	if err == nil {
+		c.setStatus(v1.ComponentStatusActive)
+	} else {
 		c.stopContainerQuietly(stopReason)
 	}
 	return err
@@ -265,7 +270,7 @@ func (c *Container) runHealthCheck() {
 			log.Error("container: health check failed. stopping container",
 				"containerId", common.StrTruncate(c.containerId, 8),
 				"component", c.component.Name, "failures", c.healthCheckFailures)
-			go c.CancelAndStop("health check failed")
+			go c.JoinAndStop("health check failed")
 			c.healthCheckFailures = 0
 		} else {
 			log.Warn("container: health check failed", "failures", c.healthCheckFailures,
@@ -334,7 +339,8 @@ func (c *Container) initReverseProxy(ctx context.Context) error {
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.BufferPool = c.bufferPool
 	proxy.Transport = &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy:               http.ProxyFromEnvironment,
+		MaxIdleConnsPerHost: maxConcurrency(c.component),
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,

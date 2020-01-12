@@ -15,6 +15,7 @@ func StrToEventSourceType(esType string) (EventSourceType, error) {
 	}
 	return "", fmt.Errorf("invalid EventSourceType: %s", esType)
 }
+
 func GetEventSourceType(e EventSource) EventSourceType {
 	if e.Http != nil {
 		return EventSourceTypeHttp

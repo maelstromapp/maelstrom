@@ -124,7 +124,7 @@ func (r *Registry) ByComponent(comp *v1.Component) (c *Converger) {
 			Count:     0,
 		}).
 			WithPullImage(r.pullImage).
-			WithStartContainer(r.startContainerAndHealthCheck).
+			WithCreateContainer(r.createContainer).
 			WithStopContainer(r.stopContainer).
 			WithStartLockAcquire(r.startLockAcquire).
 			WithPostStartContainer(r.postStartContainer).
@@ -185,24 +185,18 @@ func (r *Registry) incrContainerIdCounter() (c maelContainerId) {
 	return
 }
 
-func (r *Registry) onContainersChanged(count int) {
+func (r *Registry) onContainersChanged() {
 	r.incrContainerIdCounter()
-	r.notifyContainersChanged(count)
+	r.notifyContainersChanged()
 }
 
-func (r *Registry) startContainerAndHealthCheck(ctx context.Context, comp *v1.Component) (*Container, error) {
+func (r *Registry) createContainer(ctx context.Context, comp *v1.Component) *Container {
 	containerId := r.incrContainerIdCounter()
 	router := r.routerReg.ByComponent(comp.Name)
-	cn := NewContainer(r.dockerClient, comp, r.maelstromUrl, router, containerId,
+	return NewContainer(r.dockerClient, comp, r.maelstromUrl, router, containerId,
 		r.bufferPool, ctx)
-	err := cn.startAndHealthCheck(ctx)
-	if err != nil {
-		return nil, err
-	}
-	go cn.run()
-	return cn, nil
 }
 
 func (r *Registry) stopContainer(cn *Container, reason string) {
-	cn.CancelAndStop(reason)
+	cn.JoinAndStop(reason)
 }

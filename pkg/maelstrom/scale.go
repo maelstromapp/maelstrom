@@ -66,9 +66,29 @@ func (s componentDeltaByDelta) Less(i, j int) bool { return s[i].delta < s[j].de
 /////////////////////////////////////////////////////
 
 func CalcAutoscalePlacement(nodes []v1.NodeStatus, componentsByName map[string]v1.Component) []*PlacementOption {
+	nodes = removeStopping(nodes)
 	concurrency := toComponentConcurrency(nodes, componentsByName)
 	deltas := toComponentDeltas(concurrency)
 	return computeScaleStartStopInputs(nodes, deltas)
+}
+
+func removeStopping(input []v1.NodeStatus) []v1.NodeStatus {
+	output := make([]v1.NodeStatus, len(input))
+	for i, node := range input {
+		output[i] = removeStoppingFromNode(node)
+	}
+	return output
+}
+
+func removeStoppingFromNode(node v1.NodeStatus) v1.NodeStatus {
+	components := make([]v1.ComponentInfo, 0)
+	for _, comp := range node.RunningComponents {
+		if comp.Status != "stopping" {
+			components = append(components, comp)
+		}
+	}
+	node.RunningComponents = components
+	return node
 }
 
 func groupOptionsByType(options []*PlacementOption) [][]*PlacementOption {

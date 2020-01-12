@@ -561,9 +561,16 @@ struct NodeStatus {
     runningComponents  []ComponentInfo
 }
 
+enum ComponentStatus {
+    active
+    starting
+    stopping
+}
+
 struct ComponentInfo {
     componentName      string
     componentVersion   int
+    status             ComponentStatus
     maxConcurrency     int
     memoryReservedMiB  int
     startTime          int

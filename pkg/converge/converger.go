@@ -14,9 +14,9 @@ import (
 var ErrConvergeContextCanceled = fmt.Errorf("converger: context canceled")
 
 // side effect functions
-type ConvergeNotifyContainersChanged func(count int)
+type ConvergeNotifyContainersChanged func()
 type ConvergePullImage func(c *v1.Component) error
-type ConvergeStartContainer func(ctx context.Context, c *v1.Component) (*Container, error)
+type ConvergeCreateContainer func(ctx context.Context, c *v1.Component) *Container
 type ConvergeStopContainer func(c *Container, reason string)
 type ConvergeStartLockAcquire func(ctx context.Context, comp *v1.Component) (bool, error)
 type ConvergePostStartContainer func(comp *v1.Component, releaseLock bool, success bool) error
@@ -81,7 +81,7 @@ type Converger struct {
 	// side effect functions
 	convergeNotifyContainersChanged ConvergeNotifyContainersChanged
 	convergePullImage               ConvergePullImage
-	convergeStartContainer          ConvergeStartContainer
+	convergeCreateContainer         ConvergeCreateContainer
 	convergeStopContainer           ConvergeStopContainer
 	convergeStartLockAcquire        ConvergeStartLockAcquire
 	convergePostStartContainer      ConvergePostStartContainer
@@ -109,8 +109,8 @@ func (c *Converger) WithPullImage(fx ConvergePullImage) *Converger {
 	return c
 }
 
-func (c *Converger) WithStartContainer(fx ConvergeStartContainer) *Converger {
-	c.convergeStartContainer = fx
+func (c *Converger) WithCreateContainer(fx ConvergeCreateContainer) *Converger {
+	c.convergeCreateContainer = fx
 	return c
 }
 
@@ -215,7 +215,7 @@ func (c *Converger) markContainersForTermination(reason string) {
 }
 
 func (c *Converger) notifyContainersChanged() {
-	go c.convergeNotifyContainersChanged(c.getContainerCount())
+	go c.convergeNotifyContainersChanged()
 }
 
 func (c *Converger) stopAndRemoveContainer(id maelContainerId, dockerContainerId string, reason string) {
@@ -223,6 +223,8 @@ func (c *Converger) stopAndRemoveContainer(id maelContainerId, dockerContainerId
 	var found *Container
 	for _, cn := range c.getContainers() {
 		if id == cn.id || dockerContainerId == cn.containerId {
+			cn.setStatus(v1.ComponentStatusStopping)
+			go c.notifyContainersChanged()
 			c.convergeStopContainer(cn, reason)
 			found = cn
 			log.Info("converge: stopAndRemoveContainer found container", "id", cn.id, "containerId", cn.containerId)
@@ -309,6 +311,33 @@ func (c *Converger) converge() {
 	}
 }
 
+func (c *Converger) addContainer(container *Container) {
+	if container != nil {
+		c.lock.Lock()
+		c.containers = append(c.containers, container)
+		c.lock.Unlock()
+	}
+}
+
+func (c *Converger) removeContainer(container *Container) bool {
+	if container == nil {
+		return false
+	}
+
+	removed := false
+	c.lock.Lock()
+	for i, cont := range c.containers {
+		if (container.id != 0 && cont.id == container.id) ||
+			(container.containerId != "" && cont.containerId == container.containerId) {
+			c.containers = append(c.containers[:i], c.containers[i+1:]...)
+			removed = true
+			break
+		}
+	}
+	c.lock.Unlock()
+	return removed
+}
+
 func (c *Converger) start(step *startStep) error {
 	var releaseLock bool
 	var err error
@@ -325,16 +354,18 @@ func (c *Converger) start(step *startStep) error {
 
 	log.Info("converge: startStep - starting container", "component", step.component.Name, "ver", step.component.Version)
 	success := true
-	container, err := c.convergeStartContainer(c.ctx, step.component)
+	container := c.convergeCreateContainer(c.ctx, step.component)
+	c.addContainer(container)
+	c.notifyContainersChanged()
+
+	err = container.startAndHealthCheck(c.ctx)
 	if err != nil {
-		success = false
-		err = errors.Wrap(err, "start container failed")
-	} else {
-		c.lock.Lock()
-		c.containers = append(c.containers, container)
-		c.lock.Unlock()
+		c.removeContainer(container)
 		c.notifyContainersChanged()
+		return errors.Wrap(err, "start container failed")
 	}
+	go container.run()
+	c.notifyContainersChanged()
 
 	log.Info("converge: startStep - post start container", "component", step.component.Name, "ver", step.component.Version)
 	err2 := c.convergePostStartContainer(step.component, releaseLock, success)

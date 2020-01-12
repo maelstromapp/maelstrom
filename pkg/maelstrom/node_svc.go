@@ -77,7 +77,7 @@ func NewNodeServiceImplFromDocker(db db.Db, dockerClient *docker.Client, private
 	compLock := converge.NewCompLocker(db, nodeId)
 	convergeReg := converge.NewRegistry(dockerClient, routerReg, maelstromUrl,
 		nodeSvc.pullImage, compLock.StartLockAcquire,
-		compLock.PostStartContainer, func(count int) { nodeSvc.OnContainersChanged() })
+		compLock.PostStartContainer, nodeSvc.OnContainersChanged)
 	nodeSvc.convergeReg = convergeReg
 
 	err = convergeReg.RemoveStaleContainers()
@@ -447,7 +447,7 @@ func (n *NodeServiceImpl) placeComponentTryOnce(componentName string, requiredRA
 		if err == nil {
 			n.cluster.SetNode(output.Status)
 			for _, c := range output.Status.RunningComponents {
-				if c.ComponentName == componentName {
+				if c.ComponentName == componentName && c.Status != v1.ComponentStatusStopping {
 					return &output.Status, false
 				}
 			}
@@ -474,7 +474,7 @@ func (n *NodeServiceImpl) placeComponentTryOnce(componentName string, requiredRA
 	// try first option
 	node := option.TargetNode
 	option.Input.ClientNodeId = n.nodeId
-
+	option.Input.Block = true
 	output, err := n.cluster.GetNodeService(*node).StartStopComponents(*option.Input)
 
 	if output.TargetStatus != nil {
@@ -1039,12 +1039,14 @@ func toRemoteCountsByComponent(nodes map[string]v1.NodeStatus, myNodeId string) 
 	for _, node := range nodes {
 		if node.NodeId != myNodeId {
 			for _, rc := range node.RunningComponents {
-				remoteCounts, ok := remoteCountsByComponent[rc.ComponentName]
-				if !ok {
-					remoteCounts = make(map[string]int)
-					remoteCountsByComponent[rc.ComponentName] = remoteCounts
+				if rc.Status == v1.ComponentStatusActive {
+					remoteCounts, ok := remoteCountsByComponent[rc.ComponentName]
+					if !ok {
+						remoteCounts = make(map[string]int)
+						remoteCountsByComponent[rc.ComponentName] = remoteCounts
+					}
+					remoteCounts[node.PeerUrl] = remoteCounts[node.PeerUrl] + 1
 				}
-				remoteCounts[node.PeerUrl] = remoteCounts[node.PeerUrl] + 1
 			}
 		}
 	}

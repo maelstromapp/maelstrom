@@ -8,8 +8,17 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "0b30299aa362323e1b112a9dda3313a4"
-const BarristerDateGenerated int64 = 1578665504812000000
+const BarristerChecksum string = "f2f4945279a28f7225c85591c24b6034"
+const BarristerDateGenerated int64 = 1578752457622000000
+
+type EventSourceType string
+
+const (
+	EventSourceTypeHttp        EventSourceType = "http"
+	EventSourceTypeCron                        = "cron"
+	EventSourceTypeSqs                         = "sqs"
+	EventSourceTypeAwsstepfunc                 = "awsstepfunc"
+)
 
 type StartParallelism string
 
@@ -26,13 +35,12 @@ const (
 	RestartOrderStopstart              = "stopstart"
 )
 
-type EventSourceType string
+type ComponentStatus string
 
 const (
-	EventSourceTypeHttp        EventSourceType = "http"
-	EventSourceTypeCron                        = "cron"
-	EventSourceTypeSqs                         = "sqs"
-	EventSourceTypeAwsstepfunc                 = "awsstepfunc"
+	ComponentStatusActive   ComponentStatus = "active"
+	ComponentStatusStarting                 = "starting"
+	ComponentStatusStopping                 = "stopping"
 )
 
 type Project struct {
@@ -168,6 +176,7 @@ type NodeStatus struct {
 type ComponentInfo struct {
 	ComponentName     string              `json:"componentName"`
 	ComponentVersion  int64               `json:"componentVersion"`
+	Status            ComponentStatus     `json:"status"`
 	MaxConcurrency    int64               `json:"maxConcurrency"`
 	MemoryReservedMiB int64               `json:"memoryReservedMiB"`
 	StartTime         int64               `json:"startTime"`
@@ -2192,6 +2201,32 @@ var IdlJsonRaw = `[
         "checksum": ""
     },
     {
+        "type": "enum",
+        "name": "ComponentStatus",
+        "comment": "",
+        "value": "",
+        "extends": "",
+        "fields": null,
+        "values": [
+            {
+                "value": "active",
+                "comment": ""
+            },
+            {
+                "value": "starting",
+                "comment": ""
+            },
+            {
+                "value": "stopping",
+                "comment": ""
+            }
+        ],
+        "functions": null,
+        "barrister_version": "",
+        "date_generated": 0,
+        "checksum": ""
+    },
+    {
         "type": "struct",
         "name": "ComponentInfo",
         "comment": "",
@@ -2208,6 +2243,13 @@ var IdlJsonRaw = `[
             {
                 "name": "componentVersion",
                 "type": "int",
+                "optional": false,
+                "is_array": false,
+                "comment": ""
+            },
+            {
+                "name": "status",
+                "type": "ComponentStatus",
                 "optional": false,
                 "is_array": false,
                 "comment": ""
@@ -3671,7 +3713,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1578665504812,
-        "checksum": "0b30299aa362323e1b112a9dda3313a4"
+        "date_generated": 1578752457622,
+        "checksum": "f2f4945279a28f7225c85591c24b6034"
     }
 ]`
