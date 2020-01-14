@@ -147,8 +147,12 @@ func (s *StepFuncPoller) worker(wg *sync.WaitGroup, reqCh chan *sfn.GetActivityT
 					log.Error("evstepfunc: SendTaskSuccess", "err", err, "arn", s.arn)
 				}
 			} else {
+				errStr := common.StrTruncate(rw.Header().Get("step-func-error"), 256)
+				causeStr := common.StrTruncate(rw.Header().Get("step-func-cause"), 32768)
 				_, err = s.sfnClient.SendTaskFailure(&sfn.SendTaskFailureInput{
 					TaskToken: out.TaskToken,
+					Error:     aws.String(errStr),
+					Cause:     aws.String(causeStr),
 				})
 				if err != nil {
 					log.Error("evstepfunc: SendTaskFailure", "err", err, "arn", s.arn)

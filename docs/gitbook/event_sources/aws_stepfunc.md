@@ -6,6 +6,22 @@ component is activated and the task input is sent to the component via HTTP POST
 POST body. If the component responds with a 200 status code, `SendTaskSuccess` is called using the response body as
 the `output` field. If a non-200 response is returned, or if the request times out, `SendTaskFailure` is called.
 
+## Errors
+
+If a non-200 response is returned, `SendTaskFailure` is called. You may optionally
+set response HTTP headers for the "cause" and "error" to be sent back to AWS. These values will be
+displayed in the step function UI.
+
+See the [SendTaskFailure docs](https://docs.aws.amazon.com/step-functions/latest/apireference/API_SendTaskFailure.html) for more info on these fields.
+
+`taskToken` is automatically set on the `SendTaskFailure` call and cannot be
+overridden.
+
+| HTTP Header      | SendTaskFailure Field    | Max Length                
+|------------------|--------------------------|----------------------
+| step-func-error  | error                    | 256
+| step-func-cause  | cause                    | 32768
+
 ## Activity creation
 
 `maelstromd` will call `CreateActivity` to resolve the ARN associated with the activity name, but you must 
