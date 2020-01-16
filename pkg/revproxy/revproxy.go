@@ -47,8 +47,10 @@ func handleReq(req *Request, myNodeId string, componentName string, proxy *httpu
 		relayPath := req.Req.Header.Get("MAELSTROM-RELAY-PATH")
 		if relayPath == "" {
 			relayPath = myNodeId
-		} else {
+		} else if len(relayPath) < 1024 {
 			relayPath = relayPath + "|" + myNodeId
+		} else {
+			log.Warn("revproxy: relay path too long to append to", "component", componentName)
 		}
 		req.Req.Header.Set("MAELSTROM-COMPONENT", componentName)
 		req.Req.Header.Set("MAELSTROM-RELAY-PATH", relayPath)

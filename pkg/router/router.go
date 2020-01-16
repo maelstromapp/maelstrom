@@ -238,12 +238,20 @@ func (r *Router) Route(ctx context.Context, req *revproxy.Request) {
 	defer r.routeDone()
 
 	if req.PreferLocal {
+		localSecs := req.Component.MaxDurationSeconds / 10
+		if localSecs < 1 {
+			localSecs = 1
+		}
+		timeout := time.After(time.Duration(localSecs) * time.Second)
 		select {
 		case r.localReqCh <- req:
 			// ok - done
 			return
-		default:
-			// fall through
+		case <-ctx.Done():
+			// timeout or shutdown
+			return
+		case <-timeout:
+			// fall through - give remote handlers a chance
 		}
 	}
 
