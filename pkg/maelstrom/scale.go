@@ -67,6 +67,10 @@ func (s componentDeltaByDelta) Less(i, j int) bool { return s[i].delta < s[j].de
 
 func CalcAutoscalePlacement(nodes []v1.NodeStatus, componentsByName map[string]v1.Component) []*PlacementOption {
 	nodes = removeStopping(nodes)
+	for _, n := range nodes {
+		log.Info("scale: CalcAutoscalePlacement", "peerUrl", n.PeerUrl, "totalRam", n.TotalMemoryMiB,
+			"version", n.Version, "running", n.RunningComponents)
+	}
 	concurrency := toComponentConcurrency(nodes, componentsByName)
 	deltas := toComponentDeltas(concurrency)
 	return computeScaleStartStopInputs(nodes, deltas)
@@ -367,6 +371,9 @@ func computeScaleStartStopInputs(nodes []v1.NodeStatus, deltas []componentDelta)
 					log.Warn("scale: unable to scale up component", "component", d.componentName, "delta", d.delta)
 					break
 				} else {
+					log.Info("scale: BestStart", "component", d.componentName,
+						"peerUrl", option.TargetNode.PeerUrl, "totalRam", option.TargetNode.TotalMemoryMiB,
+						"ramUsedAfter", option.RamUsed())
 					optionByNode[option.TargetNode.NodeId] = mergeOption(optionByNode, option)
 				}
 			}
