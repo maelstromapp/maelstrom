@@ -368,12 +368,13 @@ func computeScaleStartStopInputs(nodes []v1.NodeStatus, deltas []componentDelta)
 			for i := 0; i < d.delta; i++ {
 				option := BestStartComponentOption(optionByNode, d.componentName, d.reserveMemoryMiB, false)
 				if option == nil {
-					log.Warn("scale: unable to scale up component", "component", d.componentName, "delta", d.delta)
+					log.Warn("scale: unable to scale up component", "component", d.componentName,
+						"targetDelta", d.delta, "added", i)
 					break
 				} else {
 					log.Info("scale: BestStart", "component", d.componentName,
-						"peerUrl", option.TargetNode.PeerUrl, "totalRam", option.TargetNode.TotalMemoryMiB,
-						"ramUsedAfter", option.RamUsed())
+						"componentMemory", d.reserveMemoryMiB, "peerUrl", option.TargetNode.PeerUrl,
+						"totalNodeRam", option.TargetNode.TotalMemoryMiB, "ramUsedAfter", option.RamUsed())
 					optionByNode[option.TargetNode.NodeId] = mergeOption(optionByNode, option)
 				}
 			}

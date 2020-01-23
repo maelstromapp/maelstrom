@@ -319,3 +319,92 @@ func TestBestStartComponentOptionStopsComponentWithMostInstances(t *testing.T) {
 	}
 	assert.Equal(t, expected, BestStartComponentOption(newPlacementOptionsByNodeId(nodes), componentA, componentARam, true))
 }
+
+func TestRamUsed(t *testing.T) {
+	option := &PlacementOption{}
+	assert.Equal(t, int64(0), option.RamUsed())
+
+	option.TargetNode = &v1.NodeStatus{
+		RunningComponents: []v1.ComponentInfo{
+			{ComponentName: "c1", MemoryReservedMiB: 100},
+		},
+	}
+	assert.Equal(t, int64(100), option.RamUsed())
+
+	option.TargetNode = &v1.NodeStatus{
+		RunningComponents: []v1.ComponentInfo{
+			{ComponentName: "c1", MemoryReservedMiB: 100},
+			{ComponentName: "c1", MemoryReservedMiB: 200},
+		},
+	}
+	assert.Equal(t, int64(300), option.RamUsed())
+
+	option.TargetNode = &v1.NodeStatus{
+		RunningComponents: []v1.ComponentInfo{
+			{ComponentName: "c1", MemoryReservedMiB: 100},
+			{ComponentName: "c2", MemoryReservedMiB: 400},
+			{ComponentName: "c1", MemoryReservedMiB: 200},
+		},
+	}
+	assert.Equal(t, int64(700), option.RamUsed())
+
+	option.Input = &v1.StartStopComponentsInput{
+		TargetCounts: []v1.ComponentTarget{
+			{ComponentName: "c1", RequiredMemoryMiB: 100, TargetCount: 0},
+		},
+	}
+	assert.Equal(t, int64(400), option.RamUsed())
+
+	option.Input = &v1.StartStopComponentsInput{
+		TargetCounts: []v1.ComponentTarget{
+			{ComponentName: "c1", RequiredMemoryMiB: 100, TargetCount: 2},
+		},
+	}
+	assert.Equal(t, int64(600), option.RamUsed())
+
+	option.Input = &v1.StartStopComponentsInput{
+		TargetCounts: []v1.ComponentTarget{
+			{ComponentName: "c1", RequiredMemoryMiB: 100, TargetCount: 2},
+			{ComponentName: "c2", RequiredMemoryMiB: 300, TargetCount: 2},
+		},
+	}
+	assert.Equal(t, int64(800), option.RamUsed())
+
+	option.Input = &v1.StartStopComponentsInput{
+		TargetCounts: []v1.ComponentTarget{
+			{ComponentName: "c1", RequiredMemoryMiB: 100, TargetCount: 2},
+			{ComponentName: "c2", RequiredMemoryMiB: 300, TargetCount: 2},
+			{ComponentName: "c3", RequiredMemoryMiB: 25, TargetCount: 1},
+		},
+	}
+	assert.Equal(t, int64(825), option.RamUsed())
+}
+
+func TestCloneWithTargetDelta(t *testing.T) {
+	o1 := &PlacementOption{
+		TargetNode: &v1.NodeStatus{},
+		Input:      &v1.StartStopComponentsInput{},
+	}
+	o2 := o1.cloneWithTargetDelta("c1", 1, 100)
+	assert.Equal(t, int64(0), o1.RamUsed())
+	assert.Equal(t, int64(100), o2.RamUsed())
+	assert.Equal(t, int64(900), o2.cloneWithTargetDelta("c1", 2, 300).RamUsed())
+
+	o1.TargetNode = &v1.NodeStatus{
+		RunningComponents: []v1.ComponentInfo{
+			{ComponentName: "c1", MemoryReservedMiB: 100},
+			{ComponentName: "c1", MemoryReservedMiB: 100},
+		},
+	}
+	o2 = o1.cloneWithTargetDelta("c1", 2, 100)
+	assert.Equal(t, int64(400), o2.RamUsed())
+	byComp, total := o2.ContainerCountByComponent()
+	assert.Equal(t, map[string]int{"c1": 4}, byComp)
+	assert.Equal(t, 4, total)
+
+	o3 := o2.cloneWithTargetDelta("c2", 1, 200)
+	assert.Equal(t, int64(600), o3.RamUsed())
+	byComp, total = o3.ContainerCountByComponent()
+	assert.Equal(t, map[string]int{"c1": 4, "c2": 1}, byComp)
+	assert.Equal(t, 5, total)
+}

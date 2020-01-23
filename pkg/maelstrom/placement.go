@@ -13,11 +13,13 @@ type PlacementOption struct {
 func (p *PlacementOption) cloneWithTargetDelta(componentName string, delta int64, requiredRam int64) *PlacementOption {
 	currentCount := int64(-1)
 	targetCounts := make([]v1.ComponentTarget, 0)
-	for _, tc := range p.Input.TargetCounts {
-		if tc.ComponentName == componentName {
-			currentCount = tc.TargetCount
-		} else {
-			targetCounts = append(targetCounts, tc)
+	if p.Input != nil {
+		for _, tc := range p.Input.TargetCounts {
+			if tc.ComponentName == componentName {
+				currentCount = tc.TargetCount
+			} else {
+				targetCounts = append(targetCounts, tc)
+			}
 		}
 	}
 	if currentCount < 0 {
@@ -45,15 +47,18 @@ func (p *PlacementOption) cloneWithTargetDelta(componentName string, delta int64
 func (p *PlacementOption) RamUsed() int64 {
 	byComp := map[string]int{}
 	ramUsed := int64(0)
-	for _, tc := range p.Input.TargetCounts {
-		byComp[tc.ComponentName] = int(tc.TargetCount)
-		ramUsed += tc.TargetCount * tc.RequiredMemoryMiB
+	if p.Input != nil {
+		for _, tc := range p.Input.TargetCounts {
+			byComp[tc.ComponentName] = int(tc.TargetCount)
+			ramUsed += tc.TargetCount * tc.RequiredMemoryMiB
+		}
 	}
-	for _, ci := range p.TargetNode.RunningComponents {
-		_, ok := byComp[ci.ComponentName]
-		if !ok {
-			byComp[ci.ComponentName] += 1
-			ramUsed += ci.MemoryReservedMiB
+	if p.TargetNode != nil {
+		for _, ci := range p.TargetNode.RunningComponents {
+			_, ok := byComp[ci.ComponentName]
+			if !ok {
+				ramUsed += ci.MemoryReservedMiB
+			}
 		}
 	}
 	return ramUsed
@@ -64,9 +69,11 @@ func (p *PlacementOption) ContainerCountByComponent() (byComp map[string]int, to
 	total = 0
 
 	// first add counts that are currently running
-	for _, ci := range p.TargetNode.RunningComponents {
-		byComp[ci.ComponentName] += 1
-		total++
+	if p.TargetNode != nil {
+		for _, ci := range p.TargetNode.RunningComponents {
+			byComp[ci.ComponentName] += 1
+			total++
+		}
 	}
 
 	// then adjust for any components that will be scaled up/down

@@ -372,6 +372,29 @@ func TestNoIdleNodes(t *testing.T) {
 	}
 }
 
+func TestMergeTargetCounts(t *testing.T) {
+	a := []v1.ComponentTarget{
+		{ComponentName: "c1", RequiredMemoryMiB: 100, TargetCount: 1},
+		{ComponentName: "c2", RequiredMemoryMiB: 200, TargetCount: 2},
+		{ComponentName: "c3", RequiredMemoryMiB: 300, TargetCount: 3},
+		{ComponentName: "c4", RequiredMemoryMiB: 300, TargetCount: 3},
+	}
+	b := []v1.ComponentTarget{
+		{ComponentName: "c1", RequiredMemoryMiB: 100, TargetCount: 10},
+		{ComponentName: "c2", RequiredMemoryMiB: 200, TargetCount: 20},
+		{ComponentName: "c3", RequiredMemoryMiB: 300, TargetCount: 30},
+		{ComponentName: "c5", RequiredMemoryMiB: 500, TargetCount: 50},
+	}
+	expected := []v1.ComponentTarget{
+		{ComponentName: "c1", RequiredMemoryMiB: 100, TargetCount: 10},
+		{ComponentName: "c2", RequiredMemoryMiB: 200, TargetCount: 20},
+		{ComponentName: "c3", RequiredMemoryMiB: 300, TargetCount: 30},
+		{ComponentName: "c5", RequiredMemoryMiB: 500, TargetCount: 50},
+		{ComponentName: "c4", RequiredMemoryMiB: 300, TargetCount: 3},
+	}
+	assert.Equal(t, expected, mergeTargetCounts(a, b))
+}
+
 /////////////////////////////////////////////////////////////////////////
 
 func sortPlacementOptions(options []*PlacementOption) []*PlacementOption {
