@@ -8,8 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "f2f4945279a28f7225c85591c24b6034"
-const BarristerDateGenerated int64 = 1578752457622000000
+const BarristerChecksum string = "22ad1a00d9a67ee90aefa957418e3664"
+const BarristerDateGenerated int64 = 1580221399813000000
 
 type EventSourceType string
 
@@ -59,6 +59,7 @@ type Component struct {
 	Environment             []NameValue      `json:"environment"`
 	MinInstances            int64            `json:"minInstances,omitempty"`
 	MaxInstances            int64            `json:"maxInstances,omitempty"`
+	MaxInstancesPerNode     int64            `json:"maxInstancesPerNode,omitempty"`
 	MaxConcurrency          int64            `json:"maxConcurrency"`
 	ScaleUpConcurrencyPct   float64          `json:"scaleUpConcurrencyPct,omitempty"`
 	ScaleDownConcurrencyPct float64          `json:"scaleDownConcurrencyPct,omitempty"`
@@ -1399,7 +1400,14 @@ var IdlJsonRaw = `[
                 "type": "int",
                 "optional": true,
                 "is_array": false,
-                "comment": "Maximum instances of this component to run (default=0, no upper limit)"
+                "comment": "Maximum instances of this component to run across the entire cluster (default=0, no upper limit)"
+            },
+            {
+                "name": "maxInstancesPerNode",
+                "type": "int",
+                "optional": true,
+                "is_array": false,
+                "comment": "Maximum instances of this component to run on a single node (default=0, no upper limit)"
             },
             {
                 "name": "maxConcurrency",
@@ -3713,7 +3721,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1578752457622,
-        "checksum": "f2f4945279a28f7225c85591c24b6034"
+        "date_generated": 1580221399813,
+        "checksum": "22ad1a00d9a67ee90aefa957418e3664"
     }
 ]`

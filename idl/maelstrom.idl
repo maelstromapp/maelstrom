@@ -231,8 +231,11 @@ struct Component {
     // Minimum instances of this component to run (default=0)
     minInstances int      [optional]
 
-    // Maximum instances of this component to run (default=0, no upper limit)
+    // Maximum instances of this component to run across the entire cluster (default=0, no upper limit)
     maxInstances int      [optional]
+
+    // Maximum instances of this component to run on a single node (default=0, no upper limit)
+    maxInstancesPerNode        int     [optional]
 
     // Maximum concurrent requests to proxy to a single instance of this component
     maxConcurrency      int

@@ -146,6 +146,7 @@ type yamlComponent struct {
 	Environment                 []string
 	MinInstances                int64
 	MaxInstances                int64
+	MaxInstancesPerNode         int64
 	MaxConcurrency              int64
 	ScaleDownConcurrencyPct     float64
 	ScaleUpConcurrencyPct       float64
@@ -245,6 +246,7 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 			Environment:             environment,
 			MinInstances:            c.MinInstances,
 			MaxInstances:            c.MaxInstances,
+			MaxInstancesPerNode:     c.MaxInstancesPerNode,
 			MaxConcurrency:          c.MaxConcurrency,
 			MaxDurationSeconds:      c.MaxDurationSeconds,
 			ScaleDownConcurrencyPct: c.ScaleDownConcurrencyPct,

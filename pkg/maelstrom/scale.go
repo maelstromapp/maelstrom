@@ -17,19 +17,21 @@ type CalcAutoscaleInput struct {
 }
 
 type componentConcurrency struct {
-	componentName     string
-	minInstances      int
-	maxInstances      int
-	currentInstances  int
-	targetInstances   int
-	reserveMemoryMiB  int64
-	pctMaxConcurrency float64
+	componentName       string
+	minInstances        int
+	maxInstances        int
+	maxInstancesPerNode int64
+	currentInstances    int
+	targetInstances     int
+	reserveMemoryMiB    int64
+	pctMaxConcurrency   float64
 }
 
 type componentDelta struct {
-	componentName    string
-	reserveMemoryMiB int64
-	delta            int
+	componentName       string
+	reserveMemoryMiB    int64
+	maxInstancesPerNode int64
+	delta               int
 }
 
 type scaleTargetInput struct {
@@ -178,13 +180,14 @@ func toComponentConcurrency(nodes []v1.NodeStatus, componentsByName map[string]v
 		scaleOutput := calcScaleTarget(toScaleTargetInput(comp, minInstances, infos))
 
 		concur = append(concur, componentConcurrency{
-			componentName:     compName,
-			minInstances:      int(comp.MinInstances),
-			maxInstances:      int(comp.MaxInstances),
-			reserveMemoryMiB:  comp.Docker.ReserveMemoryMiB,
-			currentInstances:  len(infos),
-			targetInstances:   scaleOutput.targetInstances,
-			pctMaxConcurrency: scaleOutput.pctMaxConcurrency,
+			componentName:       compName,
+			minInstances:        int(comp.MinInstances),
+			maxInstances:        int(comp.MaxInstances),
+			maxInstancesPerNode: comp.MaxInstancesPerNode,
+			reserveMemoryMiB:    comp.Docker.ReserveMemoryMiB,
+			currentInstances:    len(infos),
+			targetInstances:     scaleOutput.targetInstances,
+			pctMaxConcurrency:   scaleOutput.pctMaxConcurrency,
 		})
 	}
 
@@ -288,9 +291,10 @@ func toComponentDeltas(concurrency []componentConcurrency) []componentDelta {
 	for _, c := range concurrency {
 		if c.targetInstances != c.currentInstances {
 			deltas = append(deltas, componentDelta{
-				componentName:    c.componentName,
-				reserveMemoryMiB: c.reserveMemoryMiB,
-				delta:            c.targetInstances - c.currentInstances,
+				componentName:       c.componentName,
+				reserveMemoryMiB:    c.reserveMemoryMiB,
+				maxInstancesPerNode: c.maxInstancesPerNode,
+				delta:               c.targetInstances - c.currentInstances,
 			})
 		}
 	}
@@ -366,10 +370,11 @@ func computeScaleStartStopInputs(nodes []v1.NodeStatus, deltas []componentDelta)
 	for _, d := range deltas {
 		if d.delta > 0 {
 			for i := 0; i < d.delta; i++ {
-				option := BestStartComponentOption(optionByNode, d.componentName, d.reserveMemoryMiB, false)
+				option := BestStartComponentOption(optionByNode, d.componentName, d.reserveMemoryMiB,
+					d.maxInstancesPerNode, false)
 				if option == nil {
 					log.Warn("scale: unable to scale up component", "component", d.componentName,
-						"targetDelta", d.delta, "added", i)
+						"maxInstPerNode", d.maxInstancesPerNode, "targetDelta", d.delta, "added", i)
 					break
 				} else {
 					log.Info("scale: BestStart", "component", d.componentName,

@@ -391,7 +391,7 @@ func (n *NodeServiceImpl) placeComponentInternal(input v1.PlaceComponentInput) (
 	startTime := time.Now()
 	deadline := startTime.Add(time.Minute * 3)
 	for time.Now().Before(deadline) {
-		placedNode, retry := n.placeComponentTryOnce(input.ComponentName, requiredRAM)
+		placedNode, retry := n.placeComponentTryOnce(input.ComponentName, requiredRAM, comp.MaxInstancesPerNode)
 		if placedNode != nil {
 			log.Info("nodesvc: PlaceComponent successful", "elapsed", time.Now().Sub(startTime).String(),
 				"component", input.ComponentName, "clientNode", common.TruncNodeId(n.nodeId),
@@ -418,7 +418,8 @@ func (n *NodeServiceImpl) placeComponentInternal(input v1.PlaceComponentInput) (
 	return v1.PlaceComponentOutput{}, &barrister.JsonRpcError{Code: int(code), Message: msg}
 }
 
-func (n *NodeServiceImpl) placeComponentTryOnce(componentName string, requiredRAM int64) (*v1.NodeStatus, bool) {
+func (n *NodeServiceImpl) placeComponentTryOnce(componentName string, requiredRAM int64,
+	maxInstPerNode int64) (*v1.NodeStatus, bool) {
 	// filter nodes to subset whose total ram is > required
 	nodes := make([]v1.NodeStatus, 0)
 
@@ -464,7 +465,8 @@ func (n *NodeServiceImpl) placeComponentTryOnce(componentName string, requiredRA
 		return nil, false
 	}
 
-	option := BestStartComponentOption(newPlacementOptionsByNodeId(nodes), componentName, requiredRAM, true)
+	option := BestStartComponentOption(newPlacementOptionsByNodeId(nodes), componentName, requiredRAM,
+		maxInstPerNode, true)
 	if option == nil {
 		log.Error("nodesvc: PlaceComponent failed - BestPlacementOption returned nil",
 			"component", componentName, "requiredRAM", requiredRAM, "nodeMaxRAM", maxNodeRAM, "nodeCount", len(nodes))

@@ -64,6 +64,7 @@ func TestComponentCRUD(t *testing.T) {
 				MaxDurationSeconds:      input.Component.MaxDurationSeconds,
 				MinInstances:            input.Component.MinInstances,
 				MaxInstances:            input.Component.MaxInstances,
+				MaxInstancesPerNode:     input.Component.MaxInstancesPerNode,
 				ScaleDownConcurrencyPct: input.Component.ScaleDownConcurrencyPct,
 				ScaleUpConcurrencyPct:   input.Component.ScaleUpConcurrencyPct,
 				StartParallelism:        input.Component.StartParallelism,

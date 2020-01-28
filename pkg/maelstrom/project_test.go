@@ -109,6 +109,7 @@ components:
       - B=gizmoB
     mininstances: 1
     maxinstances: 5
+    maxinstancespernode: 2
     maxconcurrency: 3
     maxdurationseconds: 30
     restartorder: startstop
@@ -274,10 +275,11 @@ components:
 						Command:          []string{"python", "gizmo.py"},
 						LogDriverOptions: []v1.NameValue{},
 					},
-					MinInstances:       1,
-					MaxInstances:       5,
-					MaxConcurrency:     3,
-					MaxDurationSeconds: 30,
+					MinInstances:        1,
+					MaxInstances:        5,
+					MaxInstancesPerNode: 2,
+					MaxConcurrency:      3,
+					MaxDurationSeconds:  30,
 				},
 				EventSources: []v1.EventSourceWithStatus{},
 			},

@@ -185,7 +185,7 @@ func (s PlacementOptionByCostDesc) Less(i, j int) bool {
 }
 
 func BestStartComponentOption(placementByNode map[string]*PlacementOption, componentName string,
-	requiredMemoryMiB int64, displaceOK bool) *PlacementOption {
+	requiredMemoryMiB int64, maxInstPerNode int64, displaceOK bool) *PlacementOption {
 
 	options := make([]*PlacementOption, 0)
 
@@ -197,8 +197,12 @@ func BestStartComponentOption(placementByNode map[string]*PlacementOption, compo
 		// Calc memory available
 		memoryAvailableMiB := placementOption.TargetNode.TotalMemoryMiB - placementOption.RamUsed()
 
-		// Only consider node if its total ram >= required ram for component
-		if placementOption.TargetNode.TotalMemoryMiB >= requiredMemoryMiB {
+		// Calc # of containers for each component this node is running
+		countByComp, _ := placementOption.ContainerCountByComponent()
+		underPerNodeLimit := maxInstPerNode <= 0 || countByComp[componentName] < int(maxInstPerNode)
+
+		// Only consider node if it's under the maxInstPerNode limit AND total ram >= required ram for component
+		if underPerNodeLimit && placementOption.TargetNode.TotalMemoryMiB >= requiredMemoryMiB {
 
 			// If insufficient memory available and displacement is allowed, displace other
 			// components on that node to free ram
@@ -207,7 +211,6 @@ func BestStartComponentOption(placementByNode map[string]*PlacementOption, compo
 				// build list of components running - ignoring components already marked to scale down
 				runningComps := make([]v1.ComponentInfo, 0)
 
-				countByComp, _ := placementOption.ContainerCountByComponent()
 				for _, ci := range placementOption.TargetNode.RunningComponents {
 					if countByComp[ci.ComponentName] > 0 && ci.ComponentName != componentName {
 						runningComps = append(runningComps, ci)

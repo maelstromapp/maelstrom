@@ -69,9 +69,12 @@ components:
     # Minimum instances of this component to run at any time
     # Optional. Default = 0
     mininstances: 1
-    # Maximum instances of this component to run at any time
+    # Maximum instances of this component to run at any time across all nodes
     # Optional. Default is unlimited.
     maxinstances: 30
+    # Maximum instances of this component to run on a single node
+    # Optional. Default is unlimited.
+    maxinstancespernode: 3
     # Maximum seconds a request may take to complete, including wait time if 
     # max concurrency is reached. Optional. Default = 300
     maxdurationseconds: 60
