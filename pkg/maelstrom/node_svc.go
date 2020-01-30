@@ -62,6 +62,7 @@ func NewNodeServiceImplFromDocker(db db.Db, dockerClient *docker.Client, private
 		totalMemAllowed:              totalMemAllowed,
 		startTimeMillis:              common.TimeToMillis(time.Now()),
 		numCPUs:                      int64(info.NCPU),
+		terminated:                   false,
 		loadStatusLock:               &sync.Mutex{},
 		placeCompLock:                &sync.Mutex{},
 		clusterUpdateLock:            &sync.Mutex{},
@@ -88,7 +89,7 @@ func NewNodeServiceImplFromDocker(db db.Db, dockerClient *docker.Client, private
 	nodeSvc.cluster = NewCluster(nodeId, nodeSvc)
 	nodeSvc.cluster.AddObserver(nodeSvc)
 
-	_, err = nodeSvc.resolveAndBroadcastNodeStatus(context.Background())
+	err = nodeSvc.resolveAndBroadcastNodeStatus()
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +119,9 @@ type NodeServiceImpl struct {
 	shutdownCh        chan ShutdownFunc
 	awsSession        *session.Session
 	terminateCommand  string
+
+	// true if node has started the termination sequence
+	terminated bool
 
 	urlInstanceCountsByComponent map[string]map[string]int
 
@@ -648,7 +652,7 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 }
 
 func (n *NodeServiceImpl) OnContainersChanged() {
-	_, err := n.resolveAndBroadcastNodeStatus(context.Background())
+	err := n.resolveAndBroadcastNodeStatus()
 	if err != nil {
 		log.Error("nodesvc: OnContainersChanged error", "err", err)
 	}
@@ -850,6 +854,7 @@ func (n *NodeServiceImpl) RunNodeStatusLoop(interval time.Duration, ctx context.
 		case <-logTicker:
 			n.logStatusAndRefreshClusterNodeList()
 		case <-ctx.Done():
+			n.setTerminated(true)
 			if n.nodeId != "" {
 				_, err := n.db.RemoveNodeStatus(n.nodeId)
 				if err != nil {
@@ -861,6 +866,12 @@ func (n *NodeServiceImpl) RunNodeStatusLoop(interval time.Duration, ctx context.
 			return
 		}
 	}
+}
+
+func (n *NodeServiceImpl) setTerminated(terminated bool) {
+	n.loadStatusLock.Lock()
+	n.terminated = terminated
+	n.loadStatusLock.Unlock()
 }
 
 func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList() {
@@ -928,6 +939,14 @@ func (n *NodeServiceImpl) logStatusAndRefreshClusterNodeList() {
 }
 
 func (n *NodeServiceImpl) logStatus() error {
+	n.loadStatusLock.Lock()
+	defer n.loadStatusLock.Unlock()
+
+	if n.terminated {
+		log.Warn("nodesvc: logStatus: node is terminated - skipping operation")
+		return nil
+	}
+
 	status, err := n.resolveNodeStatus()
 	if err != nil {
 		return err
@@ -935,22 +954,27 @@ func (n *NodeServiceImpl) logStatus() error {
 	return n.db.PutNodeStatus(status)
 }
 
-func (n *NodeServiceImpl) resolveAndBroadcastNodeStatus(ctx context.Context) (v1.NodeStatus, error) {
+func (n *NodeServiceImpl) resolveAndBroadcastNodeStatus() error {
 	n.loadStatusLock.Lock()
 	defer n.loadStatusLock.Unlock()
 
+	if n.terminated {
+		log.Warn("nodesvc: resolveAndBroadcastNodeStatus: node is terminated - skipping operation")
+		return nil
+	}
+
 	status, err := n.resolveNodeStatus()
 	if err != nil {
-		return status, err
+		return err
 	}
 
 	err = n.db.PutNodeStatus(status)
 	if err != nil {
-		return status, err
+		return err
 	}
 
 	n.cluster.SetAndBroadcastStatus(status)
-	return status, nil
+	return nil
 }
 
 func (n *NodeServiceImpl) resolveNodeStatus() (v1.NodeStatus, error) {
