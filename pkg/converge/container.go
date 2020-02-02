@@ -341,9 +341,10 @@ func (c *Container) initReverseProxy(ctx context.Context) error {
 	proxy.Transport = &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
 		MaxIdleConnsPerHost: maxConcurrency(c.component),
+		IdleConnTimeout:     20 * time.Second,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
+			Timeout:   15 * time.Second,
+			KeepAlive: 15 * time.Second,
 		}).DialContext,
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
