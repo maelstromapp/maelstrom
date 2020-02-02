@@ -316,6 +316,14 @@ func HandleShutdownSignal(svrs []*http.Server, pauseSeconds int, convergeReg *co
 	cancelFx()
 
 	if pauseSeconds > 0 {
+		log.Info("maelstromd: pausing before stopping containers", "seconds", pauseSeconds)
+		time.Sleep(time.Second * time.Duration(pauseSeconds))
+	}
+
+	log.Info("maelstromd: stopping converge registry and containers")
+	convergeReg.Shutdown()
+
+	if pauseSeconds > 0 {
 		log.Info("maelstromd: pausing before stopping HTTP servers", "seconds", pauseSeconds)
 		time.Sleep(time.Second * time.Duration(pauseSeconds))
 	}
@@ -327,14 +335,6 @@ func HandleShutdownSignal(svrs []*http.Server, pauseSeconds int, convergeReg *co
 		}
 	}
 	log.Info("maelstromd: HTTP servers shutdown gracefully")
-
-	if pauseSeconds > 0 {
-		log.Info("maelstromd: pausing before stopping containers", "seconds", pauseSeconds)
-		time.Sleep(time.Second * time.Duration(pauseSeconds))
-	}
-
-	log.Info("maelstromd: stopping converge registry and containers")
-	convergeReg.Shutdown()
 
 	if onShutdownFx != nil {
 		onShutdownFx()
