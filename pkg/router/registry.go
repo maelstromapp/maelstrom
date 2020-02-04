@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/coopernurse/maelstrom/pkg/revproxy"
 	"sync"
+	"time"
 )
 
 func NewRegistry(nodeId string, startCompFunc StartComponentFunc) *Registry {
@@ -32,4 +33,24 @@ func (r *Registry) ByComponent(componentName string) (router *Router) {
 	}
 	r.lock.Unlock()
 	return
+}
+
+func (r *Registry) WaitForInflightToDrain() {
+	for {
+		r.lock.Lock()
+		byName := r.byCompName
+		r.lock.Unlock()
+
+		drained := true
+		for _, router := range byName {
+			if router.GetInflightReqs() > 0 {
+				drained = false
+				break
+			}
+		}
+		if drained {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }

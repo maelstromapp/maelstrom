@@ -14,6 +14,7 @@ import (
 	"github.com/coopernurse/maelstrom/pkg/evsource/cron"
 	"github.com/coopernurse/maelstrom/pkg/evsource/poller"
 	"github.com/coopernurse/maelstrom/pkg/maelstrom"
+	"github.com/coopernurse/maelstrom/pkg/router"
 	"github.com/coopernurse/maelstrom/pkg/v1"
 	docker "github.com/docker/docker/client"
 	"github.com/mgutz/logxi/v1"
@@ -287,7 +288,7 @@ func main() {
 	go evPoller.Run(daemonWG)
 
 	daemonWG.Add(1)
-	go HandleShutdownSignal(servers, conf.ShutdownPauseSeconds, convergeReg, cancelFx, shutdownCh, daemonWG)
+	go HandleShutdownSignal(servers, conf.ShutdownPauseSeconds, convergeReg, routerReg, cancelFx, shutdownCh, daemonWG)
 
 	daemonWG.Wait()
 	err = db.ReleaseAllRoles(nodeSvcImpl.NodeId())
@@ -298,7 +299,8 @@ func main() {
 }
 
 func HandleShutdownSignal(svrs []*http.Server, pauseSeconds int, convergeReg *converge.Registry,
-	cancelFx context.CancelFunc, shutdownCh chan maelstrom.ShutdownFunc, wg *sync.WaitGroup) {
+	routerReg *router.Registry, cancelFx context.CancelFunc, shutdownCh chan maelstrom.ShutdownFunc,
+	wg *sync.WaitGroup) {
 	defer wg.Done()
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -319,6 +321,9 @@ func HandleShutdownSignal(svrs []*http.Server, pauseSeconds int, convergeReg *co
 		log.Info("maelstromd: pausing before stopping containers", "seconds", pauseSeconds)
 		time.Sleep(time.Second * time.Duration(pauseSeconds))
 	}
+
+	log.Info("maelstromd: waiting for inflight requests to drain")
+	routerReg.WaitForInflightToDrain()
 
 	log.Info("maelstromd: stopping converge registry and containers")
 	convergeReg.Shutdown()

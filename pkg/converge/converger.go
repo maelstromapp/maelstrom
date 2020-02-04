@@ -464,8 +464,12 @@ func (c *Converger) plan(target ComponentTarget) convergePlan {
 	}
 
 	if log.IsDebug() {
-		log.Debug("converge: prepared plan", "pull", plan.pull, "steps", fmt.Sprintf("%v", plan.steps),
-			"containers", c.containers)
+		contStr := make([]string, 0)
+		for _, cn := range c.containers {
+			contStr = append(contStr, fmt.Sprintf("containerId=%s ver=%d", cn.containerId, cn.component.Version))
+		}
+		log.Debug("converge: prepared plan", "pull", plan.pull, "targetCount", target.Count,
+			"activeCount", activeCount, "steps", fmt.Sprintf("%v", plan.steps), "containers", contStr)
 	}
 
 	return plan
