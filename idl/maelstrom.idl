@@ -240,6 +240,10 @@ struct Component {
     // Maximum concurrent requests to proxy to a single instance of this component
     maxConcurrency      int
 
+    // If true, maxConcurrency will be used to autoscale the component, but will not
+    // cause requests exceeding the limit to queue (default=false)
+    softConcurrencyLimit       bool    [optional]
+
     // If the % of maxConcurrency of all instances of this component exceeds this value,
     // more instances of the component will be started (respecting maxInstances if > 0).
     // Value should be 0..1 (e.g. .5 = 50%). (default=0.75)

@@ -36,3 +36,5 @@ require (
 	golang.org/x/crypto v0.0.0-20190123085648-057139ce5d2b
 	golang.org/x/oauth2 v0.0.0-20190523182746-aaccbc9213b0
 )
+
+go 1.13

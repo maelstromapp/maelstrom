@@ -2,15 +2,16 @@ package maelstrom
 
 import (
 	"fmt"
-	"github.com/coopernurse/maelstrom/pkg/common"
-	v1 "github.com/coopernurse/maelstrom/pkg/v1"
-	"github.com/stretchr/testify/assert"
 	"math/rand"
 	"reflect"
 	"strconv"
 	"testing"
 	"testing/quick"
 	"time"
+
+	"github.com/coopernurse/maelstrom/pkg/common"
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
+	"github.com/stretchr/testify/assert"
 )
 
 var defaultRand = rand.New(rand.NewSource(time.Now().UnixNano()))

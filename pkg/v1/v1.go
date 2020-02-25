@@ -8,8 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "22ad1a00d9a67ee90aefa957418e3664"
-const BarristerDateGenerated int64 = 1580221399813000000
+const BarristerChecksum string = "21cf05cf7e2ddd0ce4d952c841cbb07d"
+const BarristerDateGenerated int64 = 1582655840550000000
 
 type EventSourceType string
 
@@ -61,6 +61,7 @@ type Component struct {
 	MaxInstances            int64            `json:"maxInstances,omitempty"`
 	MaxInstancesPerNode     int64            `json:"maxInstancesPerNode,omitempty"`
 	MaxConcurrency          int64            `json:"maxConcurrency"`
+	SoftConcurrencyLimit    bool             `json:"softConcurrencyLimit,omitempty"`
 	ScaleUpConcurrencyPct   float64          `json:"scaleUpConcurrencyPct,omitempty"`
 	ScaleDownConcurrencyPct float64          `json:"scaleDownConcurrencyPct,omitempty"`
 	MaxDurationSeconds      int64            `json:"maxDurationSeconds,omitempty"`
@@ -1415,6 +1416,13 @@ var IdlJsonRaw = `[
                 "optional": false,
                 "is_array": false,
                 "comment": "Maximum concurrent requests to proxy to a single instance of this component"
+            },
+            {
+                "name": "softConcurrencyLimit",
+                "type": "bool",
+                "optional": true,
+                "is_array": false,
+                "comment": "If true, maxConcurrency will be used to autoscale the component, but will not\ncause requests exceeding the limit to queue (default=false)"
             },
             {
                 "name": "scaleUpConcurrencyPct",
@@ -3721,7 +3729,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1580221399813,
-        "checksum": "22ad1a00d9a67ee90aefa957418e3664"
+        "date_generated": 1582655840550,
+        "checksum": "21cf05cf7e2ddd0ce4d952c841cbb07d"
     }
 ]`

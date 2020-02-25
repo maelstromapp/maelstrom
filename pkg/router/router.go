@@ -3,15 +3,16 @@ package router
 import (
 	"context"
 	"fmt"
-	"github.com/coopernurse/maelstrom/pkg/revproxy"
-	v1 "github.com/coopernurse/maelstrom/pkg/v1"
-	log "github.com/mgutz/logxi/v1"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/coopernurse/maelstrom/pkg/revproxy"
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
+	log "github.com/mgutz/logxi/v1"
 )
 
 type StartComponentFunc func(componentName string)
@@ -58,8 +59,8 @@ type Router struct {
 	nodeId             string
 	startComponentFunc StartComponentFunc
 	state              State
-	remoteReqCh        chan *revproxy.Request
-	localReqCh         chan *revproxy.Request
+	remoteReqCh        chan *revproxy.GetProxyRequest
+	localReqCh         chan *revproxy.GetProxyRequest
 	inflightReqs       int64
 	activeHandlers     int64
 	bufferPool         *revproxy.ProxyBufferPool
@@ -167,20 +168,22 @@ func (r *Router) startRemoteHandler(targetUrl *url.URL, targetCount int) context
 	go func() {
 		reqCh := r.HandlerStartRemote()
 		defer r.HandlerStop()
-		revproxy.RevProxyLoop(reqCh, nil, proxy, ctx, nil, r.nodeId, r.componentName)
+		dispenser := revproxy.NewDispenser(targetCount, reqCh, r.nodeId,
+			r.componentName, nil, proxy, nil, ctx)
+		dispenser.Run(ctx)
 	}()
 	return cancelFunc
 }
 
-func (r *Router) HandlerStartRemote() (ch <-chan *revproxy.Request) {
+func (r *Router) HandlerStartRemote() (ch <-chan *revproxy.GetProxyRequest) {
 	return r.handlerStart(true)
 }
 
-func (r *Router) HandlerStartLocal() (ch <-chan *revproxy.Request) {
+func (r *Router) HandlerStartLocal() (ch <-chan *revproxy.GetProxyRequest) {
 	return r.handlerStart(false)
 }
 
-func (r *Router) handlerStart(remote bool) (ch <-chan *revproxy.Request) {
+func (r *Router) handlerStart(remote bool) (ch <-chan *revproxy.GetProxyRequest) {
 	r.lock.Lock()
 	r.activeHandlers++
 	if r.state != StateOn {
@@ -237,6 +240,9 @@ func (r *Router) Route(ctx context.Context, req *revproxy.Request) {
 	r.routeStart(req.Component)
 	defer r.routeDone()
 
+	haveProxy := false
+	getProxyReq := revproxy.NewGetProxyRequest()
+
 	if req.PreferLocal {
 		localSecs := req.Component.MaxDurationSeconds / 10
 		if localSecs < 1 {
@@ -244,9 +250,9 @@ func (r *Router) Route(ctx context.Context, req *revproxy.Request) {
 		}
 		timeout := time.After(time.Duration(localSecs) * time.Second)
 		select {
-		case r.localReqCh <- req:
+		case r.localReqCh <- getProxyReq:
 			// ok - done
-			return
+			haveProxy = true
 		case <-ctx.Done():
 			// timeout or shutdown
 			return
@@ -255,14 +261,21 @@ func (r *Router) Route(ctx context.Context, req *revproxy.Request) {
 		}
 	}
 
-	select {
-	case r.localReqCh <- req:
-		// ok
-	case r.remoteReqCh <- req:
-		// ok
-	case <-ctx.Done():
-		// timeout or shutdown
+	if !haveProxy {
+		select {
+		case r.localReqCh <- getProxyReq:
+			// ok
+		case r.remoteReqCh <- getProxyReq:
+			// ok
+		case <-ctx.Done():
+			// timeout or shutdown
+			return
+		}
 	}
+
+	// handle request
+	proxyFx := <-getProxyReq.Proxy
+	proxyFx(req)
 }
 
 func (r *Router) routeStart(comp *v1.Component) {
@@ -286,10 +299,10 @@ func (r *Router) routeDone() {
 
 func (r *Router) ensureReqChan() {
 	if r.remoteReqCh == nil {
-		r.remoteReqCh = make(chan *revproxy.Request)
+		r.remoteReqCh = make(chan *revproxy.GetProxyRequest)
 	}
 	if r.localReqCh == nil {
-		r.localReqCh = make(chan *revproxy.Request)
+		r.localReqCh = make(chan *revproxy.GetProxyRequest)
 	}
 }
 

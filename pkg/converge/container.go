@@ -3,12 +3,6 @@ package converge
 import (
 	"context"
 	"fmt"
-	"github.com/coopernurse/maelstrom/pkg/common"
-	"github.com/coopernurse/maelstrom/pkg/revproxy"
-	"github.com/coopernurse/maelstrom/pkg/router"
-	v1 "github.com/coopernurse/maelstrom/pkg/v1"
-	docker "github.com/docker/docker/client"
-	log "github.com/mgutz/logxi/v1"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -18,6 +12,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/coopernurse/maelstrom/pkg/common"
+	"github.com/coopernurse/maelstrom/pkg/revproxy"
+	"github.com/coopernurse/maelstrom/pkg/router"
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
+	docker "github.com/docker/docker/client"
+	log "github.com/mgutz/logxi/v1"
 )
 
 type maelContainerId uint64
@@ -25,6 +26,7 @@ type maelContainerId uint64
 func NewContainer(dockerClient *docker.Client, component *v1.Component, maelstromUrl string,
 	router *router.Router, id maelContainerId, bufferPool httputil.BufferPool, parentCtx context.Context) *Container {
 	ctx, cancelFx := context.WithCancel(parentCtx)
+	revProxyCtx, revProxyCancel := context.WithCancel(parentCtx)
 
 	healthCheckMaxFailures := int(component.Docker.HttpHealthCheckMaxFailures)
 	if healthCheckMaxFailures <= 0 {
@@ -42,6 +44,8 @@ func NewContainer(dockerClient *docker.Client, component *v1.Component, maelstro
 		revProxyWg:             &sync.WaitGroup{},
 		ctx:                    ctx,
 		cancel:                 cancelFx,
+		revProxyCtx:            revProxyCtx,
+		revProxyCancel:         revProxyCancel,
 		statCh:                 statCh,
 		statLock:               &sync.Mutex{},
 		component:              component,
@@ -80,6 +84,9 @@ type Container struct {
 	// our context.  used to stop run() loop and rev proxy workers if we're asked to stop
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	revProxyCtx    context.Context
+	revProxyCancel context.CancelFunc
 
 	component    *v1.Component
 	maelstromUrl string
@@ -125,11 +132,14 @@ func (c *Container) JoinAndStop(reason string) {
 
 	c.setStatus(v1.ComponentStatusStopping)
 
-	// cancel context - this will terminate run loop
-	c.cancel()
+	// cancel the rev proxies
+	c.revProxyCancel()
 
 	// wait for rev proxies to finish
 	c.revProxyWg.Wait()
+
+	// cancel context - this will terminate run loop
+	c.cancel()
 
 	// wait for run to exit
 	c.runWg.Wait()
@@ -174,15 +184,17 @@ func (c *Container) run() {
 	c.runWg.Add(1)
 	defer c.runWg.Done()
 
-	maxConcur := maxConcurrency(c.component)
-	for i := 0; i < maxConcur; i++ {
-		c.revProxyWg.Add(1)
-		go func() {
-			reqCh := c.router.HandlerStartLocal()
-			defer c.router.HandlerStop()
-			revproxy.LocalRevProxy(reqCh, c.statCh, c.proxy, c.ctx, c.revProxyWg)
-		}()
+	maxConcurRevProxy := maxConcurrency(c.component)
+	if c.component.SoftConcurrencyLimit {
+		maxConcurRevProxy = 0
 	}
+	reqCh := c.router.HandlerStartLocal()
+	go func() {
+		defer c.router.HandlerStop()
+		dispenser := revproxy.NewDispenser(maxConcurRevProxy, reqCh, "",
+			"", c.revProxyWg, c.proxy, c.statCh, c.revProxyCtx)
+		dispenser.Run(c.ctx)
+	}()
 
 	healthCheckSecs := c.component.Docker.HttpHealthCheckSeconds
 	if healthCheckSecs <= 0 {

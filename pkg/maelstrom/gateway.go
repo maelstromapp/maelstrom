@@ -2,14 +2,15 @@ package maelstrom
 
 import (
 	"context"
+	"net/http"
+	"strconv"
+	"time"
+
 	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/revproxy"
 	"github.com/coopernurse/maelstrom/pkg/router"
 	v1 "github.com/coopernurse/maelstrom/pkg/v1"
-	"github.com/mgutz/logxi/v1"
-	"net/http"
-	"strconv"
-	"time"
+	log "github.com/mgutz/logxi/v1"
 )
 
 func NewGateway(r ComponentResolver, routerReg *router.Registry, public bool,
@@ -76,9 +77,12 @@ func (g *Gateway) Route(rw http.ResponseWriter, req *http.Request, comp *v1.Comp
 
 	deadline := componentReqDeadline(deadlineNano, comp)
 	ctx, ctxCancel := context.WithDeadline(context.Background(), deadline)
+	defer ctxCancel()
+
 	if req.Header.Get("MAELSTROM-DEADLINE-NANO") == "" {
 		req.Header.Set("MAELSTROM-DEADLINE-NANO", strconv.FormatInt(deadline.UnixNano(), 10))
 	}
+	req = req.WithContext(ctx)
 
 	// Send request to dispatcher
 	preferLocal := req.Header.Get("MAELSTROM-RELAY-PATH") != ""
@@ -94,7 +98,6 @@ func (g *Gateway) Route(rw http.ResponseWriter, req *http.Request, comp *v1.Comp
 	// Block on result, or timeout
 	select {
 	case <-compReq.Done:
-		ctxCancel()
 		return
 	case <-ctx.Done():
 		msg := "gateway: Timeout proxying component: " + comp.Name

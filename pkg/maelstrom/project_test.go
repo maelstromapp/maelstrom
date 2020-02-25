@@ -1,9 +1,10 @@
 package maelstrom
 
 import (
-	"github.com/coopernurse/maelstrom/pkg/v1"
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
+	"github.com/stretchr/testify/assert"
 )
 
 func newComponent(name string, image string, command ...string) v1.Component {
@@ -111,6 +112,7 @@ components:
     maxinstances: 5
     maxinstancespernode: 2
     maxconcurrency: 3
+    softconcurrencylimit: true
     maxdurationseconds: 30
     restartorder: startstop
   detector:
@@ -275,11 +277,12 @@ components:
 						Command:          []string{"python", "gizmo.py"},
 						LogDriverOptions: []v1.NameValue{},
 					},
-					MinInstances:        1,
-					MaxInstances:        5,
-					MaxInstancesPerNode: 2,
-					MaxConcurrency:      3,
-					MaxDurationSeconds:  30,
+					MinInstances:         1,
+					MaxInstances:         5,
+					MaxInstancesPerNode:  2,
+					MaxConcurrency:       3,
+					MaxDurationSeconds:   30,
+					SoftConcurrencyLimit: true,
 				},
 				EventSources: []v1.EventSourceWithStatus{},
 			},

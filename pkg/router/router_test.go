@@ -2,15 +2,16 @@ package router
 
 import (
 	"context"
-	"github.com/coopernurse/maelstrom/pkg/revproxy"
-	v1 "github.com/coopernurse/maelstrom/pkg/v1"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/coopernurse/maelstrom/pkg/revproxy"
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestInitialState(t *testing.T) {
@@ -112,18 +113,26 @@ func TestRouteLocal(t *testing.T) {
 	var localReqs int64
 	var remoteReqs int64
 
+	localProxyFx := func(req *revproxy.Request) {
+		atomic.AddInt64(&localReqs, 1)
+		req.Rw.WriteHeader(200)
+	}
+
+	remoteProxyFx := func(req *revproxy.Request) {
+		atomic.AddInt64(&remoteReqs, 1)
+		req.Rw.WriteHeader(200)
+	}
+
 	localCh := r.HandlerStartLocal()
 	go func() {
 		for req := range localCh {
-			atomic.AddInt64(&localReqs, 1)
-			req.Rw.WriteHeader(200)
+			req.Proxy <- localProxyFx
 		}
 	}()
 	remoteCh := r.HandlerStartRemote()
 	go func() {
 		for req := range remoteCh {
-			atomic.AddInt64(&remoteReqs, 1)
-			req.Rw.WriteHeader(200)
+			req.Proxy <- remoteProxyFx
 		}
 	}()
 
@@ -181,10 +190,13 @@ func runNoOpLocalHandler(r *Router) {
 	runNoOpHandler(r.HandlerStartLocal())
 }
 
-func runNoOpHandler(reqCh <-chan *revproxy.Request) {
+func runNoOpHandler(reqCh <-chan *revproxy.GetProxyRequest) {
+	proxyFx := func(req *revproxy.Request) {
+		req.Rw.WriteHeader(200)
+	}
 	go func() {
 		for req := range reqCh {
-			req.Rw.WriteHeader(200)
+			req.Proxy <- proxyFx
 		}
 	}()
 }

@@ -2,13 +2,14 @@ package maelstrom
 
 import (
 	"fmt"
-	"github.com/coopernurse/maelstrom/pkg/common"
-	"github.com/coopernurse/maelstrom/pkg/v1"
-	"github.com/go-yaml/yaml"
 	"io/ioutil"
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/coopernurse/maelstrom/pkg/common"
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
+	"github.com/go-yaml/yaml"
 )
 
 func PutProjectOutputEmpty(out v1.PutProjectOutput) bool {
@@ -148,6 +149,7 @@ type yamlComponent struct {
 	MaxInstances                int64
 	MaxInstancesPerNode         int64
 	MaxConcurrency              int64
+	SoftConcurrencyLimit        bool
 	ScaleDownConcurrencyPct     float64
 	ScaleUpConcurrencyPct       float64
 	MaxDurationSeconds          int64
@@ -248,6 +250,7 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 			MaxInstances:            c.MaxInstances,
 			MaxInstancesPerNode:     c.MaxInstancesPerNode,
 			MaxConcurrency:          c.MaxConcurrency,
+			SoftConcurrencyLimit:    c.SoftConcurrencyLimit,
 			MaxDurationSeconds:      c.MaxDurationSeconds,
 			ScaleDownConcurrencyPct: c.ScaleDownConcurrencyPct,
 			ScaleUpConcurrencyPct:   c.ScaleUpConcurrencyPct,

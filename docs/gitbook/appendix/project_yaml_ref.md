@@ -66,6 +66,11 @@ components:
     # Maximum concurrent requests to send to a single container
     # Optional. Default = 1
     maxconcurrency: 5
+    # If true, maxconcurrency will be used influence autoscaling, but will not
+    # be used to queue requests over the limit. Requests to this component will
+    # be load balanced, but will passed through with no limits.
+    # Optional. Default = false
+    softconcurrencylimit: true
     # Minimum instances of this component to run at any time
     # Optional. Default = 0
     mininstances: 1

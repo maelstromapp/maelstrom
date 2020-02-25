@@ -2,15 +2,16 @@ package maelstrom
 
 import (
 	"fmt"
+	"strings"
+	"testing"
+
 	"github.com/coopernurse/barrister-go"
 	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/test"
-	"github.com/coopernurse/maelstrom/pkg/v1"
-	"github.com/google/gofuzz"
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
+	fuzz "github.com/google/gofuzz"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
-	"strings"
-	"testing"
 )
 
 func createV1() (*MaelServiceImpl, *db.SqlDb) {
@@ -62,6 +63,7 @@ func TestComponentCRUD(t *testing.T) {
 				Environment:             input.Component.Environment,
 				MaxConcurrency:          input.Component.MaxConcurrency,
 				MaxDurationSeconds:      input.Component.MaxDurationSeconds,
+				SoftConcurrencyLimit:    input.Component.SoftConcurrencyLimit,
 				MinInstances:            input.Component.MinInstances,
 				MaxInstances:            input.Component.MaxInstances,
 				MaxInstancesPerNode:     input.Component.MaxInstancesPerNode,
