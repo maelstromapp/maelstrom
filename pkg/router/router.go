@@ -169,8 +169,8 @@ func (r *Router) startRemoteHandler(targetUrl *url.URL, targetCount int) context
 		reqCh := r.HandlerStartRemote()
 		defer r.HandlerStop()
 		dispenser := revproxy.NewDispenser(targetCount, reqCh, r.nodeId,
-			r.componentName, nil, proxy, nil, ctx)
-		dispenser.Run(ctx)
+			r.componentName, proxy, nil, ctx)
+		dispenser.Run(ctx, nil)
 	}()
 	return cancelFunc
 }

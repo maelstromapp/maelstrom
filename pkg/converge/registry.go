@@ -2,6 +2,9 @@ package converge
 
 import (
 	"context"
+	"sync"
+	"time"
+
 	"github.com/coopernurse/maelstrom/pkg/common"
 	"github.com/coopernurse/maelstrom/pkg/revproxy"
 	"github.com/coopernurse/maelstrom/pkg/router"
@@ -9,8 +12,6 @@ import (
 	docker "github.com/docker/docker/client"
 	log "github.com/mgutz/logxi/v1"
 	"github.com/pkg/errors"
-	"sync"
-	"time"
 )
 
 func NewRegistry(dockerClient *docker.Client, routerReg *router.Registry, maelstromUrl string,
@@ -73,10 +74,10 @@ func (r *Registry) Shutdown() {
 	wg := &sync.WaitGroup{}
 	for _, c := range r.byCompName {
 		wg.Add(1)
-		go func() {
+		go func(conv *Converger) {
 			defer wg.Done()
-			c.Stop()
-		}()
+			conv.Stop()
+		}(c)
 	}
 	wg.Wait()
 	r.byCompName = make(map[string]*Converger)

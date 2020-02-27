@@ -20,7 +20,7 @@ type GetProxyRequest struct {
 }
 
 func NewDispenser(maxConcurrency int, reqCh <-chan *GetProxyRequest,
-	myNodeId string, componentName string, reqWaitGroup *sync.WaitGroup,
+	myNodeId string, componentName string,
 	proxy *httputil.ReverseProxy, statCh chan<- time.Duration, ctx context.Context) *Dispenser {
 
 	doneChSize := maxConcurrency
@@ -28,14 +28,11 @@ func NewDispenser(maxConcurrency int, reqCh <-chan *GetProxyRequest,
 		doneChSize = 1
 	}
 	doneCh := make(chan bool, doneChSize)
+	doneFx := func() { doneCh <- true }
 
 	proxyFx := func(req *Request) {
-		if reqWaitGroup != nil {
-			reqWaitGroup.Add(1)
-			defer reqWaitGroup.Done()
-		}
+		defer doneFx()
 		handleReq(req, myNodeId, componentName, proxy, statCh, ctx)
-		doneCh <- true
 	}
 
 	return &Dispenser{
@@ -53,14 +50,19 @@ type Dispenser struct {
 	proxy          Proxy
 }
 
-func (d *Dispenser) Run(ctx context.Context) {
+func (d *Dispenser) Run(ctx context.Context, reqWaitGroup *sync.WaitGroup) {
+	if reqWaitGroup != nil {
+		defer reqWaitGroup.Done()
+	}
+
 	concur := 0
-	for {
+	active := true
+	for active {
 		if d.maxConcurrency < 1 || concur < d.maxConcurrency {
 			// under concurrency limit, accept a request, or a 'done' msg
 			select {
 			case <-ctx.Done():
-				return
+				active = false
 			case req := <-d.reqCh:
 				concur++
 				req.Proxy <- d.proxy
@@ -71,10 +73,16 @@ func (d *Dispenser) Run(ctx context.Context) {
 			// at limit - wait for 'done' msg
 			select {
 			case <-ctx.Done():
-				return
+				active = false
 			case <-d.doneCh:
 				concur--
 			}
 		}
+	}
+
+	// wait for all in-flight reqs to finish
+	for concur > 0 {
+		<-d.doneCh
+		concur--
 	}
 }

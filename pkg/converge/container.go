@@ -192,8 +192,9 @@ func (c *Container) run() {
 	go func() {
 		defer c.router.HandlerStop()
 		dispenser := revproxy.NewDispenser(maxConcurRevProxy, reqCh, "",
-			"", c.revProxyWg, c.proxy, c.statCh, c.revProxyCtx)
-		dispenser.Run(c.ctx)
+			"", c.proxy, c.statCh, c.revProxyCtx)
+		c.revProxyWg.Add(1)
+		dispenser.Run(c.revProxyCtx, c.revProxyWg)
 	}()
 
 	healthCheckSecs := c.component.Docker.HttpHealthCheckSeconds

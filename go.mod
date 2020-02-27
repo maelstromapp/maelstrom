@@ -19,6 +19,7 @@ require (
 	github.com/go-yaml/yaml v2.1.0+incompatible
 	github.com/google/go-querystring v1.0.0 // indirect
 	github.com/google/gofuzz v0.0.0-20170612174753-24818f796faf
+	github.com/kr/pretty v0.2.0 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
 	github.com/lib/pq v1.2.0
@@ -35,6 +36,8 @@ require (
 	github.com/stretchr/testify v1.3.0
 	golang.org/x/crypto v0.0.0-20190123085648-057139ce5d2b
 	golang.org/x/oauth2 v0.0.0-20190523182746-aaccbc9213b0
+	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
+	gopkg.in/yaml.v2 v2.2.8 // indirect
 )
 
 go 1.13

@@ -4,6 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
+	"net/http"
+	"os/exec"
+	"reflect"
+	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
@@ -14,19 +24,10 @@ import (
 	"github.com/coopernurse/maelstrom/pkg/converge"
 	"github.com/coopernurse/maelstrom/pkg/db"
 	"github.com/coopernurse/maelstrom/pkg/router"
-	"github.com/coopernurse/maelstrom/pkg/v1"
+	v1 "github.com/coopernurse/maelstrom/pkg/v1"
 	docker "github.com/docker/docker/client"
 	log "github.com/mgutz/logxi/v1"
 	"github.com/pkg/errors"
-	"math/rand"
-	"net/http"
-	"os/exec"
-	"reflect"
-	"sort"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 type ShutdownFunc func()
@@ -621,6 +622,11 @@ func (n *NodeServiceImpl) applyPlacementOptions(group []*PlacementOption) int64 
 }
 
 func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput) (v1.StartStopComponentsOutput, error) {
+	if n.getTerminated() {
+		return v1.StartStopComponentsOutput{}, &barrister.JsonRpcError{Code: int(MiscError),
+			Message: "nodesvc: StartStopComponents: node is terminated"}
+	}
+
 	scaleTargets := make([]converge.ComponentTarget, len(input.TargetCounts))
 	for i, tc := range input.TargetCounts {
 		comp, err := n.db.GetComponent(tc.ComponentName)
@@ -640,6 +646,11 @@ func (n *NodeServiceImpl) StartStopComponents(input v1.StartStopComponentsInput)
 	if err != nil {
 		return v1.StartStopComponentsOutput{},
 			rpcErr(err, MiscError, "nodesvc: StartStopComponents:resolveNodeStatus failed")
+	}
+
+	if n.getTerminated() {
+		return v1.StartStopComponentsOutput{}, &barrister.JsonRpcError{Code: int(MiscError),
+			Message: "nodesvc: StartStopComponents: node is terminated"}
 	}
 
 	return v1.StartStopComponentsOutput{
@@ -866,6 +877,13 @@ func (n *NodeServiceImpl) RunNodeStatusLoop(interval time.Duration, ctx context.
 			return
 		}
 	}
+}
+
+func (n *NodeServiceImpl) getTerminated() (terminated bool) {
+	n.loadStatusLock.Lock()
+	terminated = n.terminated
+	n.loadStatusLock.Unlock()
+	return
 }
 
 func (n *NodeServiceImpl) setTerminated(terminated bool) {
