@@ -20,13 +20,45 @@ import (
 	"time"
 )
 
+func activityArn(sfnClient *sfn.SFN, activityName string) (*string, error) {
+	input := &sfn.ListActivitiesInput{}
+	for {
+		out, err := sfnClient.ListActivities(input)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, act := range out.Activities {
+			if act.Name != nil && *act.Name == activityName {
+				return act.ActivityArn, nil
+			}
+		}
+
+		if out.NextToken == nil || *out.NextToken == "" {
+			return nil, nil
+		}
+		input.NextToken = out.NextToken
+	}
+}
+
 func NewPollCreator(es v1.EventSource, awsSession *session.Session, gateway http.Handler) (evsource.PollCreator, error) {
 	sfnClient := sfn.New(awsSession)
-	createOut, err := sfnClient.CreateActivity(&sfn.CreateActivityInput{Name: aws.String(es.Awsstepfunc.ActivityName)})
+	arn, err := activityArn(sfnClient, es.Awsstepfunc.ActivityName)
 	if err != nil {
-		return nil, errors.Wrap(err, "evstepfunc: unable to create activity: "+es.Awsstepfunc.ActivityName)
+		return nil, errors.Wrap(err, "evstepfunc: unable to lookup existing activity: "+es.Awsstepfunc.ActivityName)
 	}
-	arn := createOut.ActivityArn
+	if arn == nil {
+		log.Info("evstepfunc: creating activity", "activityName", es.Awsstepfunc.ActivityName)
+		createOut, err := sfnClient.CreateActivity(&sfn.CreateActivityInput{Name: aws.String(es.Awsstepfunc.ActivityName)})
+		if err != nil {
+			return nil, errors.Wrap(err, "evstepfunc: unable to create activity: "+es.Awsstepfunc.ActivityName)
+		}
+		arn = createOut.ActivityArn
+	} else {
+		if log.IsDebug() {
+			log.Info("evstepfunc: found existing activity", "activityName", es.Awsstepfunc.ActivityName, "arn", *arn)
+		}
+	}
 
 	return &StepFuncPollCreator{
 		es:        setDefaults(es),
