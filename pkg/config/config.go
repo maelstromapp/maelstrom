@@ -3,11 +3,12 @@ package config
 import (
 	"bufio"
 	"fmt"
-	"github.com/coopernurse/envconfig"
-	"github.com/coopernurse/maelstrom/pkg/common"
 	"io"
 	"os"
 	"strings"
+
+	"github.com/coopernurse/envconfig"
+	"github.com/coopernurse/maelstrom/pkg/common"
 )
 
 func FileToEnv(fname string) error {
@@ -97,8 +98,7 @@ type Config struct {
 	TotalMemory int64 `default:"-1"`
 
 	// Terminate command - if instance is told to terminate, run this command
-	// Default: "systemctl disable maelstromd"
-	TerminateCommand string `default:"systemctl disable maelstromd"`
+	TerminateCommand string
 
 	// If > 0, will sleep for this number of seconds after stopping background jobs
 	// before shutting down HTTP listeners. In clustered environments this can be used

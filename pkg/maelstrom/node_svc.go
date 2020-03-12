@@ -713,7 +713,7 @@ func (n NodeServiceImpl) terminateSelfViaAwsHook(hook v1.AwsLifecycleHook) {
 }
 
 func (n NodeServiceImpl) runPostTerminateCommand() {
-	// Run post-terminate command (typically "systemctl disable maelstromd")
+	// Run post-terminate command (typically "systemctl stop maelstromd")
 	// This is useful to prevent systemd from re-spawning maelstrom after we exit
 	if n.terminateCommand != "" {
 		parts := strings.Split(n.terminateCommand, " ")
