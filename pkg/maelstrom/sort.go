@@ -63,9 +63,11 @@ func (s ComponentInfoByRunningCountAndReqTime) Less(i, j int) bool {
 
 type ComponentTargetByCompName []v1.ComponentTarget
 
-func (s ComponentTargetByCompName) Len() int           { return len(s) }
-func (s ComponentTargetByCompName) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-func (s ComponentTargetByCompName) Less(i, j int) bool { return s[i].ComponentName < s[j].ComponentName }
+func (s ComponentTargetByCompName) Len() int      { return len(s) }
+func (s ComponentTargetByCompName) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+func (s ComponentTargetByCompName) Less(i, j int) bool {
+	return s[i].ComponentName < s[j].ComponentName
+}
 
 type projectInfoByName []v1.ProjectInfo
 
