@@ -128,7 +128,9 @@ func newPoller(es v1.EventSource, queueUrls []*string, sqsClient *sqs.SQS, gatew
 				return
 			default:
 				queueUrl := queueUrls[idx]
-				msgs, err := poll(es, sqsClient, queueUrl)
+				reqCtx, reqCancel := context.WithTimeout(ctx, 15*time.Second)
+				msgs, err := poll(es, sqsClient, queueUrl, reqCtx)
+				reqCancel()
 				if err != nil {
 					log.Error("sqs: poll err", "err", err, "component", es.ComponentName, "queueUrl", *queueUrl)
 				} else {
@@ -151,7 +153,7 @@ func newPoller(es v1.EventSource, queueUrls []*string, sqsClient *sqs.SQS, gatew
 	}
 }
 
-func poll(es v1.EventSource, sqsClient *sqs.SQS, queueUrl *string) ([]*sqs.Message, error) {
+func poll(es v1.EventSource, sqsClient *sqs.SQS, queueUrl *string, ctx context.Context) ([]*sqs.Message, error) {
 	if log.IsDebug() {
 		log.Debug("sqs: polling queue", "queueUrl", *queueUrl)
 	}
@@ -163,7 +165,7 @@ func poll(es v1.EventSource, sqsClient *sqs.SQS, queueUrl *string) ([]*sqs.Messa
 	if visibilityTimeout <= 0 {
 		visibilityTimeout = 300
 	}
-	out, err := sqsClient.ReceiveMessage(&sqs.ReceiveMessageInput{
+	out, err := sqsClient.ReceiveMessageWithContext(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:            queueUrl,
 		MaxNumberOfMessages: aws.Int64(maxMsgs),
 		VisibilityTimeout:   aws.Int64(visibilityTimeout),
