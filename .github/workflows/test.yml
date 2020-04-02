@@ -22,6 +22,7 @@ jobs:
         ./scripts/install_deps.sh
         sudo apt-get update
         sudo apt-get install -y libsqlite3-dev
+        go version
         make idl
         make maelctl
         make maelstromd
