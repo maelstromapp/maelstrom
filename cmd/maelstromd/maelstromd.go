@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/coopernurse/barrister-go"
 	"github.com/coopernurse/maelstrom/pkg/cert"
@@ -165,7 +166,21 @@ func main() {
 
 	resolver := maelstrom.NewDbResolver(db, certWrapper, time.Second)
 
-	awsSession, err := session.NewSession()
+	awsHttpClient, err := common.NewHTTPClientWithSettings(common.HTTPClientSettings{
+		ConnectTimeout:        15 * time.Second,
+		ExpectContinue:        1 * time.Second,
+		IdleConnTimeout:       50 * time.Second,
+		ConnKeepAlive:         30 * time.Second,
+		MaxAllIdleConns:       100,
+		MaxHostIdleConns:      10,
+		ResponseHeaderTimeout: 90 * time.Second,
+		TLSHandshakeTimeout:   15 * time.Second,
+	})
+	if err != nil {
+		log.Error("maelstromd: cannot create aws http client", "err", err)
+		os.Exit(2)
+	}
+	awsSession, err := session.NewSession(&aws.Config{HTTPClient: awsHttpClient})
 	if err != nil {
 		log.Warn("maelstromd: unable to init aws session", "err", err.Error())
 	}

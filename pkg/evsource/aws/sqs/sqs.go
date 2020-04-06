@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sqs"
 	"github.com/coopernurse/maelstrom/pkg/common"
@@ -132,7 +133,16 @@ func newPoller(es v1.EventSource, queueUrls []*string, sqsClient *sqs.SQS, gatew
 				msgs, err := poll(es, sqsClient, queueUrl, reqCtx)
 				reqCancel()
 				if err != nil {
-					log.Error("sqs: poll err", "err", err, "component", es.ComponentName, "queueUrl", *queueUrl)
+					logerr := true
+					if aerr, ok := err.(awserr.Error); ok {
+						if aerr.Code() == request.CanceledErrorCode {
+							logerr = false
+							log.Warn("sqs: poll canceled", "component", es.ComponentName, "queueUrl", *queueUrl)
+						}
+					}
+					if logerr {
+						log.Error("sqs: poll err", "err", err, "component", es.ComponentName, "queueUrl", *queueUrl)
+					}
 				} else {
 					if len(msgs) == 0 {
 						idx++
