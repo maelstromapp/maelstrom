@@ -70,6 +70,10 @@ func TruncNodeId(id string) string {
 	return StrTruncate(id, 14)
 }
 
+func TruncContainerId(id string) string {
+	return StrTruncate(id, 8)
+}
+
 func GlobMatches(globOrStr string, target string) bool {
 	if globOrStr == "*" || globOrStr == target {
 		return true

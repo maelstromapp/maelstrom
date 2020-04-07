@@ -227,7 +227,8 @@ func (c *Converger) stopAndRemoveContainer(id maelContainerId, dockerContainerId
 			go c.notifyContainersChanged()
 			c.convergeStopContainer(cn, reason)
 			found = cn
-			log.Info("converge: stopAndRemoveContainer found container", "id", cn.id, "containerId", cn.containerId)
+			log.Info("converge: stopAndRemoveContainer found container", "id", cn.id,
+				"containerId", common.TruncContainerId(cn.containerId))
 		}
 	}
 

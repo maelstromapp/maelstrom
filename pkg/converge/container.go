@@ -191,6 +191,7 @@ func (c *Container) run() {
 	reqCh := c.router.HandlerStartLocal()
 	go func() {
 		defer c.router.HandlerStop()
+		defer c.stopContainerQuietly("revproxy loop exited")
 		dispenser := revproxy.NewDispenser(maxConcurRevProxy, reqCh, "",
 			"", c.proxy, c.statCh, c.revProxyCtx)
 		c.revProxyWg.Add(1)
@@ -268,7 +269,7 @@ func (c *Container) stopContainerQuietly(reason string) {
 	if c.containerId != "" {
 		err := common.RemoveContainer(c.dockerClient, c.containerId, c.component.Name,
 			strconv.Itoa(int(c.component.Version)), reason)
-		if err != nil && !docker.IsErrContainerNotFound(err) {
+		if err != nil && !docker.IsErrContainerNotFound(err) && !common.IsErrRemovalInProgress(err) {
 			log.Warn("container: unable to stop container", "err", err.Error(), "component", c.component.Name)
 		}
 	}
