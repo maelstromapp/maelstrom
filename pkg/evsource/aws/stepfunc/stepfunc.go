@@ -137,11 +137,13 @@ func (s *StepFuncPoller) Run(ctx context.Context, parentWg *sync.WaitGroup, conc
 	}
 }
 
-func (s *StepFuncPoller) getTask(ctx context.Context, reqCh chan *sfn.GetActivityTaskOutput) {
-	out, err := s.sfnClient.GetActivityTaskWithContext(ctx, &sfn.GetActivityTaskInput{
+func (s *StepFuncPoller) getTask(parentCtx context.Context, reqCh chan *sfn.GetActivityTaskOutput) {
+	reqCtx, reqCtxCancel := context.WithTimeout(parentCtx, 100*time.Second)
+	out, err := s.sfnClient.GetActivityTaskWithContext(reqCtx, &sfn.GetActivityTaskInput{
 		ActivityArn: s.arn,
 		WorkerName:  nil,
 	})
+	reqCtxCancel()
 	if err != nil {
 		logerr := true
 		if aerr, ok := err.(awserr.Error); ok {
