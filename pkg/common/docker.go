@@ -416,8 +416,8 @@ func PullImage(dockerClient *docker.Client, c v1.Component) error {
 
 		// rewrite placeholder
 		for i, s := range c.Docker.PullCommand {
-			if s == "<image>" {
-				c.Docker.PullCommand[i] = c.Docker.Image
+			if strings.Contains(s, "<image>") {
+				c.Docker.PullCommand[i] = strings.ReplaceAll(s, "<image>", c.Docker.Image)
 			}
 		}
 

@@ -350,7 +350,7 @@ struct DockerComponent {
     limitMemoryMiB           int            [optional]
 
     // If set, this command will be executed to pull the image
-    // If any string element = "<image>" it will be replaced with the image
+    // If any string element contains "<image>" that token will be replaced with the image
     // name of the component before running the command
     pullCommand              []string       [optional]
 
