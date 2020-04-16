@@ -77,11 +77,12 @@ type StepFuncPollCreator struct {
 
 func (s *StepFuncPollCreator) NewPoller() evsource.Poller {
 	poller := &StepFuncPoller{
-		arn:       s.arn,
-		es:        s.es,
-		errSleep:  5 * time.Second,
-		gateway:   s.gateway,
-		sfnClient: s.sfnClient,
+		arn:         s.arn,
+		es:          s.es,
+		errSleep:    5 * time.Second,
+		gateway:     s.gateway,
+		sfnClient:   s.sfnClient,
+		getTaskLock: &sync.Mutex{},
 	}
 	return poller.Run
 }
@@ -103,11 +104,12 @@ func (s *StepFuncPollCreator) MaxConcurrencyPerPoller() int {
 }
 
 type StepFuncPoller struct {
-	arn       *string
-	es        v1.EventSource
-	errSleep  time.Duration
-	gateway   http.Handler
-	sfnClient *sfn.SFN
+	arn         *string
+	es          v1.EventSource
+	errSleep    time.Duration
+	gateway     http.Handler
+	sfnClient   *sfn.SFN
+	getTaskLock *sync.Mutex
 }
 
 func (s *StepFuncPoller) Run(ctx context.Context, parentWg *sync.WaitGroup, concurrency int, roleId string) {
@@ -117,27 +119,19 @@ func (s *StepFuncPoller) Run(ctx context.Context, parentWg *sync.WaitGroup, conc
 		"concurrency", concurrency, "roleId", roleId)
 
 	wg := &sync.WaitGroup{}
-	reqCh := make(chan *sfn.GetActivityTaskOutput)
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
-		go s.worker(wg, reqCh)
+		go s.workerLoop(ctx, wg)
 	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			close(reqCh)
-			wg.Wait()
-			log.Info("evstepfunc: poller exiting gracefully", "component", s.es.ComponentName,
-				"roleId", roleId)
-			return
-		default:
-			s.getTask(ctx, reqCh)
-		}
-	}
+	wg.Wait()
+	log.Info("evstepfunc: poller exiting gracefully", "component", s.es.ComponentName, "roleId", roleId)
 }
 
-func (s *StepFuncPoller) getTask(parentCtx context.Context, reqCh chan *sfn.GetActivityTaskOutput) {
+func (s *StepFuncPoller) getTask(parentCtx context.Context) *sfn.GetActivityTaskOutput {
+	s.getTaskLock.Lock()
+	defer s.getTaskLock.Unlock()
+
 	reqCtx, reqCtxCancel := context.WithTimeout(parentCtx, 100*time.Second)
 	out, err := s.sfnClient.GetActivityTaskWithContext(reqCtx, &sfn.GetActivityTaskInput{
 		ActivityArn: s.arn,
@@ -149,48 +143,63 @@ func (s *StepFuncPoller) getTask(parentCtx context.Context, reqCh chan *sfn.GetA
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == request.CanceledErrorCode {
 				logerr = false
+				log.Warn("evstepfunc: GetActivityTask context canceled", "arn", s.arn)
 			}
 		}
 		if logerr {
-			log.Error("evstepfunc: add GetActivityTask", "err", err, "arn", s.arn)
+			log.Error("evstepfunc: error calling GetActivityTask", "err", err, "arn", s.arn)
 			time.Sleep(s.errSleep)
 		}
 	}
+	return out
+}
 
-	if out != nil && out.Input != nil {
-		reqCh <- out
+func (s *StepFuncPoller) workerLoop(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			getTaskOut := s.getTask(ctx)
+			if getTaskOut != nil && getTaskOut.Input != nil {
+				s.invokeComponent(getTaskOut)
+			}
+		}
 	}
 }
 
-func (s *StepFuncPoller) worker(wg *sync.WaitGroup, reqCh chan *sfn.GetActivityTaskOutput) {
-	defer wg.Done()
-	for out := range reqCh {
-		req, err := http.NewRequest("POST", s.es.Awsstepfunc.Path, bytes.NewBufferString(*out.Input))
-		if err != nil {
-			log.Error("evstepfunc: http.NewRequest", "err", err, "arn", s.arn)
+func (s *StepFuncPoller) invokeComponent(out *sfn.GetActivityTaskOutput) {
+	req, err := http.NewRequest("POST", s.es.Awsstepfunc.Path, bytes.NewBufferString(*out.Input))
+	if err != nil {
+		log.Error("evstepfunc: http.NewRequest", "err", err, "arn", s.arn)
+	} else {
+		startTime := common.NowMillis()
+		rw := httptest.NewRecorder()
+		req.Header.Set("Maelstrom-Component", s.es.ComponentName)
+		s.gateway.ServeHTTP(rw, req)
+		if log.IsDebug() {
+			log.Debug("evstepfunc: req done", "component", s.es.ComponentName, "path", s.es.Awsstepfunc.Path,
+				"millis", common.NowMillis()-startTime, "respcode", rw.Code)
+		}
+		if rw.Code == http.StatusOK {
+			_, err = s.sfnClient.SendTaskSuccess(&sfn.SendTaskSuccessInput{
+				Output:    aws.String(rw.Body.String()),
+				TaskToken: out.TaskToken,
+			})
+			if err != nil {
+				log.Error("evstepfunc: SendTaskSuccess", "err", err, "arn", s.arn)
+			}
 		} else {
-			rw := httptest.NewRecorder()
-			req.Header.Set("Maelstrom-Component", s.es.ComponentName)
-			s.gateway.ServeHTTP(rw, req)
-			if rw.Code == http.StatusOK {
-				_, err = s.sfnClient.SendTaskSuccess(&sfn.SendTaskSuccessInput{
-					Output:    aws.String(rw.Body.String()),
-					TaskToken: out.TaskToken,
-				})
-				if err != nil {
-					log.Error("evstepfunc: SendTaskSuccess", "err", err, "arn", s.arn)
-				}
-			} else {
-				errStr := common.StrTruncate(rw.Header().Get("step-func-error"), 256)
-				causeStr := common.StrTruncate(rw.Header().Get("step-func-cause"), 32768)
-				_, err = s.sfnClient.SendTaskFailure(&sfn.SendTaskFailureInput{
-					TaskToken: out.TaskToken,
-					Error:     aws.String(errStr),
-					Cause:     aws.String(causeStr),
-				})
-				if err != nil {
-					log.Error("evstepfunc: SendTaskFailure", "err", err, "arn", s.arn)
-				}
+			errStr := common.StrTruncate(rw.Header().Get("step-func-error"), 256)
+			causeStr := common.StrTruncate(rw.Header().Get("step-func-cause"), 32768)
+			_, err = s.sfnClient.SendTaskFailure(&sfn.SendTaskFailureInput{
+				TaskToken: out.TaskToken,
+				Error:     aws.String(errStr),
+				Cause:     aws.String(causeStr),
+			})
+			if err != nil {
+				log.Error("evstepfunc: SendTaskFailure", "err", err, "arn", s.arn)
 			}
 		}
 	}

@@ -173,7 +173,7 @@ func main() {
 		ConnKeepAlive:         30 * time.Second,
 		MaxAllIdleConns:       100,
 		MaxHostIdleConns:      10,
-		ResponseHeaderTimeout: 90 * time.Second,
+		ResponseHeaderTimeout: 120 * time.Second,
 		TLSHandshakeTimeout:   15 * time.Second,
 	})
 	if err != nil {
