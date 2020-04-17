@@ -168,7 +168,10 @@ func toRoleIdConcurrency(pollCreator evsource.PollCreator, maxConcurrency int) [
 		concurRemain -= c
 		if c > 0 {
 			roleIdConcur = append(roleIdConcur, roleIdConcurrency{
-				roleId:      fmt.Sprintf("%s-%d", pollCreator.RoleIdPrefix(), i),
+				// store the concurrency value on the roleId
+				// if maxConcurrency changes (due to event source modification or change in component instances)
+				// then that will invalidate the roleId and we'll start a new one and turn off the old one
+				roleId:      fmt.Sprintf("%s-%d-%d", pollCreator.RoleIdPrefix(), i, c),
 				concurrency: c,
 			})
 		}
