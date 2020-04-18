@@ -20,28 +20,28 @@ import (
 func NewEvPoller(myNodeId string, ctx context.Context, db db.Db, gateway http.Handler, routerReg *router.Registry,
 	awsSession *session.Session) *EvPoller {
 	return &EvPoller{
-		myNodeId:    myNodeId,
-		ctx:         ctx,
-		db:          db,
-		gateway:     gateway,
-		routerReg:   routerReg,
-		awsSession:  awsSession,
-		activeRoles: make(map[string]context.CancelFunc),
-		pollerDone:  make(chan string),
-		pollerWg:    &sync.WaitGroup{},
+		myNodeId:       myNodeId,
+		ctx:            ctx,
+		db:             db,
+		gateway:        gateway,
+		routerReg:      routerReg,
+		awsSession:     awsSession,
+		activeRoles:    make(map[string]context.CancelFunc),
+		pollerWg:       &sync.WaitGroup{},
+		activeRoleLock: &sync.Mutex{},
 	}
 }
 
 type EvPoller struct {
-	myNodeId    string
-	ctx         context.Context
-	db          db.Db
-	gateway     http.Handler
-	routerReg   *router.Registry
-	awsSession  *session.Session
-	activeRoles map[string]context.CancelFunc
-	pollerDone  chan string
-	pollerWg    *sync.WaitGroup
+	myNodeId       string
+	ctx            context.Context
+	db             db.Db
+	gateway        http.Handler
+	routerReg      *router.Registry
+	awsSession     *session.Session
+	activeRoles    map[string]context.CancelFunc
+	pollerWg       *sync.WaitGroup
+	activeRoleLock *sync.Mutex
 }
 
 func (e *EvPoller) Run(daemonWG *sync.WaitGroup) {
@@ -50,14 +50,11 @@ func (e *EvPoller) Run(daemonWG *sync.WaitGroup) {
 	ticker := time.Tick(time.Minute)
 	for {
 		select {
-		case roleId := <-e.pollerDone:
-			delete(e.activeRoles, roleId)
-			log.Info("evpoller: removed active role", "roleId", roleId)
 		case <-ticker:
 			e.reload()
 		case <-e.ctx.Done():
 			log.Info("evpoller: shutting down pollers")
-			for _, cancelFx := range e.activeRoles {
+			for _, cancelFx := range e.getActiveRoles() {
 				cancelFx()
 			}
 			e.pollerWg.Wait()
@@ -65,6 +62,25 @@ func (e *EvPoller) Run(daemonWG *sync.WaitGroup) {
 			return
 		}
 	}
+}
+
+func (e *EvPoller) getActiveRoles() map[string]context.CancelFunc {
+	e.activeRoleLock.Lock()
+	defer e.activeRoleLock.Unlock()
+	return e.activeRoles
+}
+
+func (e *EvPoller) putActiveRole(roleId string, cancelFunc context.CancelFunc) {
+	e.activeRoleLock.Lock()
+	defer e.activeRoleLock.Unlock()
+	e.activeRoles[roleId] = cancelFunc
+}
+
+func (e *EvPoller) deleteActiveRole(roleId string) {
+	e.activeRoleLock.Lock()
+	defer e.activeRoleLock.Unlock()
+	delete(e.activeRoles, roleId)
+	log.Info("evpoller: removed active role", "roleId", roleId)
 }
 
 func (e *EvPoller) reload() {
@@ -105,7 +121,7 @@ func (e *EvPoller) reload() {
 	}
 
 	// cancel any pollers that are no longer valid roles
-	for roleId, cancelFx := range e.activeRoles {
+	for roleId, cancelFx := range e.getActiveRoles() {
 		_, ok := validRoleIds[roleId]
 		if !ok {
 			go cancelFx()
@@ -129,13 +145,17 @@ func (e *EvPoller) startPollerGroup(pollCreator evsource.PollCreator, validRoleI
 			log.Error("evpoller: AcquireOrRenewRole error", "err", err, "roleId", roleId)
 		} else if ok {
 			// acquired lock - start poller
-			cancelFx := e.activeRoles[roleId]
+			cancelFx := e.getActiveRoles()[roleId]
 			if cancelFx == nil {
 				poller := pollCreator.NewPoller()
 				ctx, cancelFunc := context.WithCancel(e.ctx)
-				e.activeRoles[roleId] = cancelFunc
+				e.putActiveRole(roleId, cancelFunc)
 				e.pollerWg.Add(1)
-				go poller(ctx, e.pollerWg, rc.concurrency, roleId)
+				go func(roleId string) {
+					defer e.pollerWg.Done()
+					defer e.deleteActiveRole(roleId)
+					poller(ctx, rc.concurrency, roleId)
+				}(roleId)
 				pollerOk = true
 			} else {
 				pollerOk = true
@@ -144,7 +164,7 @@ func (e *EvPoller) startPollerGroup(pollCreator evsource.PollCreator, validRoleI
 
 		if !pollerOk {
 			// lost lock or no queues defined - cancel poller
-			cancelFx := e.activeRoles[roleId]
+			cancelFx := e.getActiveRoles()[roleId]
 			if cancelFx != nil {
 				go cancelFx()
 			}

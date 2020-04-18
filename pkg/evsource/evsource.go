@@ -2,7 +2,6 @@ package evsource
 
 import (
 	"context"
-	"sync"
 )
 
 type PollCreator interface {
@@ -13,4 +12,4 @@ type PollCreator interface {
 	MaxConcurrencyPerPoller() int
 }
 
-type Poller func(ctx context.Context, wg *sync.WaitGroup, concurrency int, roleId string)
+type Poller func(ctx context.Context, concurrency int, roleId string)

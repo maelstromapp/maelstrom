@@ -76,9 +76,7 @@ func (s *SqsPollCreator) MaxConcurrencyPerPoller() int {
 }
 
 func newPoller(es v1.EventSource, queueUrls []*string, sqsClient *sqs.SQS, gateway http.Handler) evsource.Poller {
-	return func(ctx context.Context, parentWg *sync.WaitGroup, concurrency int, roleId string) {
-		defer parentWg.Done()
-
+	return func(ctx context.Context, concurrency int, roleId string) {
 		resetIdxTicker := time.Tick(15 * time.Second)
 		idx := 0
 

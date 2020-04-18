@@ -112,9 +112,7 @@ type StepFuncPoller struct {
 	getTaskLock *sync.Mutex
 }
 
-func (s *StepFuncPoller) Run(ctx context.Context, parentWg *sync.WaitGroup, concurrency int, roleId string) {
-	defer parentWg.Done()
-
+func (s *StepFuncPoller) Run(ctx context.Context, concurrency int, roleId string) {
 	log.Info("evstepfunc: starting poller", "component", s.es.ComponentName, "arn", s.arn,
 		"concurrency", concurrency, "roleId", roleId)
 
@@ -128,11 +126,19 @@ func (s *StepFuncPoller) Run(ctx context.Context, parentWg *sync.WaitGroup, conc
 	log.Info("evstepfunc: poller exiting gracefully", "component", s.es.ComponentName, "roleId", roleId)
 }
 
-func (s *StepFuncPoller) getTask(parentCtx context.Context) *sfn.GetActivityTaskOutput {
+func (s *StepFuncPoller) getTask(ctx context.Context) *sfn.GetActivityTaskOutput {
 	s.getTaskLock.Lock()
 	defer s.getTaskLock.Unlock()
 
-	reqCtx, reqCtxCancel := context.WithTimeout(parentCtx, 100*time.Second)
+	// double check if we're still running - skip poll if we aren't
+	select {
+	case <-ctx.Done():
+		return nil
+	default:
+		break
+	}
+
+	reqCtx, reqCtxCancel := context.WithTimeout(context.Background(), 100*time.Second)
 	out, err := s.sfnClient.GetActivityTaskWithContext(reqCtx, &sfn.GetActivityTaskInput{
 		ActivityArn: s.arn,
 		WorkerName:  nil,
