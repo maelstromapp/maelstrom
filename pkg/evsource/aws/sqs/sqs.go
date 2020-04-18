@@ -83,6 +83,29 @@ func newPoller(es v1.EventSource, queueUrls []*string, sqsClient *sqs.SQS, gatew
 		log.Info("sqs: poller starting", "roleId", roleId, "concurrency", concurrency,
 			"component", es.ComponentName)
 
+		pauseSecLock := &sync.Mutex{}
+		pauseSecs := 0
+		setPauseSecs := func(secs int) {
+			pauseSecLock.Lock()
+			if secs > 0 {
+				pauseSecs = secs
+			}
+			pauseSecLock.Unlock()
+		}
+		sleepPauseSecs := func() bool {
+			pauseSecLock.Lock()
+			pauseCopy := pauseSecs
+			pauseSecs = 0
+			pauseSecLock.Unlock()
+
+			if pauseCopy > 0 {
+				log.Info("sqs: pausing poller", "seconds", pauseCopy, "component", es.ComponentName, "roleId", roleId)
+				time.Sleep(time.Duration(pauseCopy) * time.Second)
+				return true
+			}
+			return false
+		}
+
 		reqCh := make(chan *sqsMessage)
 		wg := &sync.WaitGroup{}
 		for i := 0; i < concurrency; i++ {
@@ -111,6 +134,11 @@ func newPoller(es v1.EventSource, queueUrls []*string, sqsClient *sqs.SQS, gatew
 						} else {
 							log.Warn("sqs: non-200 status", "component", es.ComponentName, "queueUrl", m.queueUrl)
 						}
+						// server has asked us to pause
+						pauseSecs := common.ToIntOrDefault(rw.Result().Header.Get("pause-seconds"), 0)
+						if pauseSecs > 0 {
+							setPauseSecs(pauseSecs)
+						}
 					}
 				}
 			}()
@@ -126,6 +154,11 @@ func newPoller(es v1.EventSource, queueUrls []*string, sqsClient *sqs.SQS, gatew
 				wg.Wait()
 				return
 			default:
+				if sleepPauseSecs() {
+					// component requested pause - reset to front of queue list
+					idx = 0
+				}
+
 				queueUrl := queueUrls[idx]
 				reqCtx, reqCancel := context.WithTimeout(ctx, 15*time.Second)
 				msgs, err := poll(es, sqsClient, queueUrl, reqCtx)
