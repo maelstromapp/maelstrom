@@ -199,6 +199,14 @@ func (s *StepFuncPoller) invokeComponent(out *sfn.GetActivityTaskOutput) {
 		} else {
 			errStr := common.StrTruncate(rw.Header().Get("step-func-error"), 256)
 			causeStr := common.StrTruncate(rw.Header().Get("step-func-cause"), 32768)
+
+			if errStr == "" {
+				errStr = fmt.Sprintf("maelstrom_%d", rw.Code)
+			}
+			if causeStr == "" {
+				causeStr = fmt.Sprintf("maelstrom error: %s", err.Error())
+			}
+
 			_, err = s.sfnClient.SendTaskFailure(&sfn.SendTaskFailureInput{
 				TaskToken: out.TaskToken,
 				Error:     aws.String(errStr),

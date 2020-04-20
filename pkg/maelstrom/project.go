@@ -137,6 +137,7 @@ func mapToNameValues(m map[string]string) []v1.NameValue {
 		nvs[i] = v1.NameValue{Name: k, Value: v}
 		i++
 	}
+	sort.Sort(nameValueByName(nvs))
 	return nvs
 }
 
