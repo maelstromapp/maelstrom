@@ -8,8 +8,16 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "21cf05cf7e2ddd0ce4d952c841cbb07d"
-const BarristerDateGenerated int64 = 1582655840550000000
+const BarristerChecksum string = "097a1e72241bd8cac8c14f99668f7a62"
+const BarristerDateGenerated int64 = 1590185256168000000
+
+type ComponentStatus string
+
+const (
+	ComponentStatusActive   ComponentStatus = "active"
+	ComponentStatusStarting                 = "starting"
+	ComponentStatusStopping                 = "stopping"
+)
 
 type EventSourceType string
 
@@ -33,14 +41,6 @@ type RestartOrder string
 const (
 	RestartOrderStartstop RestartOrder = "startstop"
 	RestartOrderStopstart              = "stopstart"
-)
-
-type ComponentStatus string
-
-const (
-	ComponentStatusActive   ComponentStatus = "active"
-	ComponentStatusStarting                 = "starting"
-	ComponentStatusStopping                 = "stopping"
 )
 
 type Project struct {
@@ -207,7 +207,8 @@ type ListProjectsOutput struct {
 }
 
 type PutProjectInput struct {
-	Project Project `json:"project"`
+	Project  Project `json:"project"`
+	DiffOnly bool    `json:"diffOnly,omitempty"`
 }
 
 type PutProjectOutput struct {
@@ -1618,7 +1619,7 @@ var IdlJsonRaw = `[
                 "type": "string",
                 "optional": true,
                 "is_array": true,
-                "comment": "If set, this command will be executed to pull the image\nIf any string element = \"\u003cimage\u003e\" it will be replaced with the image\nname of the component before running the command"
+                "comment": "If set, this command will be executed to pull the image\nIf any string element contains \"\u003cimage\u003e\" that token will be replaced with the image\nname of the component before running the command"
             },
             {
                 "name": "pullUsername",
@@ -2437,6 +2438,13 @@ var IdlJsonRaw = `[
                 "optional": false,
                 "is_array": false,
                 "comment": ""
+            },
+            {
+                "name": "diffOnly",
+                "type": "bool",
+                "optional": true,
+                "is_array": false,
+                "comment": "If true, changes will not be saved but PutProjectOutput of\nwhat would have been applied will be returned\ndefault = false"
             }
         ],
         "values": null,
@@ -3729,7 +3737,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1582655840550,
-        "checksum": "21cf05cf7e2ddd0ce4d952c841cbb07d"
+        "date_generated": 1590185256168,
+        "checksum": "097a1e72241bd8cac8c14f99668f7a62"
     }
 ]`

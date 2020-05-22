@@ -141,43 +141,51 @@ func (v *MaelServiceImpl) PutProject(input v1.PutProjectInput) (v1.PutProjectOut
 
 	// remove first - in case components were renamed (which is a remove + put)
 	for _, c := range diff.ComponentRemove {
-		found, err := v.db.RemoveComponent(c)
-		if err != nil {
-			return v1.PutProjectOutput{}, v.onError(DbError, "RemoveComponent failed", err)
-		}
 		out.ComponentsRemoved = append(out.ComponentsRemoved, c)
-		v.notifyRemoveComponent(&v1.RemoveComponentOutput{Name: c, Found: found}, true)
+		if !input.DiffOnly {
+			found, err := v.db.RemoveComponent(c)
+			if err != nil {
+				return v1.PutProjectOutput{}, v.onError(DbError, "RemoveComponent failed", err)
+			}
+			v.notifyRemoveComponent(&v1.RemoveComponentOutput{Name: c, Found: found}, true)
+		}
 	}
 	for _, ev := range diff.EventSourceRemove {
-		_, err = v.db.RemoveEventSource(ev)
-		if err != nil {
-			return v1.PutProjectOutput{}, v.onError(DbError, "RemoveEventSource failed", err)
-		}
 		out.EventSourcesRemoved = append(out.EventSourcesRemoved, ev)
+		if !input.DiffOnly {
+			_, err = v.db.RemoveEventSource(ev)
+			if err != nil {
+				return v1.PutProjectOutput{}, v.onError(DbError, "RemoveEventSource failed", err)
+			}
+		}
 	}
 
 	// then put
 	for _, c := range diff.ComponentPut {
-		_, err := v.db.PutComponent(c)
-		if err != nil {
-			return v1.PutProjectOutput{}, v.onError(DbError, "PutComponent failed", err)
-		}
 		if c.Version == 0 {
 			out.ComponentsAdded = append(out.ComponentsAdded, c)
 		} else {
 			out.ComponentsUpdated = append(out.ComponentsUpdated, c)
 		}
-		v.notifyPutComponent(c.Name, true)
+		if !input.DiffOnly {
+			_, err := v.db.PutComponent(c)
+			if err != nil {
+				return v1.PutProjectOutput{}, v.onError(DbError, "PutComponent failed", err)
+			}
+			v.notifyPutComponent(c.Name, true)
+		}
 	}
 	for _, ev := range diff.EventSourcePut {
-		_, err = v.db.PutEventSource(ev)
-		if err != nil {
-			return v1.PutProjectOutput{}, v.onError(DbError, "PutEventSource failed", err)
-		}
 		if ev.Version == 0 {
 			out.EventSourcesAdded = append(out.EventSourcesAdded, ev)
 		} else {
 			out.EventSourcesUpdated = append(out.EventSourcesUpdated, ev)
+		}
+		if !input.DiffOnly {
+			_, err = v.db.PutEventSource(ev)
+			if err != nil {
+				return v1.PutProjectOutput{}, v.onError(DbError, "PutEventSource failed", err)
+			}
 		}
 	}
 

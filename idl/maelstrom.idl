@@ -610,6 +610,11 @@ struct ListProjectsOutput {
 
 struct PutProjectInput {
     project   Project
+
+    // If true, changes will not be saved but PutProjectOutput of
+    // what would have been applied will be returned
+    // default = false
+    diffOnly  bool      [optional]
 }
 
 struct PutProjectOutput {

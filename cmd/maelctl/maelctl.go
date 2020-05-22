@@ -257,6 +257,7 @@ func componentRm(args docopt.Opts, svc v1.MaelstromService) {
 
 func projectPut(args docopt.Opts, svc v1.MaelstromService) {
 	envfile := argStr(args, "--env")
+	diffOnly := argBool(args, "--diffonly")
 	if envfile != "" {
 		err := config.FileToEnv(envfile)
 		checkErr(err, "Unable to load env file: "+envfile)
@@ -268,12 +269,16 @@ func projectPut(args docopt.Opts, svc v1.MaelstromService) {
 	}
 	proj, err := maelstrom.ParseYamlFileAndInterpolateEnv(fname, true)
 	checkErr(err, "Unable to load project YAML file")
-	out, err := svc.PutProject(v1.PutProjectInput{Project: proj})
+	out, err := svc.PutProject(v1.PutProjectInput{Project: proj, DiffOnly: diffOnly})
 	checkErr(err, "PutProject failed")
 	if maelstrom.PutProjectOutputEmpty(out) {
 		fmt.Printf("PutProject: No project changes detected for project: %s using file: %s", out.Name, fname)
 	} else {
-		fmt.Printf("Project saved: %s from file: %s\n", out.Name, fname)
+		verb := "saved"
+		if diffOnly {
+			verb = "diff"
+		}
+		fmt.Printf("Project %s: %s from file: %s\n", verb, out.Name, fname)
 		fmt.Printf("Type         Name                               Action\n")
 		for _, c := range out.ComponentsAdded {
 			fmt.Printf("%-11s  %-33s  %s\n", "Component", c.Name, "Added")
@@ -566,7 +571,7 @@ Usage:
   maelctl es disable [--prefix=<prefix>] [--project=<project>] [--component=<component>] [--type=<type>]
   maelctl logs [--components=<components>] [--since=<since>]
   maelctl project ls [--prefix=<prefix>]
-  maelctl project put [--file=<file>] [--env=<envfile>]
+  maelctl project put [--file=<file>] [--env=<envfile>] [--diffonly]
   maelctl project rm <name>
   maelctl version
 `
