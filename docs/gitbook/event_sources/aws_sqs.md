@@ -35,6 +35,13 @@ processed in the strict order they are dequeued.
 
 The max number of pollers =  `ceil(sqs-maxconcurrency / concurrencyperpoller)`
 
+## Back pressure
+
+If you return a HTTP header `pause-seconds`, `maelstromd` will sleep for that number of seconds before polling SQS again.
+The header value must be an integer (e.g.: `pause-seconds: 30`).
+
+The poller will pause once for the specified number of seconds, then clear this value.
+
 ## Properties
 
 | Property             |   Description                                                                 |  Default        

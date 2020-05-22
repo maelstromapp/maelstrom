@@ -5,6 +5,24 @@
 * Default file name is `maelstrom.yml`
 * YAML file will be bound to the [yamlProject struct](https://github.com/coopernurse/maelstrom/blob/master/pkg/maelstrom/project.go#L218) here (use this for canonical reference)
 
+## Using maelctl
+
+Use `maelctl project put` to apply changes in `maelstrom.yml` to the target `maelstromd` process
+
+```
+# running maelctl with no args outputs help
+$ maelctl
+
+# basic usage - assumes file is maelstrom.yml
+$ maelctl project put
+
+# use --file to specify a different yml file
+$ maelctl project put --file=my-project.yml
+
+# dry run mode - outputs diff of changes but doesn't make any changes
+$ maelctl project put --diffonly
+```
+
 ## Basic Structure
 
 ```yaml
