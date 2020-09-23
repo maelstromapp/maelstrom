@@ -8,16 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "097a1e72241bd8cac8c14f99668f7a62"
-const BarristerDateGenerated int64 = 1590185256168000000
-
-type ComponentStatus string
-
-const (
-	ComponentStatusActive   ComponentStatus = "active"
-	ComponentStatusStarting                 = "starting"
-	ComponentStatusStopping                 = "stopping"
-)
+const BarristerChecksum string = "c0cc82c300ab7d1a70e7d1eef025cee1"
+const BarristerDateGenerated int64 = 1600870730146000000
 
 type EventSourceType string
 
@@ -41,6 +33,14 @@ type RestartOrder string
 const (
 	RestartOrderStartstop RestartOrder = "startstop"
 	RestartOrderStopstart              = "stopstart"
+)
+
+type ComponentStatus string
+
+const (
+	ComponentStatusActive   ComponentStatus = "active"
+	ComponentStatusStarting                 = "starting"
+	ComponentStatusStopping                 = "stopping"
 )
 
 type Project struct {
@@ -99,6 +99,7 @@ type DockerComponent struct {
 	DnsOptions                  []string      `json:"dnsOptions,omitempty"`
 	DnsSearch                   []string      `json:"dnsSearch,omitempty"`
 	Ulimits                     []string      `json:"ulimits,omitempty"`
+	Init                        bool          `json:"init,omitempty"`
 }
 
 type VolumeMount struct {
@@ -1676,6 +1677,13 @@ var IdlJsonRaw = `[
                 "optional": true,
                 "is_array": true,
                 "comment": "format: name:soft limit:hard limit\nsee: https://docs.docker.com/engine/reference/commandline/run/#set-ulimits-in-container---ulimit"
+            },
+            {
+                "name": "init",
+                "type": "bool",
+                "optional": true,
+                "is_array": false,
+                "comment": "If true, init flag will be set on container. (default=false)\nEquivalent to the \"docker run --init\" flag."
             }
         ],
         "values": null,
@@ -3737,7 +3745,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1590185256168,
-        "checksum": "097a1e72241bd8cac8c14f99668f7a62"
+        "date_generated": 1600870730146,
+        "checksum": "c0cc82c300ab7d1a70e7d1eef025cee1"
     }
 ]`

@@ -296,6 +296,10 @@ func toContainerHostConfig(c *v1.Component) (*container.HostConfig, error) {
 		hc.Memory = c.Docker.LimitMemoryMiB * 1024 * 1024
 	}
 
+	if c.Docker.Init {
+		hc.Init = &c.Docker.Init
+	}
+
 	// CPU shares
 	if c.Docker.CpuShares > 0 {
 		hc.CPUShares = c.Docker.CpuShares

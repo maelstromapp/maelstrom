@@ -332,4 +332,7 @@ components:
     ulimits:
       - nofile=20000:30000
       - nproc=3
+    # runs container with init PID 1
+    # equivalent to docker run --init (default is false)
+    containerinit: true
 ```

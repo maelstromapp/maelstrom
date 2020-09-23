@@ -376,6 +376,10 @@ struct DockerComponent {
     // format: name:soft limit:hard limit
     // see: https://docs.docker.com/engine/reference/commandline/run/#set-ulimits-in-container---ulimit
     ulimits                     []string    [optional]
+
+    // If true, init flag will be set on container. (default=false)
+    // Equivalent to the "docker run --init" flag.
+    init                        bool        [optional]
 }
 
 struct VolumeMount {

@@ -115,6 +115,7 @@ components:
     softconcurrencylimit: true
     maxdurationseconds: 30
     restartorder: startstop
+    containerinit: true
   detector:
     image: coopernurse/object-detector:latest
     command: ["python", "/app/detector.py"]
@@ -276,6 +277,7 @@ components:
 						Image:            "coopernurse/gizmo",
 						Command:          []string{"python", "gizmo.py"},
 						LogDriverOptions: []v1.NameValue{},
+						Init:             true,
 					},
 					MinInstances:         1,
 					MaxInstances:         5,

@@ -173,6 +173,7 @@ type yamlComponent struct {
 	CpuShares                   int64
 	ReserveMemory               int64
 	LimitMemory                 int64
+	ContainerInit               bool
 	PullCommand                 []string
 	PullUsername                string
 	PullPassword                string
@@ -284,6 +285,7 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 				DnsOptions:                  c.DNSOptions,
 				DnsSearch:                   c.DNSSearch,
 				Ulimits:                     c.Ulimits,
+				Init:                        c.ContainerInit,
 			},
 		},
 		EventSources: eventSources,
