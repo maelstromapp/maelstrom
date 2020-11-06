@@ -399,7 +399,10 @@ func tryUntilUrlOk(ctx context.Context, u *url.URL, timeout time.Duration) bool 
 }
 
 func getUrlOK(u *url.URL) bool {
-	resp, err := http.Get(u.String())
+	client := http.Client{
+		Timeout: 15 * time.Second,
+	}
+	resp, err := client.Get(u.String())
 	if resp != nil && resp.Body != nil {
 		defer common.CheckClose(resp.Body, &err)
 	}
