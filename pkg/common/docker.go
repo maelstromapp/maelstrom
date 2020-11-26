@@ -190,7 +190,21 @@ func RemoveMaelstromContainers(dockerClient *docker.Client, reason string) (int,
 
 func RemoveContainer(dockerClient *docker.Client, containerId string, componentName string, version string,
 	reason string) error {
-	ctx := context.Background()
+
+	// try to stop/remove gracefully
+	err := stopContainerGracefully(dockerClient, containerId, componentName, version, reason)
+	if err == nil {
+		return nil
+	}
+
+	return forceRemoveContainer(dockerClient, containerId, componentName, version, reason)
+}
+
+func stopContainerGracefully(dockerClient *docker.Client, containerId string, componentName string, version string,
+	reason string) error {
+	ctxTimeout := 2 * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+	defer cancel()
 
 	log.Info("common: removing container", "component", componentName, "ver", version, "reason", reason,
 		"containerId", containerId[0:8])
@@ -221,8 +235,30 @@ func RemoveContainer(dockerClient *docker.Client, containerId string, componentN
 	return nil
 }
 
+func forceRemoveContainer(dockerClient *docker.Client, containerId string, componentName string, version string,
+	reason string) error {
+	ctxTimeout := 2 * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+	defer cancel()
+
+	log.Warn("common: force removing container", "component", componentName, "ver", version, "reason", reason,
+		"containerId", containerId[0:8])
+
+	err := dockerClient.ContainerRemove(ctx, containerId, types.ContainerRemoveOptions{Force: true})
+	if err != nil {
+		if docker.IsErrContainerNotFound(err) {
+			return err
+		}
+		return fmt.Errorf("forceRemoveContainer error for: %s - %v", containerId, err)
+	}
+	return nil
+}
+
 func StartContainer(dockerClient *docker.Client, c *v1.Component, maelstromUrl string) (string, error) {
-	ctx := context.Background()
+	ctxTimeout := time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+	defer cancel()
+
 	if c.Docker == nil {
 		return "", fmt.Errorf("c.Docker is nil")
 	}
