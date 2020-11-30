@@ -8,8 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "c0cc82c300ab7d1a70e7d1eef025cee1"
-const BarristerDateGenerated int64 = 1600870730146000000
+const BarristerChecksum string = "87ef9444ef9262bbe7d97cb2e46997e8"
+const BarristerDateGenerated int64 = 1606767518809000000
 
 type EventSourceType string
 
@@ -81,6 +81,7 @@ type DockerComponent struct {
 	HttpStartHealthCheckSeconds int64         `json:"httpStartHealthCheckSeconds,omitempty"`
 	HttpHealthCheckSeconds      int64         `json:"httpHealthCheckSeconds,omitempty"`
 	HttpHealthCheckMaxFailures  int64         `json:"httpHealthCheckMaxFailures,omitempty"`
+	HealthCheckFailedCommand    []string      `json:"healthCheckFailedCommand,omitempty"`
 	IdleTimeoutSeconds          int64         `json:"idleTimeoutSeconds,omitempty"`
 	Ports                       []string      `json:"ports,omitempty"`
 	Volumes                     []VolumeMount `json:"volumes,omitempty"`
@@ -1551,6 +1552,13 @@ var IdlJsonRaw = `[
                 "optional": true,
                 "is_array": false,
                 "comment": "If this number of failures is reached the container will be considered\nnon-responsive and will be restarted. (default=1)"
+            },
+            {
+                "name": "healthCheckFailedCommand",
+                "type": "string",
+                "optional": true,
+                "is_array": true,
+                "comment": "If set, this command will be run inside the container (via docker exec)\nbefore stopping and removing the container due to a health check failure.\nThis provides a hook that can be used to capture a thread dump or some other\nstate about the container that may be useful for debugging why it failed."
             },
             {
                 "name": "idleTimeoutSeconds",
@@ -3745,7 +3753,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1600870730146,
-        "checksum": "c0cc82c300ab7d1a70e7d1eef025cee1"
+        "date_generated": 1606767518809,
+        "checksum": "87ef9444ef9262bbe7d97cb2e46997e8"
     }
 ]`

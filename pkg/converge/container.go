@@ -284,11 +284,28 @@ func (c *Container) runHealthCheck() {
 			log.Error("container: health check failed. stopping container",
 				"containerId", common.StrTruncate(c.containerId, 8),
 				"component", c.component.Name, "failures", c.healthCheckFailures)
+			c.runHealthCheckFailCmd()
 			go c.JoinAndStop("health check failed")
 			c.healthCheckFailures = 0
 		} else {
 			log.Warn("container: health check failed", "failures", c.healthCheckFailures,
 				"maxFailures", c.healthCheckMaxFailures)
+		}
+	}
+}
+
+func (c *Container) runHealthCheckFailCmd() {
+	if len(c.component.Docker.HealthCheckFailedCommand) > 0 && c.containerId != "" {
+		log.Info("container: running health check failed command",
+			"containerId", common.StrTruncate(c.containerId, 8),
+			"component", c.component.Name, "command", c.component.Docker.HealthCheckFailedCommand)
+		err := common.ExecInContainer(c.dockerClient, c.containerId, c.component.Docker.HealthCheckFailedCommand)
+		if err != nil {
+			log.Error("container: error running health check failed command",
+				"containerId", common.StrTruncate(c.containerId, 8),
+				"component", c.component.Name, "error", err)
+		} else {
+			time.Sleep(2 * time.Second)
 		}
 	}
 }

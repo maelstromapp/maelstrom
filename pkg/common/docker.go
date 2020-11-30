@@ -254,6 +254,23 @@ func forceRemoveContainer(dockerClient *docker.Client, containerId string, compo
 	return nil
 }
 
+func ExecInContainer(dockerClient *docker.Client, containerId string, cmd []string) error {
+	ctxTimeout := time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+	defer cancel()
+
+	config := types.ExecConfig{
+		Cmd: cmd,
+	}
+
+	idResp, err := dockerClient.ContainerExecCreate(ctx, containerId, config)
+	if err != nil {
+		return err
+	}
+
+	return dockerClient.ContainerExecStart(ctx, idResp.ID, types.ExecStartCheck{})
+}
+
 func StartContainer(dockerClient *docker.Client, c *v1.Component, maelstromUrl string) (string, error) {
 	ctxTimeout := time.Minute
 	ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)

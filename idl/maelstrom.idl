@@ -310,6 +310,12 @@ struct DockerComponent {
     // non-responsive and will be restarted. (default=1)
     httpHealthCheckMaxFailures   int     [optional]
 
+    // If set, this command will be run inside the container (via docker exec)
+    // before stopping and removing the container due to a health check failure.
+    // This provides a hook that can be used to capture a thread dump or some other
+    // state about the container that may be useful for debugging why it failed.
+    healthCheckFailedCommand   []string  [optional]
+
     // If component is not invoked within this duration then
     // the docker container is stopped and removed.  (default=300)
     idleTimeoutSeconds           int     [optional]

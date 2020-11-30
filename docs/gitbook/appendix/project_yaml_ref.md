@@ -275,6 +275,12 @@ components:
     # If this number of failures is reached the container will be considered
     # non-responsive and will be restarted. Default = 1
     httphealthcheckmaxfailures: 2
+    # If set, this command will be run inside the container (via docker exec)
+    # before stopping and removing the container due to a health check failure.
+    # This provides a hook that can be used to capture a thread dump or some other
+    # state about the container that may be useful for debugging why it failed.
+    # If not set, no command will be run before stopping a container that fails its health check.
+    healthcheckfailedcommand: ["/bin/bash", "-c", "kill -QUIT 1"]
 ```
 
 ### Other options

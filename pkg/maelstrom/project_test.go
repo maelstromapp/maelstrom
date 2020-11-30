@@ -132,6 +132,7 @@ components:
     ulimits:
       - foo:23:55
       - bar:123:456
+    healthcheckfailedcommand: ["/bin/bash", "foo"]
     crontab: |
        # comment should be ignored
        1 2 * * *   /cron/one
@@ -184,6 +185,7 @@ components:
 							"foo:23:55",
 							"bar:123:456",
 						},
+						HealthCheckFailedCommand: []string{"/bin/bash", "foo"},
 					},
 				},
 				EventSources: []v1.EventSourceWithStatus{
