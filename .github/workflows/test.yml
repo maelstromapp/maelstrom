@@ -13,12 +13,18 @@ jobs:
       shell: bash
       run: |
         set -x
+        lsb_release -d
+        sudo apt install python2 -y
+        curl https://bootstrap.pypa.io/pip/2.7/get-pip.py --output get-pip.py
+        sudo python2 get-pip.py
+        sudo update-alternatives --install /usr/bin/python python /usr/bin/python2 1
+        sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 2
         export CI_CACHEDIR=`pwd`/.cache
         export GOPATH="$CI_CACHEDIR"
         export PATH="$PATH:$CI_CACHEDIR/bin:$HOME/.local/bin"
         export PYTHONPATH="$CI_CACHEDIR/lib/python2.7/site-packages"
         mkdir -p "$CI_CACHEDIR"
-        pip install --user wheel
+        pip2 install --user wheel
         ./scripts/install_deps.sh
         sudo apt-get update
         sudo apt-get install -y libsqlite3-dev
