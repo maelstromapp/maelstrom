@@ -13,6 +13,8 @@ jobs:
       shell: bash
       run: |
         set -x
+        sudo update-alternatives --install /usr/bin/python python /usr/bin/python2 1
+        sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 2
         export CI_CACHEDIR=`pwd`/.cache
         export GOPATH="$CI_CACHEDIR"
         export PATH="$PATH:$CI_CACHEDIR/bin:$HOME/.local/bin"
