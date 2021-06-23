@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -303,7 +304,39 @@ func StartContainer(dockerClient *docker.Client, c *v1.Component, maelstromUrl s
 	if err != nil {
 		return resp.ID, fmt.Errorf("containerStart error for: %s - %v", c.Name, err)
 	}
+
+	// optionally start goroutine to bridge logs to maelstrom
+	if c.Docker.LogDriver == "maelstrom" {
+		go bridgeContainerLogs(dockerClient, c.Name, resp.ID)
+	}
+
 	return resp.ID, nil
+}
+
+func bridgeContainerLogs(dockerClient *docker.Client, componentName string, containerId string) {
+	reader, err := dockerClient.ContainerLogs(context.Background(), containerId, types.ContainerLogsOptions{
+		ShowStdout: true, ShowStderr: true, Follow: true})
+	if err != nil {
+		log.Error("common: ContainerLogs start error", "err", err, "containerId", containerId[0:8])
+		return
+	}
+	defer reader.Close()
+
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		txt := scanner.Text()
+		// strip the 8 byte mux header
+		// see: https://pkg.go.dev/github.com/docker/docker/client#Client.ContainerLogs
+		if len(txt) >= 8 {
+			txt = txt[8:]
+		}
+		fmt.Printf("componentlog %s - %s\n", componentName, txt)
+	}
+
+	err = scanner.Err()
+	if err != nil {
+		log.Error("common: ContainerLogs copy error", "err", err, "containerId", containerId[0:8])
+	}
 }
 
 func toContainerConfig(c *v1.Component, maelstromUrl string) *container.Config {
@@ -359,7 +392,7 @@ func toContainerHostConfig(c *v1.Component) (*container.HostConfig, error) {
 	}
 
 	// Container logging
-	if c.Docker.LogDriver != "" {
+	if c.Docker.LogDriver != "" && c.Docker.LogDriver != "maelstrom" {
 		hc.LogConfig.Type = c.Docker.LogDriver
 		hc.LogConfig.Config = map[string]string{}
 		for _, nv := range c.Docker.LogDriverOptions {
