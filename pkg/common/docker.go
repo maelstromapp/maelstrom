@@ -320,7 +320,7 @@ func bridgeContainerLogs(dockerClient *docker.Client, componentName string, cont
 		log.Error("common: ContainerLogs start error", "err", err, "containerId", containerId[0:8])
 		return
 	}
-	defer reader.Close()
+	defer CheckClose(reader, &err)
 
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
