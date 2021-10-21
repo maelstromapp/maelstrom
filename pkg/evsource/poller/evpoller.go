@@ -67,7 +67,11 @@ func (e *EvPoller) Run(daemonWG *sync.WaitGroup) {
 func (e *EvPoller) getActiveRoles() map[string]context.CancelFunc {
 	e.activeRoleLock.Lock()
 	defer e.activeRoleLock.Unlock()
-	return e.activeRoles
+	m := map[string]context.CancelFunc{}
+	for k, v := range e.activeRoles {
+		m[k] = v
+	}
+	return m
 }
 
 func (e *EvPoller) putActiveRole(roleId string, cancelFunc context.CancelFunc) {
