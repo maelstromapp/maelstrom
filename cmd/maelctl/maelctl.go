@@ -574,6 +574,9 @@ Usage:
   maelctl project put [--file=<file>] [--env=<envfile>] [--diffonly]
   maelctl project rm <name>
   maelctl version
+
+Environment variables:
+  MAELSTROM_PRIVATE_URL - URL of maelstromd host/port (default=http://127.0.0.1:8374)
 `
 	args, err := docopt.ParseDoc(usage)
 	if err != nil {
