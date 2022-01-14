@@ -238,10 +238,15 @@ func (v *MaelServiceImpl) RemoveProject(input v1.RemoveProjectInput) (v1.RemoveP
 		return v1.RemoveProjectOutput{}, v.onError(DbError, "ListComponents failed", err)
 	}
 	for _, c := range compOut.Components {
-		_, err = v.db.RemoveComponent(c.Name)
+		found, err := v.db.RemoveComponent(c.Name)
 		if err != nil {
 			return v1.RemoveProjectOutput{}, v.onError(DbError, "RemoveComponent failed for: "+c.Name, err)
 		}
+		output := v1.RemoveComponentOutput{
+			Name:  c.Name,
+			Found: found,
+		}
+		v.notifyRemoveComponent(&output, true)
 	}
 
 	return v1.RemoveProjectOutput{
