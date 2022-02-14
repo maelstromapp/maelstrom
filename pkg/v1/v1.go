@@ -8,8 +8,8 @@ import (
 )
 
 const BarristerVersion string = "0.1.6"
-const BarristerChecksum string = "87ef9444ef9262bbe7d97cb2e46997e8"
-const BarristerDateGenerated int64 = 1606767518809000000
+const BarristerChecksum string = "ff3c1e0cc7390860ea6df1005875c91d"
+const BarristerDateGenerated int64 = 1644872997062000000
 
 type EventSourceType string
 
@@ -101,6 +101,11 @@ type DockerComponent struct {
 	DnsSearch                   []string      `json:"dnsSearch,omitempty"`
 	Ulimits                     []string      `json:"ulimits,omitempty"`
 	Init                        bool          `json:"init,omitempty"`
+	Hostname                    string        `json:"hostname,omitempty"`
+	Domainname                  string        `json:"domainname,omitempty"`
+	User                        string        `json:"user,omitempty"`
+	Capadd                      []string      `json:"capadd,omitempty"`
+	Capdrop                     []string      `json:"capdrop,omitempty"`
 }
 
 type VolumeMount struct {
@@ -1692,6 +1697,41 @@ var IdlJsonRaw = `[
                 "optional": true,
                 "is_array": false,
                 "comment": "If true, init flag will be set on container. (default=false)\nEquivalent to the \"docker run --init\" flag."
+            },
+            {
+                "name": "hostname",
+                "type": "string",
+                "optional": true,
+                "is_array": false,
+                "comment": "Hostname set in the container\nNOTE: given that multiple instances of the same component may be run on the\nsame host, this should NOT be used for DNS purposes.\nThis field is supported for cases where your code uses hostname (e.g. for logging)\nEquivalent to the \"docker run --hostname\" flag"
+            },
+            {
+                "name": "domainname",
+                "type": "string",
+                "optional": true,
+                "is_array": false,
+                "comment": "Domainname set in the container\nEquivalent to the \"docker run --domainname\" flag"
+            },
+            {
+                "name": "user",
+                "type": "string",
+                "optional": true,
+                "is_array": false,
+                "comment": "User that will run the command(s) inside the container, also support user:group\nEquivalent to the \"docker run --user\" flag"
+            },
+            {
+                "name": "capadd",
+                "type": "string",
+                "optional": true,
+                "is_array": true,
+                "comment": "Add linux capabilities\nEquivalent to the \"docker run --cap-add\" flag"
+            },
+            {
+                "name": "capdrop",
+                "type": "string",
+                "optional": true,
+                "is_array": true,
+                "comment": "Drop linux capabilities\nEquivalent to the \"docker run --cap-drop\" flag    "
             }
         ],
         "values": null,
@@ -3753,7 +3793,7 @@ var IdlJsonRaw = `[
         "values": null,
         "functions": null,
         "barrister_version": "0.1.6",
-        "date_generated": 1606767518809,
-        "checksum": "87ef9444ef9262bbe7d97cb2e46997e8"
+        "date_generated": 1644872997062,
+        "checksum": "ff3c1e0cc7390860ea6df1005875c91d"
     }
 ]`
