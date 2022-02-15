@@ -164,6 +164,9 @@ type yamlComponent struct {
 	Ports                       []string
 	Volumes                     []v1.VolumeMount
 	NetworkName                 string
+	Hostname                    string
+	Domainname                  string
+	User                        string
 	DNS                         []string
 	DNSOptions                  []string
 	DNSSearch                   []string
@@ -181,6 +184,8 @@ type yamlComponent struct {
 	PullImageOnPut              bool
 	PullImageOnStart            bool
 	Ulimits                     []string
+	Capadd                      []string
+	Capdrop                     []string
 	StartParallelism            string
 	RestartOrder                string
 }
@@ -288,6 +293,11 @@ func (c yamlComponent) toComponentWithEventSources(name string, projectName stri
 				DnsSearch:                   c.DNSSearch,
 				Ulimits:                     c.Ulimits,
 				Init:                        c.ContainerInit,
+				Hostname:                    c.Hostname,
+				Domainname:                  c.Domainname,
+				User:                        c.User,
+				Capadd:                      c.Capadd,
+				Capdrop:                     c.Capdrop,
 			},
 		},
 		EventSources: eventSources,

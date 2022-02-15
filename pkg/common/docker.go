@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/strslice"
 	docker "github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/docker/go-units"
@@ -365,6 +366,9 @@ func toContainerConfig(c *v1.Component, maelstromUrl string) *container.Config {
 			"maelstrom_component": c.Name,
 			"maelstrom_version":   strconv.Itoa(int(c.Version)),
 		},
+		Hostname:   c.Docker.Hostname,
+		Domainname: c.Docker.Domainname,
+		User:       c.Docker.User,
 	}
 }
 
@@ -414,6 +418,14 @@ func toContainerHostConfig(c *v1.Component) (*container.HostConfig, error) {
 				ReadOnly: v.ReadOnly,
 			})
 		}
+	}
+
+	// Linux capabilities
+	if len(c.Docker.Capadd) > 0 {
+		hc.CapAdd = strslice.StrSlice(c.Docker.Capadd)
+	}
+	if len(c.Docker.Capdrop) > 0 {
+		hc.CapDrop = strslice.StrSlice(c.Docker.Capdrop)
 	}
 
 	// DNS

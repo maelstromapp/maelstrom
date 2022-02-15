@@ -116,6 +116,12 @@ components:
     maxdurationseconds: 30
     restartorder: startstop
     containerinit: true
+    capadd:
+      - cap1
+      - cap2
+    capdrop:
+      - cap3
+    user: bob
   detector:
     image: coopernurse/object-detector:latest
     command: ["python", "/app/detector.py"]
@@ -129,6 +135,8 @@ components:
     cpushares: 250
     reservememory: 1024
     limitmemory: 2048
+    domainname: foo.com
+    hostname: edgar
     ulimits:
       - foo:23:55
       - bar:123:456
@@ -186,6 +194,8 @@ components:
 							"bar:123:456",
 						},
 						HealthCheckFailedCommand: []string{"/bin/bash", "foo"},
+						Hostname:                 "edgar",
+						Domainname:               "foo.com",
 					},
 				},
 				EventSources: []v1.EventSourceWithStatus{
@@ -280,6 +290,9 @@ components:
 						Command:          []string{"python", "gizmo.py"},
 						LogDriverOptions: []v1.NameValue{},
 						Init:             true,
+						User:             "bob",
+						Capadd:           []string{"cap1", "cap2"},
+						Capdrop:          []string{"cap3"},
 					},
 					MinInstances:         1,
 					MaxInstances:         5,

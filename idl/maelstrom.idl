@@ -386,6 +386,29 @@ struct DockerComponent {
     // If true, init flag will be set on container. (default=false)
     // Equivalent to the "docker run --init" flag.
     init                        bool        [optional]
+
+    // Hostname set in the container
+    // NOTE: given that multiple instances of the same component may be run on the
+    // same host, this should NOT be used for DNS purposes.
+    // This field is supported for cases where your code uses hostname (e.g. for logging)
+    // Equivalent to the "docker run --hostname" flag
+    hostname                    string      [optional]
+
+    // Domainname set in the container
+    // Equivalent to the "docker run --domainname" flag
+    domainname                  string      [optional]
+
+    // User that will run the command(s) inside the container, also support user:group
+    // Equivalent to the "docker run --user" flag
+    user                        string      [optional]
+
+    // Add linux capabilities
+    // Equivalent to the "docker run --cap-add" flag
+    capadd                      []string    [optional]
+
+    // Drop linux capabilities
+    // Equivalent to the "docker run --cap-drop" flag
+    capdrop                     []string    [optional]
 }
 
 struct VolumeMount {
